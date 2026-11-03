@@ -1,13 +1,17 @@
 //! ArcadiaBench: an open, seeded benchmark for coordinating robot crews building on Mars.
 //!
-//! Week-1 scaffold: the coordinator harness ([`coordinator`]), the run event
-//! log ([`log`]) and a placeholder scenario ([`scenario`]) wired together by
-//! [`run::run_placeholder`]. The discrete-event simulator arrives in week 2.
+//! - [`sim`]: the discrete-event simulator (terrain, robots, power, weather, mission).
+//! - [`scenario`]: seeded scenario generation.
+//! - [`coordinator`]: transports to a coordinator (subprocess or in-process).
+//! - [`session`]: one run end to end; [`run`] wraps it for subprocess coordinators.
+//! - [`log`]: the JSONL run event log.
 
 pub mod coordinator;
 pub mod log;
 pub mod run;
 pub mod scenario;
+pub mod session;
+pub mod sim;
 
 use arcadia_protocol::SoftwareInfo;
 

@@ -11,4 +11,5 @@ default-run = "arcadiabench"
 # ArcadiaBench meets coordinators only through the shared spec; `validate` lets it
 # reject anything a coordinator sends that does not match the schemas.
 arcadia-protocol = { git = "https://github.com/Gabe-Soler/arcadia-protocol", tag = "v0.1.0", features = ["validate"] }
+libm = "0.2.16"
 serde_json = "1.0.154"
