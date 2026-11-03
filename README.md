@@ -6,14 +6,24 @@ ArcadiaBench is a fast, headless simulator of a construction site at Arcadia Pla
 
 ## Status
 
-**Week 1 scaffold.** Working so far:
+**Week 2: core simulator.** A coordinator can build a landing pad end to end.
 
-- **Coordinator harness:** launches any coordinator as a subprocess and does the version handshake. Every message the coordinator sends is validated against the protocol's JSON Schemas, and it rejects malformed or out-of-order replies with precise errors.
-- **Run event log:** JSONL, conforming to `event_log.schema.json`. It's the input for scoring and the replay viewer.
-- **Placeholder scenario:** one observation at t = 0 (comms up plus the landing-pad goal) and one decision, then the run ends.
-- **`null-coordinator`:** a baseline that never acts.
+- **Scenario `landing-pad-small`:** a seeded 60 × 60 m site (1 m cells) on a gently tilted plain, with variable regolith and a sparse boulder field. The goal is a 20 × 20 m pad with a 12 m blast berm. The crew is four robots defined purely by capabilities, with one charge station and one depot. The coordinator starts with noisy orbital elevation data; scans reveal the ground truth, with sensor noise.
+- **Discrete-event engine:** integer-millisecond clock and a deterministic event queue. Robot actions take durations and energy drawn from seeded distributions; there are no per-tick physics.
+- **Landing-pad task graph, enforced as physics:** each pad cell goes natural → cleared (dig) → graded → compacted → stabilized (sinter). Out-of-order work is rejected, and reworking a cell resets it. Material is conserved: dig spoil fills the robot's payload and then a stockpile, and haul moves real mass.
+- **Verification:** the run ends `goals_complete` only when the pad meets spec (surface state, ±5 cm, ≤2° slope, berm height) **and** every pad cell has been scanned since it last changed.
+- **Hybrid power:** a fission baseline plus solar (day/night curve × dust transmittance) feeding a site battery bank. Station charging draws from the grid and is throttled when the bank runs dry. Mobile chargers carry their own tank.
+- **Environment:** sol clock, temperature cycle, and a seeded dust-storm schedule. The coordinator hears about a storm when it starts, peaks and ends, and at every sunrise while it lasts.
+- **Fair comparisons:** terrain and weather come from their own seeded streams, so every coordinator on the same seed faces the same world. The whole run is reproducible byte for byte.
+- **Coordinator harness:** every message is schema-validated, there's a per-decision wall-clock timeout (`--decision-timeout`, default 10 s), and a guard ends the run if a coordinator freezes sim time.
+- **Run event log:** JSONL (`event_log.schema.json`) with ground-truth robot snapshots and changed cells at every decision point, the input for scoring and the replay viewer.
 
-The discrete-event simulator (grid world, capability-based robots, landing-pad task graph, hybrid power) arrives in week 2.
+**Not yet:**
+- Faults, wear, and repair/tow/cannibalize (week 5). Those commands are validated but rejected until robots can break.
+- Comms delay, blackouts and relay coverage (week 6). The link is always up and every robot is in coverage.
+- Scoring and the Small/Medium/Large presets (week 7).
+
+All tunables live in `src/sim/params.rs`. They are plausible placeholders, and sourcing realistic values is still open.
 
 ## Run
 
@@ -23,15 +33,17 @@ cargo build --release
 ./target/release/arcadiabench run --seed 42 --log run.jsonl -- path/to/arcadiaos
 ```
 
-Everything after `--` is the coordinator command line. The coordinator's stderr is passed through.
+Everything after `--` is the coordinator command line. The coordinator's stderr is passed through. A 60-sol run takes well under a second in release builds.
 
 ## Develop
 
 ```sh
-cargo test     # harness end-to-end: null coordinator, determinism, and misbehaving coordinators
+cargo test     # unit tests, a scripted coordinator that builds the pad, determinism, harness robustness
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check
 ```
+
+`tests/support/builder.rs` is a naive scripted coordinator that builds the pad in about 1.6 sols using only what it observes. It's the proof that the default parameters make the mission buildable.
 
 ## License
 
