@@ -4,7 +4,7 @@ version = "1.0.0"
 edition = "2024"
 description = "Python bindings for ArcadiaBench (the native module of the arcadiabench package)."
 license = "MIT"
-repository = "https://github.com/Gabe-Soler/ArcadiaBench"
+repository = "https://github.com/Gabe-Soler/arcadiabench"
 publish = false
 
 # Its own workspace: the root crate's `cargo fmt`, `clippy` and `test` never

@@ -21,7 +21,7 @@ classifiers = [
 dynamic = ["version"]
 
 [project.urls]
-Repository = "https://github.com/Gabe-Soler/ArcadiaBench"
+Repository = "https://github.com/Gabe-Soler/arcadiabench"
 
 [project.scripts]
 arcadiabench = "arcadiabench.__main__:main"

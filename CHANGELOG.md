@@ -2,6 +2,12 @@
 
 All notable changes to ArcadiaBench. Versions follow semver.
 
+## [Unreleased]
+
+### Changed
+
+- **Repository name.** The repository is now `Gabe-Soler/arcadiabench`, and the package metadata and docs link there. The replay viewer's GitHub Pages site follows the name, at `https://gabe-soler.github.io/arcadiabench/`. GitHub still resolves the old `Gabe-Soler/ArcadiaBench` addresses, so the 1.0.0 scorecard schema keeps its `$id`.
+
 ## [1.0.0] - 2026-11-04
 
 The first release: an open, seeded benchmark for coordinating robot crews building a landing pad at Arcadia Planitia, with its scenario catalog, scoring, baselines, results, replay viewer and Python package.

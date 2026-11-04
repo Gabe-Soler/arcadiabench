@@ -1,6 +1,6 @@
 # arcadiabench
 
-Python bindings for [ArcadiaBench](https://github.com/Gabe-Soler/ArcadiaBench), the open, seeded benchmark for coordinating robot crews building on Mars. Run, benchmark and score coordinators, written in Python or anything else, from Python.
+Python bindings for [ArcadiaBench](https://github.com/Gabe-Soler/arcadiabench), the open, seeded benchmark for coordinating robot crews building on Mars. Run, benchmark and score coordinators, written in Python or anything else, from Python.
 
 The package wraps ArcadiaBench's Rust simulator (PyO3 + maturin). It is one abi3 wheel for CPython 3.9 and later. Version 1.0.0 (`arcadiabench.__version__`) is ArcadiaBench 1.0 and speaks arcadia-protocol 1.0.0 (`arcadiabench.PROTOCOL_VERSION`).
 

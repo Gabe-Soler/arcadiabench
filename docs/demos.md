@@ -23,7 +23,7 @@ viewer/?log=../results/v1.0/replays/landing-pad-medium-cascading_faults-13.jsonl
 ```
 
 - **Locally:** run `python3 -m http.server 8000` at the repository root and open `http://localhost:8000/` followed by one of the paths above.
-- **On GitHub Pages:** the Viewer Pages workflow publishes `viewer/` and `results/` side by side, so the same paths work under the site's address, for example `https://gabe-soler.github.io/ArcadiaBench/viewer/?log=../results/v1.0/replays/landing-pad-large-nominal-1.jsonl.gz`.
+- **On GitHub Pages:** the Viewer Pages workflow publishes `viewer/` and `results/` side by side, so the same paths work under the site's address, for example `https://gabe-soler.github.io/arcadiabench/viewer/?log=../results/v1.0/replays/landing-pad-large-nominal-1.jsonl.gz`.
 
 Add `&t=` to start at a moment: plain seconds, or a unit such as `t=0.25sol`. The moments below are worth a look.
 
