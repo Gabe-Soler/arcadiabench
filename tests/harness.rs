@@ -84,6 +84,26 @@ fn null_coordinator_loses_its_idle_fleet_with_a_valid_log() {
     );
 }
 
+/// Under a second in release builds (`cargo test --release`); debug builds
+/// only get a sanity bound.
+fn fast_enough() -> Duration {
+    if cfg!(debug_assertions) {
+        Duration::from_secs(30)
+    } else {
+        Duration::from_secs(1)
+    }
+}
+
+#[test]
+fn a_whole_null_run_is_fast() {
+    let started = Instant::now();
+    let (result, _) = run(NULL, &[], 7);
+    let elapsed = started.elapsed();
+    assert_eq!(result.unwrap().end_reason, EndReason::FleetLost);
+    eprintln!("null coordinator, whole run: {elapsed:?}");
+    assert!(elapsed < fast_enough(), "{elapsed:?}");
+}
+
 #[test]
 fn same_seed_gives_identical_logs() {
     let (_, a) = run(NULL, &[], 42);

@@ -164,18 +164,18 @@ fn tow_to_the_depot_then_service_clears_everything_and_resets_wear() {
     };
     let mut stage = 0;
     let mut towed_seen = false;
-    let (_, records, agent) = run(
+    let (report, records, agent) = run(
         Script::new(|obs: &Observation, d: &mut Decision| {
             let ex = robot(obs, "ex-1");
             towed_seen |= ex.status == RobotStatus::BeingTowed;
             match stage {
                 0 => {
-                    // Drive a little first so there is wear to reset.
+                    // Drive a little first so there is wear to reset (staying in coverage).
                     d.commands.push(cmd(
                         "drive",
                         "ex-1",
                         Action::MoveTo {
-                            target: GridCoord { x: 13, y: 40 },
+                            target: GridCoord { x: 13, y: 30 },
                         },
                     ));
                     stage = 1;
@@ -196,6 +196,8 @@ fn tow_to_the_depot_then_service_clears_everything_and_resets_wear() {
                             to: DEPOT,
                         },
                     ));
+                    // Towing is level 2 in the default policy.
+                    d.to_earth.push(notify("n-tow", "tow", &["tow"]));
                     stage = 2;
                 }
                 2 if completed(std::slice::from_ref(obs), "tow").is_some() => {
@@ -241,6 +243,10 @@ fn tow_to_the_depot_then_service_clears_everything_and_resets_wear() {
     assert!(ex_after.faults.is_empty());
     assert!(health_is_new(&params, ex_after), "{:?}", ex_after.health);
     assert_eq!(ex_after.status, RobotStatus::Idle);
+    assert_eq!(
+        report.metrics.autonomy.policy_violations, 0,
+        "the tow was notified"
+    );
 }
 
 #[test]
@@ -263,26 +269,34 @@ fn cannibalize_loses_the_target_and_restores_the_beneficiary() {
                         target: GridCoord { x: 15, y: 30 },
                     },
                 ));
+                // Cannibalizing is level 3: ask, with no time to answer and fallback proceed.
+                d.to_earth.push(ask_and_proceed("q", "cannibalize", obs.t));
                 stage = 1;
             }
             1 if robot(obs, "ex-1").status == RobotStatus::Failed
                 && robot(obs, "cp-1").status == RobotStatus::Failed =>
             {
-                d.commands.push(cmd(
-                    "self",
-                    "sc-1",
-                    Action::Cannibalize {
-                        target_robot: "ex-1".into(),
-                        beneficiary_robot: Some("ex-1".into()),
-                    },
+                d.commands.push(approved(
+                    cmd(
+                        "self",
+                        "sc-1",
+                        Action::Cannibalize {
+                            target_robot: "ex-1".into(),
+                            beneficiary_robot: Some("ex-1".into()),
+                        },
+                    ),
+                    "q",
                 ));
-                d.commands.push(cmd(
-                    "strip",
-                    "sc-1",
-                    Action::Cannibalize {
-                        target_robot: "ex-1".into(),
-                        beneficiary_robot: Some("cp-1".into()),
-                    },
+                d.commands.push(approved(
+                    cmd(
+                        "strip",
+                        "sc-1",
+                        Action::Cannibalize {
+                            target_robot: "ex-1".into(),
+                            beneficiary_robot: Some("cp-1".into()),
+                        },
+                    ),
+                    "q",
                 ));
                 stage = 2;
             }
@@ -336,14 +350,7 @@ fn commands_are_checked_against_capability_and_target() {
                     to: GridCoord { x: 5, y: 5 },
                 };
                 d.commands.push(cmd("no-haul", "sc-1", tow_cp1.clone()));
-                d.commands.push(cmd(
-                    "no-repair",
-                    "hl-1",
-                    Action::Cannibalize {
-                        target_robot: "ex-1".into(),
-                        beneficiary_robot: None,
-                    },
-                ));
+                d.to_earth.push(ask_and_proceed("q", "cannibalize", obs.t));
                 d.commands.push(cmd(
                     "healthy",
                     "sc-1",
@@ -369,13 +376,28 @@ fn commands_are_checked_against_capability_and_target() {
                 stage = 1;
             }
             1 if robot(obs, "ex-1").status == RobotStatus::Failed => {
-                d.commands.push(cmd(
-                    "strip-live",
-                    "sc-1",
-                    Action::Cannibalize {
-                        target_robot: "cp-1".into(),
-                        beneficiary_robot: None,
-                    },
+                // The capability check comes before the target checks.
+                d.commands.push(approved(
+                    cmd(
+                        "no-repair",
+                        "hl-1",
+                        Action::Cannibalize {
+                            target_robot: "ex-1".into(),
+                            beneficiary_robot: None,
+                        },
+                    ),
+                    "q",
+                ));
+                d.commands.push(approved(
+                    cmd(
+                        "strip-live",
+                        "sc-1",
+                        Action::Cannibalize {
+                            target_robot: "cp-1".into(),
+                            beneficiary_robot: None,
+                        },
+                    ),
+                    "q",
                 ));
                 d.commands.push(cmd(
                     "serviced-elsewhere",
@@ -774,10 +796,12 @@ fn more_wear_means_more_failures() {
                 })
                 .sum()
         };
+    // Coverage of the whole site, so wear is the only thing being compared.
     let base = Params {
         random_fault_per_h: 0.0,
         storm_sensor_fault_per_h: 0.0,
         stuck_per_km: 0.0,
+        base_station_range_m: 1000.0,
         ..Params::default()
     };
     let worn = Params {

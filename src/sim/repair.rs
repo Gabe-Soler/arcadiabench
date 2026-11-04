@@ -403,6 +403,7 @@ impl Sim {
         target.frozen = Some(snapshot);
         self.unschedule(t);
         self.end_exposure(t);
+        self.robot_lost();
     }
 
     pub(crate) fn finish_install(&mut self, r: usize, b: usize) {

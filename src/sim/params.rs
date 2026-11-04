@@ -101,11 +101,53 @@ pub struct Params {
     /// Solar transmittance = exp(-extinction * (tau - clear_tau)).
     pub dust_extinction: f64,
 
-    // --- comms (fixed until week 6) ---
-    /// One-way light-time delay to Earth, s.
-    pub one_way_delay_s: f64,
-    /// Coverage radius of the base station, m (coverage is enforced from week 6).
+    // --- Earth link (one-way delay geometry, outages, conjunction) ---
+    /// Shortest one-way light time, at opposition, s.
+    pub delay_min_s: f64,
+    /// Longest one-way light time, at solar conjunction, s.
+    pub delay_max_s: f64,
+    /// Earth–Mars synodic period, sols.
+    pub synodic_period_sols: f64,
+    /// One-way delay at the start of the run, s, with Mars receding (the
+    /// delay growing). Ignored when the run contains a conjunction.
+    pub start_delay_s: f64,
+    /// The run contains a solar conjunction: a blackout, and a delay near its maximum.
+    pub conjunction: bool,
+    /// Range of the blackout's start, sols into the run (uniform, from the `comms` stream).
+    pub conjunction_start_sols: (f64, f64),
+    /// Length of the conjunction blackout, sols.
+    pub conjunction_sols: f64,
+    /// Rate of unplanned link outages while the link is up, per sol (Poisson).
+    pub outage_per_sol: f64,
+    /// Range of an unplanned outage's length, hours (uniform).
+    pub outage_hours: (f64, f64),
+
+    // --- site comms (coverage and relays) ---
+    /// Coverage radius of the base station, m.
     pub base_station_range_m: f64,
+    /// Radio power a robot draws while holding as an active relay, W (added to idle drain).
+    pub relay_radio_w: f64,
+    /// An idle robot out of coverage this long drives back toward the base station, s.
+    pub lost_link_timeout_s: f64,
+
+    // --- scripted mission control ---
+    /// Mean human response time to an approval request, s (lognormal).
+    pub earth_response_mean_s: f64,
+    /// Log-sd of the human response time.
+    pub earth_response_sigma: f64,
+    /// Chance Earth approves a request for an action without its own rule.
+    pub earth_approve_p: f64,
+    /// Chance Earth approves `cannibalize`.
+    pub earth_approve_cannibalize_p: f64,
+    /// Chance Earth approves `abandon_section`.
+    pub earth_approve_abandon_p: f64,
+    /// Earth approves `commit_energy_reserve` (with `earth_approve_p`) only if site
+    /// storage was at or below this fraction of capacity when the request was sent.
+    pub earth_reserve_low_frac: f64,
+    /// Incident-free sols after which Earth loosens level-2 actions to level 1.
+    pub trust_incident_free_sols: f64,
+    /// Time Earth takes to issue a policy update once it learns what prompts it, s.
+    pub policy_reaction_s: f64,
 
     // --- wear: growth (wear is in [0, 1] per component) ---
     /// Master switch for wear growth and every random failure process (wear,
@@ -325,8 +367,28 @@ impl Params {
             storm_peak_tau: (2.0, 4.0),
             dust_extinction: 0.6,
 
-            one_way_delay_s: 760.0,
-            base_station_range_m: 45.0,
+            delay_min_s: 240.0,
+            delay_max_s: 1440.0,
+            synodic_period_sols: 759.07,
+            start_delay_s: 720.0,
+            conjunction: false,
+            conjunction_start_sols: (0.2, 1.0),
+            conjunction_sols: 14.0,
+            outage_per_sol: 0.15,
+            outage_hours: (2.0, 8.0),
+
+            base_station_range_m: 33.0,
+            relay_radio_w: 25.0,
+            lost_link_timeout_s: 1800.0,
+
+            earth_response_mean_s: 1200.0,
+            earth_response_sigma: 0.5,
+            earth_approve_p: 0.9,
+            earth_approve_cannibalize_p: 0.75,
+            earth_approve_abandon_p: 0.6,
+            earth_reserve_low_frac: 0.25,
+            trust_incident_free_sols: 2.0,
+            policy_reaction_s: 3600.0,
 
             faults_enabled: true,
             wear_wheels_per_km: 0.08,
@@ -442,6 +504,15 @@ impl Params {
         }
     }
 
+    /// Nominal, around solar conjunction: the Earth link is down for about
+    /// two weeks starting early in the run, and the delay is near its longest.
+    pub fn conjunction() -> Self {
+        Self {
+            conjunction: true,
+            ..Self::nominal()
+        }
+    }
+
     /// The parameters of a variant.
     pub fn variant(v: Variant) -> Self {
         match v {
@@ -449,6 +520,7 @@ impl Params {
             Variant::CascadingFaults => Self::cascading_faults(),
             Variant::SolarOnly => Self::solar_only(),
             Variant::NuclearHeavy => Self::nuclear_heavy(),
+            Variant::Conjunction => Self::conjunction(),
         }
     }
 }
@@ -462,14 +534,16 @@ pub enum Variant {
     CascadingFaults,
     SolarOnly,
     NuclearHeavy,
+    Conjunction,
 }
 
 impl Variant {
-    pub const ALL: [Variant; 4] = [
+    pub const ALL: [Variant; 5] = [
         Variant::Nominal,
         Variant::CascadingFaults,
         Variant::SolarOnly,
         Variant::NuclearHeavy,
+        Variant::Conjunction,
     ];
 
     pub fn name(self) -> &'static str {
@@ -478,6 +552,7 @@ impl Variant {
             Variant::CascadingFaults => "cascading_faults",
             Variant::SolarOnly => "solar_only",
             Variant::NuclearHeavy => "nuclear_heavy",
+            Variant::Conjunction => "conjunction",
         }
     }
 }
@@ -510,7 +585,19 @@ mod tests {
         for v in Variant::ALL {
             assert_eq!(v.name().parse::<Variant>().unwrap(), v);
         }
-        assert!("conjunction".parse::<Variant>().is_err());
+        assert!("dust_storm".parse::<Variant>().is_err());
+        assert!(Params::conjunction().conjunction && !Params::nominal().conjunction);
+        assert_eq!(
+            Params {
+                conjunction: false,
+                ..Params::conjunction()
+            },
+            Params::nominal(),
+            "conjunction changes only the link"
+        );
+        for v in Variant::ALL {
+            assert!(Params::variant(v).outage_per_sol > 0.0, "{v} has outages");
+        }
         let (n, c) = (Params::nominal(), Params::cascading_faults());
         assert!(c.random_fault_per_h > n.random_fault_per_h * 4.0);
         assert!(c.wear_wheels_per_km > n.wear_wheels_per_km * 3.0);

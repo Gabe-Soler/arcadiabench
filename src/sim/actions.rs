@@ -73,8 +73,19 @@ impl Sim {
                 format!("no robot {}", cmd.robot_id),
             );
         };
+        if !self.contact[r].covered {
+            return self.emit_rejected(
+                cmd,
+                RejectReason::OutOfCoverage,
+                format!("{} is out of coverage", cmd.robot_id),
+            );
+        }
+        let level = self.policy.level_for(cmd.action.name());
+        if let Err((reason, detail)) = self.authority.check(cmd, level, self.now) {
+            return self.emit_rejected(cmd, reason, detail);
+        }
         if let Action::Cancel { target_command } = &cmd.action {
-            return self.cancel(r, cmd, target_command);
+            return self.cancel(r, cmd, target_command, level);
         }
         let status = self.robots[r].reported_status();
         if matches!(
@@ -105,6 +116,7 @@ impl Sim {
 
         let steps = self.plan(r, &cmd.action);
         let estimate = self.estimate_s(r, &steps);
+        self.authority.accepted(cmd, level, self.now);
         self.emit(
             EventKind::CommandAccepted {
                 command_id: cmd.command_id.clone(),
@@ -121,6 +133,7 @@ impl Sim {
             steps,
             running: None,
             energy_used_wh: 0.0,
+            internal: false,
         });
         self.start_next_step(r);
     }
@@ -522,9 +535,13 @@ impl Sim {
         let timed = match &step {
             Step::Hold => {
                 let now = self.now;
+                // Settle any drain owed at the old rate before the radio adds to it.
+                self.settle_drain(r);
+                let radio_w = self.params.relay_radio_w;
                 let robot = &mut self.robots[r];
                 robot.status = RobotStatus::Working;
                 robot.drain_since = Some(now);
+                robot.radio_w = radio_w;
                 self.set_running(r, step, None, 0.0, 0.0, Exposure::default());
                 self.schedule_depletion(r);
                 self.start_exposure(r, Exposed::Hold, None, None);
@@ -874,23 +891,31 @@ impl Sim {
         robot.status = RobotStatus::Idle;
         robot.travel = None;
         robot.drain_since = if robot.offline { None } else { Some(now) };
-        self.emit(
-            EventKind::CommandCompleted {
-                command_id: activity.command.command_id,
-                robot_id: activity.command.robot_id,
-                energy_used_wh: activity.energy_used_wh,
-            },
-            true,
-        );
+        if !activity.internal {
+            self.emit(
+                EventKind::CommandCompleted {
+                    command_id: activity.command.command_id,
+                    robot_id: activity.command.robot_id,
+                    energy_used_wh: activity.energy_used_wh,
+                },
+                true,
+            );
+        }
         self.schedule_depletion(r);
     }
 
     /// Stop the robot's running step now: return the unused part of its
     /// energy, grow wear for the part done, stop moving (with any robot it
-    /// tows), release robots it engages, and leave any depot queue or bay.
-    fn interrupt_step(&mut self, r: usize) {
+    /// tows), release robots it engages, leave any depot queue or bay, and
+    /// switch off a relay's radio.
+    pub(crate) fn interrupt_step(&mut self, r: usize) {
         self.end_exposure(r);
         let now = self.now;
+        if matches!(self.robots[r].running_step(), Some(Step::Hold)) {
+            // The radio has drawn power up to now; it stops here.
+            self.settle_drain(r);
+            self.robots[r].radio_w = 0.0;
+        }
         let Some(running) = self.robots[r]
             .activity
             .as_mut()
@@ -949,20 +974,22 @@ impl Sim {
         } else {
             robot.drain_since = Some(now);
         }
-        self.emit(
-            EventKind::CommandFailed {
-                command_id: activity.command.command_id,
-                robot_id: activity.command.robot_id,
-                reason,
-                detail,
-                energy_used_wh: activity.energy_used_wh,
-            },
-            true,
-        );
+        if !activity.internal {
+            self.emit(
+                EventKind::CommandFailed {
+                    command_id: activity.command.command_id,
+                    robot_id: activity.command.robot_id,
+                    reason,
+                    detail,
+                    energy_used_wh: activity.energy_used_wh,
+                },
+                true,
+            );
+        }
         self.schedule_depletion(r);
     }
 
-    fn cancel(&mut self, r: usize, cmd: &Command, target: &str) {
+    fn cancel(&mut self, r: usize, cmd: &Command, target: &str, level: AuthorityLevel) {
         if self.robots[r].running_command() != Some(target) {
             return self.emit_rejected(
                 cmd,
@@ -970,6 +997,7 @@ impl Sim {
                 format!("{target} is not running on {}", cmd.robot_id),
             );
         }
+        self.authority.accepted(cmd, level, self.now);
         self.emit(
             EventKind::CommandAccepted {
                 command_id: cmd.command_id.clone(),

@@ -9,7 +9,7 @@ use std::io::{self, BufWriter, Write};
 use std::process::ExitCode;
 use std::time::Duration;
 
-const USAGE: &str = "usage: arcadiabench run [--seed N] [--variant nominal|cascading_faults|solar_only|nuclear_heavy] [--log FILE] [--decision-timeout SECS] -- <coordinator> [args...]";
+const USAGE: &str = "usage: arcadiabench run [--seed N] [--variant nominal|cascading_faults|solar_only|nuclear_heavy|conjunction] [--log FILE] [--decision-timeout SECS] -- <coordinator> [args...]";
 
 struct Args {
     seed: u64,
@@ -87,8 +87,9 @@ fn main() -> ExitCode {
     let params = Params::variant(args.variant);
     match run_process(program, rest, args.seed, &params, args.timeout, &mut log) {
         Ok(r) => {
+            let m = &r.metrics;
             println!(
-                "{} {} [{}]: {:?} at sol {:.2} | pad {:.0}% | {} decisions, {} commands | {} faults, {} lost",
+                "{} {} [{}]: {:?} at sol {:.2} | pad {:.0}% | {} decisions, {} commands | {} faults, {} lost | {} to Earth, {} violations | link down {:.1} h",
                 r.coordinator.name,
                 r.coordinator.version,
                 args.variant,
@@ -97,8 +98,11 @@ fn main() -> ExitCode {
                 r.progress * 100.0,
                 r.decisions,
                 r.commands,
-                r.metrics.fleet.faults,
-                r.metrics.fleet.robots_lost
+                m.fleet.faults,
+                m.fleet.robots_lost,
+                m.autonomy.downlink_messages,
+                m.autonomy.policy_violations,
+                (m.conditions.blackout_s + m.conditions.outage_s) / 3600.0
             );
             ExitCode::SUCCESS
         }
