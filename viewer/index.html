@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ArcadiaBench replay viewer</title>
+<meta name="description" content="Top-down replays of ArcadiaBench runs from their event logs.">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="brand-mark" aria-hidden="true"></span>ArcadiaBench <span class="brand-sub">replay</span></div>
+  <div class="runinfo" id="runinfo"></div>
+  <div class="actions">
+    <button type="button" class="btn" id="open-btn" title="Open a .jsonl or .jsonl.gz event log">Open log…</button>
+    <input type="file" id="file-input" accept=".jsonl,.gz,.json,.txt,application/gzip,application/x-ndjson" hidden>
+    <button type="button" class="btn" id="copy-link" title="Copy a link to this moment" disabled>Copy link</button>
+    <button type="button" class="btn icon" id="help-btn" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">?</button>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="map-pane" id="map-pane">
+    <canvas id="map" aria-label="Site map"></canvas>
+    <div class="banners">
+      <div class="banner link-banner" id="link-banner" hidden></div>
+      <div class="banner storm-banner" id="storm-banner" hidden></div>
+    </div>
+    <div class="banner warn-banner" id="warn-banner" hidden></div>
+    <div class="map-tools">
+      <button type="button" class="btn icon" id="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
+      <button type="button" class="btn icon" id="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
+      <button type="button" class="btn icon" id="zoom-fit" title="Fit the site" aria-label="Fit the site">⤢</button>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div class="tooltip" id="tooltip" hidden></div>
+  </section>
+
+  <aside class="sidebar" id="sidebar">
+    <section class="panel" id="mission-panel">
+      <div class="panel-head"><h2>Landing pad</h2><span class="tag" id="pad-tag"></span></div>
+      <div class="pad-numbers" id="pad-numbers"></div>
+      <div class="pipeline" id="pipeline" title="Pad cells by surface state"></div>
+      <div class="pad-detail" id="pad-detail"></div>
+    </section>
+
+    <section class="panel" id="power-panel">
+      <div class="panel-head"><h2>Site power</h2><span class="tag" id="power-tag"></span></div>
+      <div class="gauge-row">
+        <div class="big" id="storage-pct">–</div>
+        <div class="gauge-wrap"><div class="gauge"><div class="gauge-fill" id="storage-fill"></div></div><div class="sub" id="storage-wh"></div></div>
+      </div>
+      <div class="stats3">
+        <div><span class="k"><i class="sw solar"></i>Solar</span><span class="v" id="solar-w">–</span></div>
+        <div><span class="k"><i class="sw fission"></i>Fission</span><span class="v" id="fission-w">–</span></div>
+        <div><span class="k"><i class="sw demand"></i>Demand</span><span class="v" id="demand-w">–</span></div>
+      </div>
+      <canvas class="chart" id="power-chart" aria-label="Power history"></canvas>
+    </section>
+
+    <div class="row2">
+      <section class="panel" id="weather-panel">
+        <div class="panel-head"><h2>Weather</h2></div>
+        <div class="state" id="weather-state">–</div>
+        <div class="kv"><span>Optical depth</span><b id="tau">–</b></div>
+        <div class="tau-bar"><div id="tau-fill"></div></div>
+        <div class="kv"><span>Temperature</span><b id="temp">–</b></div>
+        <div class="kv"><span>Sky</span><b id="sky">–</b></div>
+      </section>
+      <section class="panel" id="comms-panel">
+        <div class="panel-head"><h2>Earth link</h2></div>
+        <div class="state" id="link-state">–</div>
+        <div class="kv"><span title="One-way light-time delay">Delay</span><b id="delay">–</b></div>
+        <div class="kv"><span>Cause</span><b id="link-cause">–</b></div>
+        <div class="kv" id="restore-row"><span>Back</span><b id="restore">–</b></div>
+        <div class="lightpath" id="lightpath" title="Messages in flight between Mars and Earth">
+          <span class="end">Mars</span><div class="path" id="lightpath-track"></div><span class="end">Earth</span>
+        </div>
+      </section>
+    </div>
+
+    <section class="panel tabs-panel">
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" class="tab" data-tab="events" aria-selected="true">Events</button>
+        <button type="button" role="tab" class="tab" data-tab="fleet" aria-selected="false">Fleet</button>
+        <button type="button" role="tab" class="tab" data-tab="run" aria-selected="false">Run</button>
+      </div>
+      <div class="tab-body" data-body="events">
+        <div class="chips" id="feed-chips"></div>
+        <ol class="feed" id="feed"></ol>
+      </div>
+      <div class="tab-body" data-body="fleet" hidden>
+        <div id="robot-detail" class="robot-detail"></div>
+        <table class="fleet" id="fleet"></table>
+      </div>
+      <div class="tab-body" data-body="run" hidden>
+        <div id="run-summary" class="run-summary"></div>
+      </div>
+    </section>
+  </aside>
+</main>
+
+<footer class="timebar">
+  <div class="transport">
+    <button type="button" class="btn icon" id="to-start" title="Start (Home)" aria-label="Start">⏮</button>
+    <button type="button" class="btn icon" id="step-back" title="Previous decision point (←)" aria-label="Previous decision point">⏴</button>
+    <button type="button" class="btn icon play" id="play" title="Play or pause (Space)" aria-label="Play">▶</button>
+    <button type="button" class="btn icon" id="step-fwd" title="Next decision point (→)" aria-label="Next decision point">⏵</button>
+    <button type="button" class="btn icon" id="to-end" title="End (End)" aria-label="End">⏭</button>
+  </div>
+  <div class="speeds" id="speeds" role="group" aria-label="Playback speed"></div>
+  <div class="clock">
+    <div class="clock-main"><span class="sun" id="sun" aria-hidden="true"></span><span id="clock">Sol 0 · 00:00</span></div>
+    <div class="clock-sub" id="clock-sub">t = 0 s</div>
+  </div>
+  <div class="timeline-wrap">
+    <canvas id="timeline" role="slider" tabindex="0" aria-label="Replay time"></canvas>
+    <div class="tooltip timeline-tip" id="timeline-tip" hidden></div>
+  </div>
+</footer>
+
+<div class="overlay" id="welcome">
+  <div class="welcome-card">
+    <h1><span class="brand-mark" aria-hidden="true"></span>ArcadiaBench replay</h1>
+    <p>Top-down replays of ArcadiaBench runs: robots at work, the landing pad taking shape, site power through dust storms, and the Earth link through blackouts.</p>
+    <div class="drop" id="drop-zone">
+      <strong>Drop an event log here</strong>
+      <span>.jsonl or .jsonl.gz, as written by <code>arcadiabench run --log FILE</code></span>
+      <button type="button" class="btn primary" id="welcome-open">Choose a file…</button>
+    </div>
+    <div class="samples">
+      <span>Samples:</span>
+      <a href="?log=samples/builder-seed34.jsonl.gz">Scripted builder, seed 34 (pad built through a dust storm)</a>
+      <a href="?log=samples/null-seed7.jsonl.gz">Null coordinator, seed 7 (60 idle sols)</a>
+    </div>
+    <div class="load-progress" id="load-progress" hidden>
+      <div class="bar"><div id="load-bar"></div></div>
+      <div id="load-text">Loading…</div>
+    </div>
+    <div class="error" id="load-error" hidden></div>
+    <p class="fine">Add <code>?log=URL</code> to the address to open a log directly, and <code>&amp;t=SECONDS</code> to start at a moment.</p>
+  </div>
+</div>
+
+<div class="overlay help" id="help" hidden>
+  <div class="welcome-card">
+    <h1>Keyboard and mouse</h1>
+    <table class="keys">
+      <tr><td><kbd>Space</kbd></td><td>Play or pause</td></tr>
+      <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Previous or next decision point</td></tr>
+      <tr><td><kbd>Shift</kbd> + <kbd>←</kbd> <kbd>→</kbd></td><td>Back or forward 1% of the run</td></tr>
+      <tr><td><kbd>Home</kbd> <kbd>End</kbd></td><td>Start or end of the run</td></tr>
+      <tr><td><kbd>[</kbd> <kbd>]</kbd></td><td>Slower or faster</td></tr>
+      <tr><td><kbd>F</kbd></td><td>Fit the site to the view</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>Clear the selection</td></tr>
+      <tr><td>Click a robot</td><td>Details in the Fleet tab</td></tr>
+      <tr><td>Wheel, drag</td><td>Zoom and pan the map</td></tr>
+    </table>
+    <button type="button" class="btn primary" id="help-close">Close</button>
+  </div>
+</div>
+
+<div class="drag-veil" id="drag-veil" hidden><div>Drop the log to open it</div></div>
+<div class="fatal" id="fatal" hidden></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+  // Shown when the module script cannot run at all (most often: opened from file://).
+  window.addEventListener('error', function (e) {
+    if (window.__viewerBooted) return;
+    var el = document.getElementById('fatal');
+    el.hidden = false;
+    el.textContent = 'Viewer error: ' + (e.message || 'script failed to load');
+  });
+  setTimeout(function () {
+    if (window.__viewerBooted) return;
+    var el = document.getElementById('fatal');
+    el.hidden = false;
+    el.textContent = location.protocol === 'file:'
+      ? 'The viewer cannot start from a file:// page. Serve this folder with a static server, for example: python3 -m http.server, then open http://localhost:8000/.'
+      : 'The viewer did not start. Check the browser console for errors.';
+  }, 4000);
+</script>
+<script type="module" src="src/app.js"></script>
+</body>
+</html>
