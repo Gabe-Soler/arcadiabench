@@ -7,6 +7,7 @@ All notable changes to ArcadiaBench. Versions follow semver.
 ### Changed
 
 - **Repository name.** The repository is now `Gabe-Soler/arcadiabench`, and the package metadata and docs link there. The replay viewer's GitHub Pages site follows the name, at `https://gabe-soler.github.io/arcadiabench/`. GitHub still resolves the old `Gabe-Soler/ArcadiaBench` addresses, so the 1.0.0 scorecard schema keeps its `$id`.
+- **Replay viewer.** A new look, light and dark: the system's setting picks one, and the page switches live when it changes, canvases included. Display type is Manrope and text is Inter, controls are pills, panels are soft borderless cards, and blue is kept for the primary action. The start screen is a landing page with the samples as cards. What the viewer shows is unchanged.
 
 ## [1.0.0] - 2026-11-04
 

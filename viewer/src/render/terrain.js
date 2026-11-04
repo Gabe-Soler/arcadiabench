@@ -5,6 +5,7 @@
 import { SURFACES } from '../site.js';
 import { lastAtOrBefore } from '../series.js';
 import { SURFACE_RGB, OTHER_SURFACE_RGB, rgb } from './palette.js';
+import { theme } from './theme.js';
 
 /** Vertical exaggeration for shading: the site's relief is tens of centimetres. */
 const EXAGGERATION = 5;
@@ -34,6 +35,11 @@ export class TerrainLayer {
     const [lo, hi] = site.elevRange;
     this.mid = (lo + hi) / 2;
     this.span = Math.max(0.05, hi - lo);
+  }
+
+  /** Redraw every cell on the next update, for a new colour scheme. */
+  invalidate() {
+    this.full = true;
   }
 
   /** Pick a resolution (canvas pixels per cell) for the current zoom. */
@@ -137,7 +143,7 @@ export class TerrainLayer {
     const sy = (height - 1 - y) * px;
     const c = this.site.cellAt(idx, t);
     if (!this.site.known0[idx]) {
-      ctx.fillStyle = '#15191f';
+      ctx.fillStyle = theme.unknown;
       ctx.fillRect(sx, sy, px, px);
       return;
     }
