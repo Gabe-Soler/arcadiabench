@@ -4,7 +4,7 @@ version = "1.0.0"
 edition = "2024"
 description = "An open, seeded benchmark for coordinating robot crews building on Mars."
 license = "MIT"
-repository = "https://github.com/Gabe-Soler/ArcadiaBench"
+repository = "https://github.com/Gabe-Soler/arcadiabench"
 default-run = "arcadiabench"
 # The Python bindings are a separate crate with its own workspace.
 exclude = ["python/"]
