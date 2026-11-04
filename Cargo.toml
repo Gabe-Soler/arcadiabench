@@ -1,6 +1,6 @@
 [package]
 name = "arcadiabench"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 description = "An open, seeded benchmark for coordinating robot crews building on Mars."
 license = "MIT"
@@ -12,7 +12,7 @@ exclude = ["python/"]
 [dependencies]
 # ArcadiaBench meets coordinators only through the shared spec; `validate` lets it
 # reject anything a coordinator sends that does not match the schemas.
-arcadia-protocol = { git = "https://github.com/Gabe-Soler/arcadia-protocol", tag = "v0.2.0", features = ["validate"] }
+arcadia-protocol = { git = "https://github.com/Gabe-Soler/arcadia-protocol", tag = "v1.0.0", features = ["validate"] }
 # Saved run logs are gzipped; the pure-Rust backend only.
 flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
 libm = "0.2.16"

@@ -4,7 +4,7 @@
 //! 20 m pad buildable in a few sols, and to make faults matter without
 //! crippling a crew. `docs/simulator.md` documents each one with its rationale
 //! and the functional forms that use it. Sourcing realistic numbers is an open
-//! question in the project outline. TODO(params): cite sources per field.
+//! question in the project outline. TODO(post-v1.0): cite a source for each field.
 
 use super::faults::Comp;
 use arcadia_protocol::{FaultCause, PowerMode, Severity};

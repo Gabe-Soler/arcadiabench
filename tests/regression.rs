@@ -19,6 +19,12 @@
 //! changed (its blackout now starts 0.01-0.03 sols in), so its runs are
 //! pinned as week 9 left them; `dust_storm`, new in week 7, has no week-6
 //! runs to keep.
+//!
+//! No fingerprint covers a software or protocol version. They hash the true
+//! site and the scenario, both cut out of `run_start`, and the records after
+//! `run_start`, which carry no versions ([`week6_fingerprints`] checks this).
+//! So the 1.0.0 release, which changed only those versions, left every
+//! constant here as it was.
 
 mod support;
 
@@ -406,6 +412,14 @@ const WEEK9: [(&str, u64, u64, u64, u64, u64, u64); 3] = [
 /// (true_site, scenario under its week-6 name, everything after `run_start`) of a raw log.
 fn week6_fingerprints(text: &str) -> (u64, u64, u64) {
     let (first, rest) = text.split_at(text.find('\n').unwrap() + 1);
+    // Versions belong to `run_start` alone, so none reaches a fingerprint.
+    for key in [
+        "\"protocol_version\"",
+        "\"simulator\":{",
+        "\"coordinator\":{",
+    ] {
+        assert!(!rest.contains(key), "{key} after run_start");
+    }
     let first = first.trim_end();
     let site =
         &first[first.find("\"true_site\":").unwrap() + "\"true_site\":".len()..first.len() - 1];

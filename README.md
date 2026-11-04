@@ -4,9 +4,28 @@ ArcadiaBench: an open, seeded benchmark for coordinating robot crews building on
 
 ArcadiaBench is a fast, headless simulator of a construction site at Arcadia Planitia. Any team can plug in a coordinator and compare results. Coordinators connect through [arcadia-protocol](https://github.com/Gabe-Soler/arcadia-protocol), newline-delimited JSON over stdio, so they can be written in any language. [ArcadiaOS](https://github.com/Gabe-Soler/arcadiaos) is the reference coordinator.
 
-## Status
+**Version 1.0.0**, speaking arcadia-protocol 1.0.0. A coordinator builds a landing pad end to end while robots wear out, break down and get stuck, on a choice of power systems, with Earth minutes away behind a link that drops out, and authority rules that Earth enforces and updates. Crews come in three sizes, every scenario runs across seeds in parallel, and scorecards rank coordinators by success rate × speed. Three baseline coordinators ship with the benchmark, the [v1.0 results](results/v1.0/RESULTS.md) compare them with ArcadiaOS across the whole catalog, a [replay viewer](viewer/README.md) turns any run into a shareable visual demo, and Python researchers can drive it all through the [`arcadiabench` package](python/README.md).
 
-**Week 9: baselines and results.** A coordinator can build a landing pad end to end while robots wear out, break down and get stuck, on a choice of power systems, with Earth minutes away behind a link that drops out, and authority rules that Earth enforces and updates. Crews come in three sizes, every scenario runs across seeds in parallel, and scorecards rank coordinators by success rate × speed. Three baseline coordinators ship with the benchmark, and the first results compare them with ArcadiaOS across the whole catalog. Python researchers can drive it all through the `arcadiabench` package.
+## Quickstart
+
+With Rust (stable) installed, from the repository root:
+
+```sh
+cargo build --release
+
+# The null coordinator does nothing: its robots drain and the run ends fleet_lost after about 17 sols.
+./target/release/arcadiabench run --seed 42 --log run.jsonl -- ./target/release/null-coordinator
+
+# The greedy baseline builds the pad on the Medium crew through a dust storm.
+./target/release/arcadiabench run --seed 42 --preset medium --variant dust_storm -- ./target/release/baseline-greedy
+
+# Ten seeds in parallel, scored: a scorecard and a readable table.
+./target/release/arcadiabench bench --preset small --variant nominal --seeds 1-10 --out runs/greedy-small -- ./target/release/baseline-greedy
+```
+
+Each run prints a one-line summary, and `bench` prints its scorecard. To benchmark ArcadiaOS, check it out beside this repository, build it with `cargo build --release`, and pass `../arcadiaos/target/release/arcadiaos` as the coordinator. To watch a run, open its log in the [replay viewer](#replay-viewer).
+
+## What it simulates
 
 - **Scenario catalog:** `landing-pad-<preset>-<variant>`. Three Standard track presets: Small (4 robots), Medium (10) and Large (20). Six variants: `nominal`, `dust_storm`, `conjunction`, `cascading_faults`, `solar_only` and `nuclear_heavy`. Every preset combines with every variant (see [Presets and variants](#presets-and-variants)).
 - **The site:** a seeded 60 × 60 m site (1 m cells) on a gently tilted plain, with variable regolith and a sparse boulder field. The goal is a 20 × 20 m pad with a 12 m blast berm. Crews are defined purely by capabilities and work from charge stations, depots and a comms base station. The coordinator starts with noisy orbital elevation data; scans reveal the ground truth, with sensor noise.
@@ -45,6 +64,7 @@ ArcadiaBench is a fast, headless simulator of a construction site at Arcadia Pla
 - **Batch runs:** `arcadiabench bench` and `suite` run seeds in parallel coordinator processes and write per-run metrics, scorecards and gzipped logs. `arcadiabench score` rebuilds scorecards from saved logs or a bench's run records. Results are byte-identical at any `--jobs`.
 - **Baseline coordinators:** `baseline-random`, `baseline-greedy` and `baseline-fcfs` are honest protocol clients that share a task decomposition and safety behaviours and differ only in how they allocate tasks to robots (see [Baselines](#baselines)).
 - **Results:** ArcadiaOS and the baselines on every scenario over seeds 1–50, with four demo replays (see [Results](#results)).
+- **Replay viewer:** a static web page that replays any run's event log (see [Replay viewer](#replay-viewer)).
 - **Python bindings:** the `arcadiabench` package (PyO3 + maturin) runs Python coordinators in process or as subprocesses, benches, scores and generates scenarios (see [Python](#python)).
 - **Discrete-event engine:** integer-millisecond clock and a deterministic event queue. Robot actions take durations and energy drawn from seeded distributions; there are no per-tick physics.
 - **Landing-pad task graph, enforced as physics:** each pad cell goes natural → cleared (dig) → graded → compacted → stabilized (sinter). Out-of-order work is rejected, and reworking a cell resets it. Material is conserved: dig spoil fills the robot's payload and then a stockpile, and haul moves real mass.
@@ -55,9 +75,7 @@ ArcadiaBench is a fast, headless simulator of a construction site at Arcadia Pla
 - **Coordinator harness:** every message is schema-validated, there's a per-decision wall-clock timeout (`--decision-timeout`, default 10 s), and a guard ends the run if a coordinator freezes sim time.
 - **Run event log:** JSONL (`event_log.schema.json`) with ground-truth robot snapshots, changed cells and site state at every decision point and at the very end. It is the input for scoring and for the replay viewer.
 
-**Next:** the v1.0 release (week 10).
-
-All tunables live in `src/sim/params.rs`, and [`docs/simulator.md`](docs/simulator.md) explains each one. They are plausible placeholders, and sourcing realistic values is still open. The interface semantics the simulator implements are in [arcadia-protocol's `docs/semantics.md`](https://github.com/Gabe-Soler/arcadia-protocol/blob/v0.2.0/docs/semantics.md).
+All tunables live in `src/sim/params.rs`, and [`docs/simulator.md`](docs/simulator.md) explains each one. They are plausible placeholders; sourcing realistic values is an open question in the project outline. The interface semantics the simulator implements are in [arcadia-protocol's `docs/semantics.md`](https://github.com/Gabe-Soler/arcadia-protocol/blob/v1.0.0/docs/semantics.md), whose appendix lists the values a coordinator has to assume because no message carries them.
 
 ## Presets and variants
 
@@ -154,7 +172,27 @@ Priority order is rescans and surveys, then verification scans, then the pad pip
 
 ## Results
 
-[`results/v1.0/RESULTS.md`](results/v1.0/RESULTS.md) has the first benchmark results: ArcadiaOS and the three baselines on all 18 scenarios over seeds 1–50, 3,600 runs, with the headline table, every scorecard, resilience and the exact commands to reproduce them. In short, ArcadiaOS finishes the pad 15% faster than greedy on the nominal build and has the best headline in every scenario. [`docs/demos.md`](docs/demos.md) describes the four demo replays (a nominal build, a dust storm, a conjunction blackout and cascading faults) and how to open them in the replay viewer.
+[`results/v1.0/RESULTS.md`](results/v1.0/RESULTS.md) has the benchmark results of ArcadiaBench 1.0: ArcadiaOS 1.0 and the three baselines on all 18 scenarios over seeds 1–50, 3,600 runs, with the headline table, every scorecard, resilience and the scripts that reproduce them byte for byte. In short, ArcadiaOS finishes the pad 15% faster than greedy on the nominal build and has the best headline in every scenario.
+
+| Nominal headline | Small (4 robots) | Medium (10) | Large (20) |
+|---|---|---|---|
+| ArcadiaOS | **0.559** | **0.753** | **0.710** |
+| greedy | 0.501 | 0.681 | 0.585 |
+| random | 0.499 | 0.677 | 0.587 |
+| first come, first served | 0.385 | 0.419 | 0.362 |
+
+[`docs/demos.md`](docs/demos.md) describes the four demo replays (a nominal build, a dust storm, a conjunction blackout and cascading faults) and how to open them in the replay viewer. `scripts/results.sh` and `scripts/demos.sh` regenerate the results and the replays.
+
+## Replay viewer
+
+[`viewer/`](viewer/README.md) is a static web page that replays a run from its event log: the robots at work, the pad taking shape, site power through dust storms, and the Earth link through outages and blackouts. It has no build step and no dependencies. From the repository root:
+
+```sh
+python3 -m http.server 8000
+# then open http://localhost:8000/viewer/?log=../results/v1.0/replays/landing-pad-large-nominal-1.jsonl.gz
+```
+
+Any log saved with `--log`, or with `--save-logs` in a batch, opens the same way, or from the page's **Open log…** button. The **Viewer Pages** workflow publishes the viewer and the results to GitHub Pages.
 
 ## Python
 
@@ -176,12 +214,23 @@ print(batch["scorecard"]["headline"])
 - **Example.** `python/examples/builder.py` is a simple coordinator that builds the pad.
 - **More.** [`python/README.md`](python/README.md) covers setup, the API and the example.
 
+## Documentation
+
+- [`docs/simulator.md`](docs/simulator.md): every parameter, the scenario catalog, and the functional forms behind the interface.
+- [`docs/scoring.md`](docs/scoring.md): every score, the scorecard and resilience, and why.
+- [`docs/demos.md`](docs/demos.md): the four demo replays.
+- [`viewer/README.md`](viewer/README.md) and [`python/README.md`](python/README.md): the replay viewer and the Python package.
+- [arcadia-protocol](https://github.com/Gabe-Soler/arcadia-protocol/tree/v1.0.0): the message schemas and the normative semantics.
+- [`CHANGELOG.md`](CHANGELOG.md): what each release contains.
+
 ## Develop
 
 ```sh
 cargo test     # unit tests, the scripted builder, the baselines, faults and repair, energy, comms and authority, coverage, the catalog, scoring and batches, the published results, determinism, regression, harness robustness
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features
+node --test viewer/test/    # the replay viewer, with Node 24
 ```
 
 The Python package builds separately:
@@ -190,6 +239,8 @@ The Python package builds separately:
 cd python && ~/.local/bin/uv venv .venv && ~/.local/bin/uv pip install --python .venv maturin pytest
 .venv/bin/maturin develop --uv --release && .venv/bin/python -m pytest
 ```
+
+CI runs all of these on every push and pull request.
 
 The baselines are the proof that the default parameters make the mission buildable: each of them finishes all 50 seeds of every scenario in the catalog. `tests/support/builder.rs` is an older, naive scripted coordinator that builds the pad one task at a time, in about 2 sols, using only what it observes and repairing, towing, servicing and recharging robots as faults strike. The regression tests pin its runs. With faults turned off it takes about 1.7 sols.
 

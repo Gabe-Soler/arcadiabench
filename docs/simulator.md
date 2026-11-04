@@ -1,6 +1,6 @@
 # ArcadiaBench simulator reference
 
-This document gives the numbers behind the interface. The protocol's [semantics](https://github.com/Gabe-Soler/arcadia-protocol/blob/v0.2.0/docs/semantics.md) fix the structure: what happens, in what order, and what a coordinator sees. This document gives the parameter values ArcadiaBench uses and the functional forms they feed. Every value lives in [`src/sim/params.rs`](../src/sim/params.rs), with a doc comment on each field.
+This document gives the numbers behind the interface. The protocol's [semantics](https://github.com/Gabe-Soler/arcadia-protocol/blob/v1.0.0/docs/semantics.md) (protocol 1.0.0) fix the structure: what happens, in what order, and what a coordinator sees. This document gives the parameter values ArcadiaBench uses and the functional forms they feed. Every parameter lives in [`src/sim/params.rs`](../src/sim/params.rs), with a doc comment on each field; the few fixed constants, such as the daily temperature curve, the 1.5-cell reach between robots and the 60 s of drift between `comms` reports, are given where they apply. The semantics' appendix lists the values a coordinator has to assume because no message carries them.
 
 All values are placeholders. They are chosen to be physically plausible, to make a 20 m pad buildable in a few sols, and to make faults, comms and Earth's oversight matter without crippling a crew. Sourcing realistic numbers is an open question in the project outline.
 
@@ -62,7 +62,7 @@ The outpost scales with the crew:
 
 Robots start in rows of ten eastward from (12, 10): Small at (12–15, 10), Medium at (12–21, 10), and Large adds (12–21, 11).
 
-The presets need no randomness of their own. Small is exactly the week-6 scenario, apart from its name, and `tests/regression.rs` checks this byte for byte.
+The presets need no randomness of their own. Small is the scenario the simulator had before the catalog existed, byte for byte apart from its name, and `tests/regression.rs` checks this (§16).
 
 ### Variants
 
@@ -79,9 +79,9 @@ Unplanned link outages (§11) happen in every variant. `dust_storm`, `conjunctio
 
 **Stress timing.** A stress variant must stress every preset, and the presets' builds differ tenfold in length: a Small crew needs most of a sol, a Large one under 0.1 sol. So the dust storm and the blackout begin within the first 0.03 sol, on a time drawn from their usual streams:
 
-- **A seeded start inside the run, not a run that begins mid-stress.** Semantics §8.1 has the blackout start on a seeded sol inside the run. Starting it a little after `t = 0` keeps that: the run opens with the link up, so a coordinator can send its opening report, and then the link goes down with a `comms` event, a decision point carrying `expected_restore_t`, which is part of what the variant tests and what a replay shows. The storm front likewise arrives as a `weather` event during the run.
+- **A seeded start inside the run, not a run that begins mid-stress.** Semantics §8.1 has the blackout start at a seeded time inside the run. Starting it a little after `t = 0` means the run opens with the link up, so a coordinator can send its opening report, and then the link goes down with a `comms` event, a decision point carrying `expected_restore_t`, which is part of what the variant tests and what a replay shows. The storm front likewise arrives as a `weather` event during the run.
 - **Early enough for the fastest build.** ArcadiaOS finishes Large in 0.077–0.089 sols (seeds 1–50). A blackout starting by 0.03 sol covers at least 60% of that build and essentially all of every Small and Medium build. The storm front arrives by 0.02 sol and peaks at most 0.03 sol later, so even a Large build spends three quarters of its time in the storm and meets it at full strength before the end.
-- **Same draws, new range.** Only the ranges the draws map onto changed, so every seed still gets the same storm length and peak, and the same unplanned outages outside the blackout.
+- **No other draw moves.** The blackout's start is the first draw of the `comms` stream in every variant, and the storm front comes from its own `dust_storm` stream, so on each seed the terrain, the seasonal storms clear of the front and the unplanned outages outside the blackout are the same as in `nominal`.
 
 `t = 0` is local midnight and sunrise is at sol phase 0.25, so Medium and Large builds happen entirely in the dark: there the storm brings sensor faults and wear, not lost sunlight.
 
@@ -390,7 +390,7 @@ It does not reach the blast berm 3 m north of the pad (34.0–34.5 m away), nor 
 - **Plan work that stays in coverage.** The scripted builder digs pits inside coverage and sends the spoil onto the berm.
 - **Pay a lost-link timeout** for each command that ends out there.
 
-The pad itself never needs a relay, so coverage costs time without making the mission hopeless. Week 5's 45 m from (10, 12) covered every cell a sensible plan touches, so coverage never mattered.
+The pad itself never needs a relay, so coverage costs time without making the mission hopeless. A station that covered every cell a sensible plan touches, such as 45 m from (10, 12), would make coverage irrelevant.
 
 **Out of coverage.**
 
@@ -429,9 +429,9 @@ Every scenario in the catalog (§1) shares the site, the goal, the base station 
 
 ## 16. Randomness and reproducibility
 
-Every random draw comes from a named stream, seeded from the run seed and the stream name. Adding a process never shifts another's draws, and a stream is never drawn from at a new call site. Terrain, weather, the orbital prior and the scenario are therefore identical for every coordinator on a seed, and the same as in week 2. `tests/regression.rs` checks this byte for byte on seeds 1–5, and checks that the Earth link's `comms` events are the same for every coordinator.
+Every random draw comes from a named stream, seeded from the run seed and the stream name. Adding a process never shifts another's draws, and a stream is never drawn from at a new call site. Terrain, weather, the orbital prior and the scenario are therefore identical for every coordinator on a seed, and they have not changed since the simulator's first version: `tests/regression.rs` checks this byte for byte on seeds 1–5, and checks that the Earth link's `comms` events are the same for every coordinator.
 
-The catalog left the Small preset untouched. On seeds 1–10, `small` + `nominal` gives the same terrain, scenario and whole runs (of a parked fleet, an idle one and the scripted builder) as week 6, byte for byte apart from the scenario's name. On seeds 1–3, so do `cascading_faults`, `solar_only` and `nuclear_heavy`. Week 9 moved the conjunction's blackout to 0.01–0.03 sols in (§1, stress timing): the terrain, the scenario and the `comms` draws are unchanged, but every `conjunction` run's link events moved with it, so `tests/regression.rs` pins its Small runs as week 9 left them. The larger presets use the same streams, so they see the same site, weather and link as Small on a seed; only the crew and the outpost differ.
+The regression tests also pin whole runs on the Small preset: on seeds 1–10 of `nominal`, and seeds 1–3 of `cascading_faults`, `solar_only`, `nuclear_heavy` and `conjunction`, the terrain, the scenario and whole runs of a parked fleet, an idle one and the scripted builder must stay byte for byte as they are. A change that alters the outcome of existing runs therefore shows, and has to update them on purpose; the stress timing (§1) did so for `conjunction`. The fingerprints never cover a software or protocol version, so a release changes none of them. The larger presets use the same streams, so they see the same site, weather and link as Small on a seed; only the crew and the outpost differ.
 
 | Stream | Draws |
 |---|---|

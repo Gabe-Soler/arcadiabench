@@ -1,6 +1,6 @@
 # Demo replays
 
-Four ArcadiaOS runs, one for each demo scenario in the project outline: a nominal build, a dust storm, a conjunction blackout and cascading faults. Each is a gzipped event log in [`results/v1.0/replays/`](../results/v1.0/replays/) that the replay viewer opens. Together they cover all three presets. [`results/v1.0/RESULTS.md`](../results/v1.0/RESULTS.md) has the benchmark results they come from.
+Four ArcadiaOS 1.0 runs, one for each demo scenario in the project outline: a nominal build, a dust storm, a conjunction blackout and cascading faults. Each is a gzipped event log in [`results/v1.0/replays/`](../results/v1.0/replays/) that the replay viewer opens. Together they cover all three presets. [`results/v1.0/RESULTS.md`](../results/v1.0/RESULTS.md) has the benchmark results they come from.
 
 | Demo | Scenario and seed | Log | Size |
 |---|---|---|---|
@@ -9,7 +9,7 @@ Four ArcadiaOS runs, one for each demo scenario in the project outline: a nomina
 | Conjunction blackout | `landing-pad-medium-conjunction`, seed 1 | [`landing-pad-medium-conjunction-1.jsonl.gz`](../results/v1.0/replays/landing-pad-medium-conjunction-1.jsonl.gz) | 0.8 MB |
 | Cascading faults | `landing-pad-medium-cascading_faults`, seed 13 | [`landing-pad-medium-cascading_faults-13.jsonl.gz`](../results/v1.0/replays/landing-pad-medium-cascading_faults-13.jsonl.gz) | 0.9 MB |
 
-Every log is a complete run that ends `goals_complete`, valid against protocol v0.2.0's `event_log.schema.json`, and under 3 MB. `tests/results.rs` checks all three.
+Every log is a complete run that ends `goals_complete`, valid against protocol 1.0.0's `event_log.schema.json`, and under 3 MB. `tests/results.rs` checks all three, and the viewer's tests (`viewer/test/replays.test.js`) replay each one from start to end.
 
 ## Open them in the viewer
 
@@ -65,19 +65,25 @@ Ten robots on a site with four to five times the nominal wear and failure rates.
 
 ## Reproduce
 
-From the root of ArcadiaBench, with ArcadiaOS (branch `week9-baselines`) checked out beside it and both built in release:
+From the root of ArcadiaBench, with ArcadiaOS 1.0 checked out beside it, build both in release and run [`scripts/demos.sh`](../scripts/demos.sh):
+
+```sh
+cargo build --release
+(cd ../arcadiaos && cargo build --release)
+scripts/demos.sh
+```
+
+The script runs these four commands, with `O` the ArcadiaOS binary (`$ARCADIAOS`, by default `../arcadiaos/target/release/arcadiaos`), and moves the logs into `results/v1.0/replays/` once all four are done (or into the directory it is given):
 
 ```sh
 B=./target/release
-O=../arcadiaos/target/release/arcadiaos
-R=results/v1.0/replays
-$B/arcadiabench run --seed 1  --preset large  --variant nominal          --log $R/landing-pad-large-nominal-1.jsonl.gz -- $O
-$B/arcadiabench run --seed 15 --preset small  --variant dust_storm       --log $R/landing-pad-small-dust_storm-15.jsonl.gz -- $O
-$B/arcadiabench run --seed 1  --preset medium --variant conjunction      --log $R/landing-pad-medium-conjunction-1.jsonl.gz -- $O
-$B/arcadiabench run --seed 13 --preset medium --variant cascading_faults --log $R/landing-pad-medium-cascading_faults-13.jsonl.gz -- $O
+$B/arcadiabench run --seed 1  --preset large  --variant nominal          --log landing-pad-large-nominal-1.jsonl.gz -- $O
+$B/arcadiabench run --seed 15 --preset small  --variant dust_storm       --log landing-pad-small-dust_storm-15.jsonl.gz -- $O
+$B/arcadiabench run --seed 1  --preset medium --variant conjunction      --log landing-pad-medium-conjunction-1.jsonl.gz -- $O
+$B/arcadiabench run --seed 13 --preset medium --variant cascading_faults --log landing-pad-medium-cascading_faults-13.jsonl.gz -- $O
 ```
 
-Runs are deterministic and the gzip stream carries no time or name, so these commands rewrite the four files byte for byte.
+Runs are deterministic and the gzip stream carries no time or name, so the script rewrites the four files byte for byte.
 
 ## Choosing the runs
 

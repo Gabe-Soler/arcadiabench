@@ -3,6 +3,8 @@
 .DS_Store
 .env
 *.jsonl
+# Batch output from the README's quickstart
+/runs/
 
 # Python bindings
 .venv/

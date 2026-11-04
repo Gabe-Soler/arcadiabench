@@ -11,8 +11,8 @@ jobs:
   bindings:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - uses: dtolnay/rust-toolchain@stable
@@ -23,9 +23,12 @@ jobs:
           workspaces: python
       - name: Lint the binding crate
         working-directory: python
+        env:
+          RUSTDOCFLAGS: -D warnings
         run: |
           cargo fmt --check
           cargo clippy --all-targets --all-features -- -D warnings
+          cargo doc --no-deps --all-features
       - name: Build and install the package
         working-directory: python
         run: |

@@ -6,8 +6,9 @@
 //
 // Version handling: protocol 0.1 logs lack the 0.2 additions (truth.site,
 // run_end.metrics, robot faults and telemetry_t, scenario power and base
-// station); everything that depends on them is optional. Unknown record
-// kinds, event types and fields are ignored.
+// station); everything that depends on them is optional. Protocol 1.0 has
+// 0.2's messages unchanged. Unknown record kinds, event types and fields are
+// ignored.
 
 import { Series, Intervals, lastAtOrBefore, firstAtOrAfter } from './series.js';
 import { buildTrack, Track } from './motion.js';
@@ -17,7 +18,7 @@ import { DEFAULT_SOL_S, fmtNumber } from './format.js';
 import { LogError } from './parse.js';
 
 /** Protocol MAJOR.MINOR versions this viewer was written against. */
-export const KNOWN_PROTOCOLS = ['0.1', '0.2'];
+export const KNOWN_PROTOCOLS = ['0.1', '0.2', '1.0'];
 
 /** Statuses in which a robot cannot act. */
 export const DISABLED_STATUSES = new Set(['stuck', 'failed', 'offline', 'being_towed', 'lost']);
@@ -239,8 +240,9 @@ export class ReplayModel {
     if (!mm) {
       this.warnings.push(`The log does not state a valid protocol version ("${this.info.protocol}"). Showing what this viewer understands.`);
     } else if (!KNOWN_PROTOCOLS.includes(mm)) {
+      const known = `${KNOWN_PROTOCOLS.slice(0, -1).join(', ')} and ${KNOWN_PROTOCOLS.at(-1)}`;
       this.warnings.push(
-        `This log uses protocol ${this.info.protocol}; the viewer was written for ${KNOWN_PROTOCOLS.join(' and ')}. Unknown records and fields are ignored.`,
+        `This log uses protocol ${this.info.protocol}; the viewer was written for ${known}. Unknown records and fields are ignored.`,
       );
     }
   }

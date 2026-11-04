@@ -185,6 +185,18 @@ test('a missing run_end, unknown kinds, newer protocols and disorder are warned 
   assert.equal(m.tEnd, 700);
 });
 
+test('a protocol 1.0 log loads without a version notice, and a newer one gets it', () => {
+  const recs = log();
+  recs[0] = runStart({ protocol_version: '1.0.0', simulator: { name: 'arcadiabench', version: '1.0.0' } });
+  const m = modelFromRecords(recs);
+  assert.deepEqual(m.warnings, []);
+  assert.equal(m.info.protocol, '1.0.0');
+  recs[0] = runStart({ protocol_version: '1.1.0' });
+  assert.deepEqual(modelFromRecords(recs).warnings, [
+    'This log uses protocol 1.1.0; the viewer was written for 0.1, 0.2 and 1.0. Unknown records and fields are ignored.',
+  ]);
+});
+
 test('commands issued at the last decision point count as running to the end', () => {
   const recs = log({ end: 'goals_complete', endT: 650 });
   recs.splice(recs.length - 1, 0, { t: 600, kind: 'commanded', command: { command_id: 'c-3', robot_id: 'sc-1', type: 'scan', area: goal.objective.pad.area } });

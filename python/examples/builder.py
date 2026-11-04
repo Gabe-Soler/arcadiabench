@@ -74,7 +74,7 @@ class Task:
 
 class Builder(arcadiabench.Coordinator):
     name = "python-builder"
-    version = "0.1.0"
+    version = "1.0.0"
 
     def welcome(self, hello: Message) -> Message:
         scenario = hello["scenario"]
