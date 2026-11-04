@@ -98,6 +98,9 @@ pub struct Activity {
     pub steps: VecDeque<Step>,
     pub running: Option<Running>,
     pub energy_used_wh: f64,
+    /// The simulator's own activity (a lost-link return), not a coordinator
+    /// command: it has no `current_command` and reports no events.
+    pub internal: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -106,6 +109,20 @@ pub struct Travel {
     pub to: GridCoord,
     pub start: SimMs,
     pub end: SimMs,
+}
+
+impl Travel {
+    /// The cell at time `t`: the straight line interpolated by time, rounded.
+    pub fn position_at(&self, t: SimMs) -> GridCoord {
+        let span = self.end.saturating_sub(self.start).max(1) as f64;
+        let f = (t.saturating_sub(self.start) as f64 / span).clamp(0.0, 1.0);
+        let lerp =
+            |a: u32, b: u32| (f64::from(a) + (f64::from(b) - f64::from(a)) * f).round() as u32;
+        GridCoord {
+            x: lerp(self.from.x, self.to.x),
+            y: lerp(self.from.y, self.to.y),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -142,6 +159,8 @@ pub struct RobotRt {
     pub received_wh: f64,
     /// Snapshot taken when the robot was stripped; lost robots report it forever.
     pub frozen: Option<RobotState>,
+    /// Radio power drawn on top of idle drain while holding as an active relay, W.
+    pub radio_w: f64,
 }
 
 impl RobotRt {
@@ -169,6 +188,7 @@ impl RobotRt {
             towed: false,
             received_wh: 0.0,
             frozen: None,
+            radio_w: 0.0,
         }
     }
 
@@ -192,9 +212,11 @@ impl RobotRt {
         self.activity.is_some() || self.engaged_by.is_some()
     }
 
+    /// The coordinator command the robot is running, if any.
     pub fn running_command(&self) -> Option<&str> {
         self.activity
             .as_ref()
+            .filter(|a| !a.internal)
             .map(|a| a.command.command_id.as_str())
     }
 
@@ -238,17 +260,9 @@ impl RobotRt {
 
     /// Position at time `t`, interpolated along the current drive.
     pub fn position_at(&self, t: SimMs) -> GridCoord {
-        let Some(tr) = &self.travel else {
-            return self.pos;
-        };
-        let span = tr.end.saturating_sub(tr.start).max(1) as f64;
-        let f = (t.saturating_sub(tr.start) as f64 / span).clamp(0.0, 1.0);
-        let lerp =
-            |a: u32, b: u32| (f64::from(a) + (f64::from(b) - f64::from(a)) * f).round() as u32;
-        GridCoord {
-            x: lerp(tr.from.x, tr.to.x),
-            y: lerp(tr.from.y, tr.to.y),
-        }
+        self.travel
+            .as_ref()
+            .map_or(self.pos, |tr| tr.position_at(t))
     }
 }
 

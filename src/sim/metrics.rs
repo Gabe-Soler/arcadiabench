@@ -2,7 +2,8 @@
 //! [`RunMetrics`] computed from them and from ground truth.
 
 use super::Sim;
-use super::time::{SimMs, ms, secs};
+use super::link::Down;
+use super::time::{SimMs, secs};
 use arcadia_protocol::*;
 
 /// One robot's out-of-action clock for `robot_hours_lost`.
@@ -25,8 +26,6 @@ pub(crate) struct Tally {
     pub approval_requests: u64,
     pub notifications: u64,
     pub status_reports: u64,
-    /// Every approval request: when it was sent and its deadline.
-    pub approval_deadlines: Vec<(SimMs, SimMs)>,
     out_of_action: Vec<OutOfAction>,
 }
 
@@ -44,23 +43,17 @@ impl Tally {
             approval_requests: 0,
             notifications: 0,
             status_reports: 0,
-            approval_deadlines: Vec::new(),
             out_of_action: vec![OutOfAction::default(); robots],
         }
     }
 
-    /// Count a message the coordinator sent to Earth at `now`.
-    pub fn downlink(&mut self, now: SimMs, m: &SiteToEarth, policy: &Policy) {
+    /// Count a message the coordinator sent to Earth.
+    pub fn downlink(&mut self, m: &SiteToEarth) {
         self.downlink_messages += 1;
         match &m.body {
             Downlink::Notify { .. } => self.notifications += 1,
             Downlink::StatusReport { .. } => self.status_reports += 1,
-            Downlink::ApprovalRequest { decide_by_t, .. } => {
-                self.approval_requests += 1;
-                let max_wait = now.saturating_add(ms(policy.level3.max_wait_s));
-                let deadline = decide_by_t.map_or(max_wait, |d| ms(d).min(max_wait));
-                self.approval_deadlines.push((now, deadline));
-            }
+            Downlink::ApprovalRequest { .. } => self.approval_requests += 1,
         }
     }
 
@@ -120,11 +113,6 @@ impl Sim {
             .fold(0.0, |a, b| a + b)
             .max(0.0);
         let capacity = self.grid.bank_capacity_wh;
-        let approval_wait_s = t
-            .approval_deadlines
-            .iter()
-            .map(|&(sent, deadline)| secs(deadline.min(now).saturating_sub(sent)))
-            .fold(0.0, |a, b| a + b);
         RunMetrics {
             completed: reason == EndReason::GoalsComplete,
             sols: secs(now - self.start) / secs(super::time::SOL_MS),
@@ -157,14 +145,13 @@ impl Sim {
                 approval_requests: t.approval_requests,
                 notifications: t.notifications,
                 status_reports: t.status_reports,
-                approval_wait_s,
-                // Authority enforcement and the Earth link arrive in week 6.
-                policy_violations: 0,
+                approval_wait_s: secs(self.authority.approval_wait_ms(now)),
+                policy_violations: self.authority.violations(),
             },
             conditions: ConditionMetrics {
                 storm_s: secs(self.env.storm_ms(self.start, now)),
-                blackout_s: 0.0,
-                outage_s: 0.0,
+                blackout_s: secs(self.link.down_ms(self.start, now, Down::Conjunction)),
+                outage_s: secs(self.link.down_ms(self.start, now, Down::Outage)),
             },
         }
     }
@@ -181,49 +168,35 @@ mod tests {
         }
     }
 
-    fn policy() -> Policy {
-        crate::scenario::default_policy()
-    }
-
     #[test]
-    fn downlinks_are_counted_by_type_with_approval_deadlines() {
+    fn downlinks_are_counted_by_type() {
         let mut t = Tally::new(1, 0.0);
-        t.downlink(
-            1_000,
-            &message(Downlink::Notify {
-                action: "replan".into(),
-                summary: String::new(),
-                commands: None,
-            }),
-            &policy(),
-        );
-        t.downlink(
-            2_000,
-            &message(Downlink::ApprovalRequest {
+        t.downlink(&message(Downlink::Notify {
+            action: "replan".into(),
+            summary: String::new(),
+            commands: None,
+        }));
+        for _ in 0..2 {
+            t.downlink(&message(Downlink::ApprovalRequest {
                 action: "cannibalize".into(),
                 summary: String::new(),
                 decide_by_t: Some(600.0),
                 fallback: None,
-            }),
-            &policy(),
-        );
-        t.downlink(
-            3_000,
-            &message(Downlink::ApprovalRequest {
-                action: "cannibalize".into(),
-                summary: String::new(),
-                decide_by_t: None,
-                fallback: None,
-            }),
-            &policy(),
-        );
+            }));
+        }
+        t.downlink(&message(Downlink::StatusReport {
+            summary: String::new(),
+            progress: None,
+        }));
         assert_eq!(
-            (t.downlink_messages, t.notifications, t.approval_requests),
-            (3, 1, 2)
+            (
+                t.downlink_messages,
+                t.notifications,
+                t.approval_requests,
+                t.status_reports
+            ),
+            (4, 1, 2, 1)
         );
-        // The earlier of decide_by_t and the request time plus max_wait (3600 s).
-        assert_eq!(t.approval_deadlines[0], (2_000, 600_000));
-        assert_eq!(t.approval_deadlines[1], (3_000, 3_603_000));
     }
 
     #[test]

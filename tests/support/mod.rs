@@ -108,6 +108,49 @@ pub fn cmd(id: &str, robot: &str, action: Action) -> Command {
     }
 }
 
+/// `cmd` citing the approval request `approval_id`.
+pub fn approved(mut c: Command, approval_id: &str) -> Command {
+    c.approval_id = Some(approval_id.into());
+    c
+}
+
+/// An approval request for `action`, sent at `now`, with `decide_by_t` and `fallback`.
+pub fn ask(
+    id: &str,
+    action: &str,
+    decide_by_t: Option<f64>,
+    fallback: Option<Fallback>,
+) -> SiteToEarth {
+    SiteToEarth {
+        message_id: id.into(),
+        body: Downlink::ApprovalRequest {
+            action: action.into(),
+            summary: format!("may we {action}?"),
+            decide_by_t,
+            fallback,
+        },
+    }
+}
+
+/// An approval request whose deadline is `now` and whose fallback is
+/// `proceed`: Earth cannot answer in time, so from the next decision on it
+/// authorizes level-3 commands for `action` (until a veto arrives).
+pub fn ask_and_proceed(id: &str, action: &str, now: f64) -> SiteToEarth {
+    ask(id, action, Some(now), Some(Fallback::Proceed))
+}
+
+/// A notify listing `commands`.
+pub fn notify(id: &str, action: &str, commands: &[&str]) -> SiteToEarth {
+    SiteToEarth {
+        message_id: id.into(),
+        body: Downlink::Notify {
+            action: action.into(),
+            summary: format!("{action} done"),
+            commands: Some(commands.iter().map(|c| c.to_string()).collect()),
+        },
+    }
+}
+
 pub fn robot<'a>(obs: &'a Observation, id: &str) -> &'a RobotState {
     obs.robots.iter().find(|r| r.robot_id == id).unwrap()
 }

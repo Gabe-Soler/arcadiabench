@@ -1,7 +1,8 @@
 //! Scenario generation. One scenario, `landing-pad-small`: a seeded
 //! 60 × 60 m Arcadia Planitia site with a 20 × 20 m pad, a short blast berm,
 //! four robots, one charge station, one depot and a comms base station. Its
-//! power system comes from the parameters, so the power variants change it.
+//! power system and the base station's range come from the parameters, so
+//! the variants change them.
 //! The Small/Medium/Large presets arrive with scoring in week 7.
 
 use crate::sim::mission::Mission;
@@ -22,10 +23,12 @@ pub const BERM_HEIGHT_M: f64 = 0.5;
 pub const TIME_LIMIT_SOLS: u64 = 60;
 pub const STATION: GridCoord = GridCoord { x: 10, y: 10 };
 pub const DEPOT: GridCoord = GridCoord { x: 8, y: 14 };
-/// The comms hub sits between the station and the depot; with the default
-/// range it covers the pad, the berm and the work areas around them, but not
-/// the far corners of the site (coverage is enforced from week 6).
-pub const BASE_STATION: GridCoord = GridCoord { x: 10, y: 12 };
+/// The comms hub stands between the outpost and the pad. With the default
+/// 33 m range it covers the outpost (station, depot and start area), the
+/// whole pad and the ground east and west of it, but not the blast berm 3 m
+/// north of the pad, nor the north of the site: building the berm needs a
+/// relay, or work planned from inside coverage.
+pub const BASE_STATION: GridCoord = GridCoord { x: 30, y: 8 };
 
 /// Everything a run needs: what the coordinator is told, and the ground truth.
 pub struct Generated {
@@ -293,6 +296,40 @@ mod tests {
         let prior = a.scenario.site.cells[3 * 60 + 3].cell.elevation_m.unwrap();
         assert_ne!(truth, prior);
         assert!((truth - prior).abs() < 1.5);
+    }
+
+    #[test]
+    fn the_base_station_covers_the_outpost_and_the_pad_but_not_the_berm() {
+        use crate::sim::coverage::within;
+        let p = Params::default();
+        let g = generate(1, &p);
+        let base = &g.scenario.base_station;
+        let covered = |c: GridCoord| within(c, base.position, base.range_m, 1.0);
+        assert!(rect_cells(&PAD).all(covered));
+        assert!(covered(STATION) && covered(DEPOT));
+        assert!(g.starts.iter().all(|&c| covered(c)));
+        let Uplink::Goal {
+            objective: Objective::LandingPad { pad },
+            ..
+        } = &g.goal.body
+        else {
+            panic!("the goal is a landing pad");
+        };
+        assert!(
+            pad.berm
+                .as_ref()
+                .unwrap()
+                .cells
+                .iter()
+                .all(|&c| !covered(c))
+        );
+        // The hauler's relay reaches the whole site from anywhere on it.
+        let relay = crew()[2]
+            .capability(CapabilityName::Relay)
+            .unwrap()
+            .range_m
+            .unwrap();
+        assert!(relay >= f64::from(SITE_SIZE) * std::f64::consts::SQRT_2);
     }
 
     #[test]

@@ -263,6 +263,7 @@ impl Sim {
             return false;
         }
         self.tally.faults += 1;
+        self.incident();
         let robot_id = self.robots[r].spec.robot_id.clone();
         self.emit(
             EventKind::RobotFault {
@@ -285,13 +286,15 @@ impl Sim {
         true
     }
 
-    /// The robot is immobilized where it is. Always a decision point.
+    /// The robot is immobilized where it is: a decision point, unless the
+    /// robot is out of coverage and nobody can hear of it yet.
     pub(crate) fn get_stuck(&mut self, r: usize) {
         if self.robots[r].lost {
             return;
         }
         let at = self.robots[r].position_at(self.now);
         self.robots[r].health.stuck = true;
+        self.incident();
         if self.robots[r].activity.is_some() {
             self.fail_command(
                 r,
@@ -299,7 +302,7 @@ impl Sim {
                 Some(format!("soft regolith at ({}, {})", at.x, at.y)),
             );
         } else {
-            self.decision_due = true;
+            self.robot_changed(r);
         }
     }
 

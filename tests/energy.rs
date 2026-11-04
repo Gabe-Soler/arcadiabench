@@ -124,7 +124,19 @@ fn site_truth_agrees_with_power_events_and_charging_is_counted() {
             })
             .expect("a truth record at every decision point");
         assert!((site.storage_wh - storage).abs() < 1e-6, "t = {t}");
-        assert_eq!(site.link, Link::Up);
+        // The link in truth is the one the latest `comms` event reported.
+        let reported = records
+            .iter()
+            .filter_map(|r| match &r.entry {
+                LogEntry::Observed { event } if event.t <= t => match event.kind {
+                    EventKind::Comms { link, .. } => Some(link),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .next_back()
+            .expect("a comms event at the start");
+        assert_eq!(site.link, reported, "t = {t}");
     }
     let m = &report.metrics.energy;
     assert!(m.grid_energy_wh > 0.0, "the station delivered energy");

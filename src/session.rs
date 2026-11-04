@@ -1,6 +1,11 @@
 //! One run: scenario → handshake → observe/decide loop → end, with every step
 //! written to the event log. Transport-independent protocol rules (version
 //! compatibility, decision seq) are enforced here.
+//!
+//! The log never goes back in time (semantics §8.6): Earth's messages are
+//! logged when Earth sends them, between observations, and every event is
+//! logged at the time it was delivered to the coordinator, while keeping the
+//! time it happened.
 
 use crate::coordinator::{BenchError, CoordinatorLink};
 use crate::log::EventLog;
@@ -22,6 +27,8 @@ pub struct RunReport {
     pub progress: f64,
     /// The metrics written on `run_end`.
     pub metrics: RunMetrics,
+    /// Lost-link returns: idle robots out of coverage driving back on their own.
+    pub lost_link_returns: u64,
 }
 
 pub fn run_session<L: CoordinatorLink + ?Sized, W: Write>(
@@ -75,17 +82,21 @@ pub fn run_session<L: CoordinatorLink + ?Sized, W: Write>(
         commands: 0,
         progress: 0.0,
         metrics: RunMetrics::default(),
+        lost_link_returns: 0,
     };
     let result = drive(link, &mut sim, log, &mut report);
     let reason = match &result {
         Ok(reason) => *reason,
         Err(_) => EndReason::CoordinatorError,
     };
-    // The final instant: events the coordinator never saw, then the ground
-    // truth at the end, then run_end. The log always ends this way, even when
-    // the coordinator misbehaved; the coordinator itself only gets `end`.
-    for event in sim.take_pending() {
-        log.record(event.t, LogEntry::Observed { event })?;
+    // The final instant: what Earth sent since the last observation, events
+    // the coordinator never saw, then the ground truth at the end, then
+    // run_end. The log always ends this way, even when the coordinator
+    // misbehaved; the coordinator itself only gets `end`.
+    log_uplinks(&mut sim, log)?;
+    let end_t = sim.now();
+    for event in sim.take_undelivered() {
+        log.record(end_t, LogEntry::Observed { event })?;
     }
     log.record(
         sim.now(),
@@ -100,6 +111,7 @@ pub fn run_session<L: CoordinatorLink + ?Sized, W: Write>(
     report.end_t = sim.now();
     report.progress = sim.progress();
     report.metrics = metrics.clone();
+    report.lost_link_returns = sim.lost_link_returns();
     log.record(sim.now(), LogEntry::RunEnd { reason, metrics })?;
     result.map(|_| report)
 }
@@ -113,9 +125,10 @@ fn drive<L: CoordinatorLink + ?Sized, W: Write>(
     loop {
         match sim.advance() {
             Advance::Observe(obs) => {
+                log_uplinks(sim, log)?;
                 for event in &obs.events {
                     log.record(
-                        event.t,
+                        obs.t,
                         LogEntry::Observed {
                             event: event.clone(),
                         },
@@ -150,13 +163,7 @@ fn drive<L: CoordinatorLink + ?Sized, W: Write>(
                     )?;
                 }
                 for (message, deliver_t) in sim.apply(&decision) {
-                    log.record(
-                        sim.now(),
-                        LogEntry::EarthDownlink {
-                            deliver_t: Some(deliver_t),
-                            message,
-                        },
-                    )?;
+                    log.record(sim.now(), LogEntry::EarthDownlink { deliver_t, message })?;
                 }
             }
             Advance::End { t, reason } => {
@@ -165,4 +172,12 @@ fn drive<L: CoordinatorLink + ?Sized, W: Write>(
             }
         }
     }
+}
+
+/// Log what Earth has sent since the last call, at the times it sent it.
+fn log_uplinks<W: Write>(sim: &mut Sim, log: &mut EventLog<W>) -> Result<(), BenchError> {
+    for (t, deliver_t, message) in sim.take_uplinks() {
+        log.record(t, LogEntry::EarthUplink { deliver_t, message })?;
+    }
+    Ok(())
 }

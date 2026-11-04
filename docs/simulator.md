@@ -2,7 +2,7 @@
 
 This document gives the numbers behind the interface. The protocol's [semantics](https://github.com/Gabe-Soler/arcadia-protocol/blob/v0.2.0/docs/semantics.md) fix the structure: what happens, in what order, and what a coordinator sees. This document gives the parameter values ArcadiaBench uses and the functional forms they feed. Every value lives in [`src/sim/params.rs`](../src/sim/params.rs), with a doc comment on each field.
 
-All values are placeholders. They are chosen to be physically plausible, to make a 20 m pad buildable in a few sols, and to make faults matter without crippling a crew. Sourcing realistic numbers is an open question in the project outline.
+All values are placeholders. They are chosen to be physically plausible, to make a 20 m pad buildable in a few sols, and to make faults, comms and Earth's oversight matter without crippling a crew. Sourcing realistic numbers is an open question in the project outline.
 
 ## Contents
 
@@ -16,14 +16,18 @@ All values are placeholders. They are chosen to be physically plausible, to make
 8. [Failure processes](#8-failure-processes)
 9. [Repair, tow, cannibalize and service](#9-repair-tow-cannibalize-and-service)
 10. [Cold nights](#10-cold-nights)
-11. [The `landing-pad-small` scenario](#11-the-landing-pad-small-scenario)
-12. [Randomness and reproducibility](#12-randomness-and-reproducibility)
-13. [Session limits and the event log](#13-session-limits-and-the-event-log)
-14. [Calibration](#14-calibration)
+11. [The Earth link](#11-the-earth-link)
+12. [Scripted mission control](#12-scripted-mission-control)
+13. [Authority enforcement](#13-authority-enforcement)
+14. [Coverage and relays](#14-coverage-and-relays)
+15. [The `landing-pad-small` scenario](#15-the-landing-pad-small-scenario)
+16. [Randomness and reproducibility](#16-randomness-and-reproducibility)
+17. [Session limits and the event log](#17-session-limits-and-the-event-log)
+18. [Calibration](#18-calibration)
 
 ## 1. Variants
 
-A variant is a named parameter set. Select one with `arcadiabench run --variant <name>`, or in Rust with `Params::variant(Variant::…)` or one of `Params::nominal()`, `Params::cascading_faults()`, `Params::solar_only()` and `Params::nuclear_heavy()`. The default is `nominal`. Week 7 replaces this small mapping with the full scenario catalog.
+A variant is a named parameter set. Select one with `arcadiabench run --variant <name>`, or in Rust with `Params::variant(Variant::…)` or one of `Params::nominal()`, `Params::cascading_faults()`, `Params::solar_only()`, `Params::nuclear_heavy()` and `Params::conjunction()`. The default is `nominal`. Week 7 replaces this small mapping with the full scenario catalog.
 
 | Variant | What changes from `nominal` |
 |---|---|
@@ -31,6 +35,9 @@ A variant is a named parameter set. Select one with `arcadiabench run --variant 
 | `cascading_faults` | Every wear rate and the wear hazard ×4, the random hazard ×5, the storm sensor hazard ×3, the stuck rate ×3, and only 40% of disabling faults field repairable. |
 | `solar_only` | No fission; 30 kW solar peak; 150 kWh storage (§6). |
 | `nuclear_heavy` | 15 kW fission; 5 kW solar peak; 50 kWh storage (§6). |
+| `conjunction` | A 14-sol solar-conjunction blackout of the Earth link starting early in the run, with the one-way delay near its 24-minute maximum (§11). |
+
+Unplanned link outages (§11) happen in every variant.
 
 `Params { faults_enabled: false, .. }` turns off wear growth and every random failure process: the core physics without faults. Scripted incidents still happen. `scripted` holds incidents forced at fixed times, for tests and demo scenarios: a fault on a given component, or getting stuck. It is empty in every built-in variant.
 
@@ -215,11 +222,140 @@ Below `heater_threshold_c` = −60 °C ambient, robot heaters draw `heater_idle_
 
 The cold window is computed exactly in milliseconds, so depletion times stay exact. An idle scout (1500 Wh at 8 W) lasts 187.5 h without the heater and 131 h with it. While cold, a powered robot's telemetry reads `heater_offset_c` (30 °C) above ambient.
 
-## 11. The `landing-pad-small` scenario
+## 11. The Earth link
+
+Semantics §8.1–§8.2 fix the structure; the code is in [`src/sim/link.rs`](../src/sim/link.rs). The whole schedule is drawn from the `comms` stream when the run starts, so every coordinator on a seed faces the same link. `tests/regression.rs` checks this.
+
+**Delay.** Earth and Mars move on coplanar circular orbits. By the law of cosines the one-way light time is `d(θ) = √(a − b·cos θ)`, where θ is the heliocentric angle between the planets, advancing 2π every synodic period. With `a = (d_max² + d_min²) / 2` and `b = (d_max² − d_min²) / 2`, `d` is `d_min` at opposition (θ = 0) and `d_max` at solar conjunction (θ = π). It is smooth and can never leave that range. The radii this implies are not the true orbits, whose light times span about 3 to 22 minutes. They are fitted to the outline's 4–24 minutes.
+
+- **Nominal epoch:** θ at t = 0 puts the delay at `start_delay_s`, with Mars receding. The delay grows about 4.6 s a sol, reaching 994 s after 60 sols.
+- **Conjunction epoch:** θ = π falls at the middle of the blackout. The delay stays within 50 s of its 1440 s maximum all run.
+
+| Parameter | Value | Rationale |
+|---|---|---|
+| `delay_min_s`, `delay_max_s` | 240 s, 1440 s | The outline's 4–24 minutes. |
+| `synodic_period_sols` | 759.07 | 779.94 Earth days. |
+| `start_delay_s` | 720 s | "About 12 minutes" for the nominal epoch. |
+| `conjunction_sols` | 14 | Conjunction moratoria last about two weeks. |
+| `conjunction_start_sols` | 0.2–1.0 (uniform) | Early, so the blackout overlaps the build of every coordinator and preset. A real conjunction is known months ahead; the scenario starts shortly before one. |
+| `outage_per_sol` | 0.15 | Poisson arrivals while the link is up: about nine a 60-sol run, and a one-in-four chance of one in any two sols. |
+| `outage_hours` | 2–8 h (uniform) | Unplanned outages last hours. |
+
+The conjunction's start is drawn in every variant, before the outages, so the outages are the same in every variant on a seed. Outages and the blackout never overlap:
+
+- An outage that would start during the blackout never happens.
+- An outage that runs into the blackout gives way to it. The cause changes, and the link stays down.
+
+So the link is always up when a blackout ends.
+
+**`comms` events.**
+
+- One at t = 0.
+- One at every change of link state, including a change of cause while the link stays down.
+- One whenever `d` has drifted 60 s since the previous `comms` event.
+
+Each state change resets the drift baseline, so with outages, pure drift reports are rare; without outages there are four in 60 sols. A link-down event carries `expected_restore_t` for the conjunction (its end), never for an unplanned outage.
+
+**Delivery.** A message sent at `t` leaves at the first time at or after `t` with the link up, following an outage straight into the blackout if they are back to back. It arrives at that time plus `d` at that time. Both directions use the same schedule. `deliver_t` is that arrival, to the millisecond. It is absent when the arrival would not be before the time limit.
+
+## 12. Scripted mission control
+
+Mission control is deterministic and draws from its own `earth` stream; the code is in [`src/sim/earth.rs`](../src/sim/earth.rs).
+
+**Approval requests.** Earth reads each request when it arrives and answers it once, with `approve` or `veto`. It answers after a human response time of `earth_response_mean_s × LN(earth_response_sigma)`, even when the answer will reach the site after `decide_by_t`. The chance of approval depends on the action:
+
+| Action | Chance of `approve` |
+|---|---|
+| `cannibalize` | `earth_approve_cannibalize_p` = 0.75 |
+| `abandon_section` | `earth_approve_abandon_p` = 0.6 |
+| `commit_energy_reserve` | `earth_approve_p` = 0.9 if site storage was at most `earth_reserve_low_frac` = 25% of capacity when the request was sent; otherwise always vetoed |
+| any other action | `earth_approve_p` = 0.9 |
+
+| Parameter | Value | Rationale |
+|---|---|---|
+| `earth_response_mean_s` | 1200 s | The outline's "about 20 minutes" for a human decision. |
+| `earth_response_sigma` | 0.5 | Median 18 minutes; one answer in ten takes over 33 minutes. |
+
+- Each request Earth reads draws two numbers, the response time and then the approval, in the order the requests were sent.
+- A request that cannot reach Earth before the time limit is never read.
+- A request that reuses an earlier request's `message_id` is not answered and cannot be cited; the earlier request keeps that id.
+
+**Trust script.** Two rules, each firing at most once a run:
+
+1. **Loosen.** Once the site has gone `trust_incident_free_sols` without an incident, Earth moves `tow`, `replan` and `reassign_task` from level 2 to level 1. An incident is a new fault, a robot getting stuck, or a robot lost. The clock starts with the run and restarts at every incident.
+2. **Tighten.** Once a robot is lost, Earth moves `cannibalize` to level 4.
+
+Earth learns the site's history from engineering telemetry, which travels the link like any message: what happens at `t` reaches Earth when a message sent at `t` would. Each update goes out `policy_reaction_s` after Earth learns what prompts it. It carries the whole policy with `policy_version` one higher, and takes effect at the site when it arrives. Earth never sends `reprioritize`.
+
+| Parameter | Value | Rationale |
+|---|---|---|
+| `trust_incident_free_sols` | 2 | Trust is earned over days, not hours. |
+| `policy_reaction_s` | 3600 s | A flight-director decision, not an operator's. |
+
+## 13. Authority enforcement
+
+Semantics §9 is implemented as specified; the code is in [`src/sim/authority.rs`](../src/sim/authority.rs).
+
+The policy in effect starts as the scenario's, and changes only when a `policy_update` arrives. Commands are checked in the order of semantics §4.1: coverage, then authority, then the rest.
+
+| Level | Rule |
+|---|---|
+| 1 | Accepted as usual. |
+| 2 | Accepted as usual. A violation unless a `notify` listing the command's id is sent within one sol of its acceptance; the end of the run closes the window early. A notify sent before the command was accepted does not count. |
+| 3 | Needs `approval_id`, citing an approval request for the same action sent in an earlier decision. Accepted once Earth's `approve` has arrived, or once the deadline has been reached with fallback `proceed` and no veto arrived. Otherwise rejected `vetoed` if a veto has arrived, else `approval_required`. |
+| 4 | Accepted only once Earth's `approve` has arrived. Otherwise rejected `vetoed` if a veto has arrived, else `approval_required`. |
+
+A request's deadline is the earlier of `decide_by_t` and its send time plus `level3.max_wait_s`; its fallback is its own, or the policy's `default_fallback`. Both come from the policy in effect when the request was sent. In the default policy they are 3600 s and abort.
+
+## 14. Coverage and relays
+
+The code is in [`src/sim/coverage.rs`](../src/sim/coverage.rs).
+
+A robot is in coverage when it is within `base_station_range_m` of the base station, or within the `range_m` of a holding relay that is itself in coverage, transitively. Distances run between cell centres, and the boundary counts.
+
+Coverage is re-derived after every event and after every command, so each command in a decision sees the effect of the ones before it, such as the cancel of a relay. A moving robot is checked at the exact millisecond its interpolated cell crosses the edge.
+
+| Parameter | Value | Rationale |
+|---|---|---|
+| `base_station_range_m` | 33 m | See below. |
+| `relay_radio_w` | 25 W | A relay radio, added to idle drain while holding. The hauler (20 W idle) then draws 45 W, plus its heater on cold nights. |
+| `lost_link_timeout_s` | 1800 s | Long enough for a relay already on its way to arrive; short enough that a robot stranded by a finished command is back within the hour. |
+
+**Where the base station is, and why.** It stands at (30, 8), between the outpost and the pad. Its 33 m reaches:
+
+- the outpost: station, depot and start area, 15–23 m away;
+- the whole pad, whose far corners are 32.3 and 32.6 m away;
+- the ground east and west of the pad.
+
+It does not reach the blast berm 3 m north of the pad (34.0–34.5 m away), nor the north of the site. So every coordinator meets coverage when it builds the berm, and has three ways to deal with it:
+
+- **Hold a relay.** The hauler's 150 m relay covers the whole site from anywhere, at the cost of its hauling and charging.
+- **Plan work that stays in coverage.** The scripted builder digs pits inside coverage and sends the spoil onto the berm.
+- **Pay a lost-link timeout** for each command that ends out there.
+
+The pad itself never needs a relay, so coverage costs time without making the mission hopeless. Week 5's 45 m from (10, 12) covered every cell a sensible plan touches, so coverage never mattered.
+
+**Out of coverage.**
+
+- Commands to the robot, and cancels of its command, are rejected `out_of_coverage`. Robots in coverage still take commands.
+- It keeps executing its command.
+- It holds back its own reports (`command_completed`, `command_failed`, `scan_result`, `robot_fault`). They are delivered, with their original `t`, when it comes back into coverage; that return is a decision point.
+- Until it returns, nothing it does is a decision point: a held event wakes nobody, and neither does its battery running out or it getting stuck with no command.
+- Its snapshot is the telemetry the site last received, with `in_relay_coverage: false` and `telemetry_t` set to when contact was lost. Its noise is drawn once, from the `coverage` stream, when contact is lost.
+- Truth records always show its true state and coverage.
+
+**Lost-link return.** An idle robot that has been out of coverage for `lost_link_timeout_s` drives straight toward the base station. It must have no command and not be engaged by another robot. It drives as far as the first covered cell on the way and stops there, or sooner if coverage comes back, for example because a relay starts holding.
+
+- The clock runs from when it lost contact, so a robot that finishes a long command out of coverage leaves at once if the timeout has already passed.
+- The drive is like any other: it costs energy and exposes the robot to wear, faults and getting stuck.
+- It shows `moving` with no `current_command`, and reports nothing.
+- If the drive ends out of coverage after all, because the coverage it was heading for has gone, the next drive starts at once.
+
+## 15. The `landing-pad-small` scenario
 
 - **Site:** 60 × 60 m with 1 m cells. Prior knowledge is noisy orbital elevation only.
 - **Goal:** a 20 × 20 m pad at (20, 20)–(39, 39), levelled to its mean prior elevation rounded to the centimetre, within ±0.05 m and ≤ 2°, stabilized. The berm is cells x = 24–35 at y = 42, 0.5 m high.
-- **Infrastructure:** charge station `st-1` at (10, 10), 6 kW over 2 slots; depot `dp-1` at (8, 14); base station at (10, 12) with `base_station_range_m` = 45 m. That range covers the pad, the berm and the nearby work areas but not the far corners. Coverage is enforced from week 6.
+- **Infrastructure:** charge station `st-1` at (10, 10), 6 kW over 2 slots; depot `dp-1` at (8, 14); base station at (30, 8) with `base_station_range_m` = 33 m, covering the outpost and the pad but not the berm (§14).
 - **Time limit:** 60 sols.
 - **Crew:** robots start at (12–15, 10).
 
@@ -230,11 +366,11 @@ The cold window is computed exactly in milliseconds, so depletion times stay exa
 | `hl-1` hauler | 300 kg | 12,000 Wh | 0.3 m/s | 0.7 Wh/m | 20 W | haul 3 kg/s, 400 kg; charge 0.5 Wh/s from an 8 kWh tank; relay 150 m |
 | `cp-1` compactor-sinterer | 500 kg | 10,000 Wh | 0.15 m/s | 1.0 Wh/m | 30 W | compact 0.1 m²/s at 4 Wh/m²; sinter 0.01 m²/s at 60 Wh/m² |
 
-**Default policy:** move_to, scan, dig, grade, haul, compact, sinter, charge, relay, wait, cancel, repair and service at level 1; tow, replan and reassign_task at 2; abandon_section and cannibalize at 3; commit_energy_reserve at 4. Anything else defaults to 2. Enforcement starts in week 6.
+**Default policy:** move_to, scan, dig, grade, haul, compact, sinter, charge, relay, wait, cancel, repair and service at level 1; tow, replan and reassign_task at 2; abandon_section and cannibalize at 3; commit_energy_reserve at 4. Anything else defaults to 2. Earth's trust script may change it during the run (§12).
 
-## 12. Randomness and reproducibility
+## 16. Randomness and reproducibility
 
-Every random draw comes from a named stream, seeded from the run seed and the stream name. Adding a process never shifts another's draws, and a stream is never drawn from at a new call site. Terrain, weather, the orbital prior and the scenario are therefore identical for every coordinator on a seed, and the same as in week 2; `tests/regression.rs` checks this byte for byte on seeds 1–5.
+Every random draw comes from a named stream, seeded from the run seed and the stream name. Adding a process never shifts another's draws, and a stream is never drawn from at a new call site. Terrain, weather, the orbital prior and the scenario are therefore identical for every coordinator on a seed, and the same as in week 2. `tests/regression.rs` checks this byte for byte on seeds 1–5, and checks that the Earth link's `comms` events are the same for every coordinator.
 
 | Stream | Draws |
 |---|---|
@@ -250,28 +386,49 @@ Every random draw comes from a named stream, seeded from the run seed and the st
 | `storm_faults` | Storm sensor faults. |
 | `stuck` | Getting stuck. |
 | `maintenance` | Duration noise of repair, tow, strip and install. |
+| `comms` | The Earth link: the conjunction's start, then the unplanned outages. |
+| `earth` | Mission control's response times and approvals. |
+| `coverage` | Telemetry noise of the snapshot a robot leaves when it loses contact. |
 
-Faults depend on what robots do, so they differ between coordinators. A coordinator that does the same things on the same seed gets the same faults, and the log is byte-identical.
+Faults depend on what robots do, and Earth's answers on what the coordinator asks, so they differ between coordinators. A coordinator that does the same things on the same seed gets the same faults and answers, and the log is byte-identical.
 
-## 13. Session limits and the event log
+## 17. Session limits and the event log
 
 | Parameter | Value | Rationale |
 |---|---|---|
 | Decision timeout (`--decision-timeout`) | 10 s wall clock | Generous for any reasonable coordinator. |
 | `max_observations_at_same_time` | 1000 | Catches a coordinator that keeps sim time frozen, for example by re-sending rejected commands. |
-| `one_way_delay_s` | 760 s | Fixed Earth delay until week 6 models the link. |
 
-Before `run_end`, the log records the run's final instant: any events not yet delivered to the coordinator, as `observed` records, and then a final `truth` record at the end time. The coordinator still gets only `end`.
+Records never go back in time.
 
-## 14. Calibration
+- Each event is logged as an `observed` record at the time it was delivered (the observation's `t`), while keeping the time it happened. So a `command_accepted` riding along to the next observation, or an event a robot held back out of coverage, is logged late.
+- Earth's messages are logged as `earth_uplink` records at the times Earth sends them, between observations.
+- The coordinator's messages are logged as `earth_downlink` records at the decision's `t`.
 
-These figures come from the scripted builder in `tests/support/builder.rs` on seeds 1–5. It works one task at a time: it repairs field-repairable faults with the scout, tows and services faults that need the depot, and revives offline robots with the mobile charger.
+Before `run_end`, the log records the run's final instant, all at the end time:
 
-- **nominal:** every pad finished in 1.85–2.00 sols, with 0–2 faults and 0–1 stuck events a run, and up to 2.1 robot-hours lost.
-- **faults off:** 1.59–1.86 sols, the week-2 baseline.
-- **cascading_faults:** every pad finished, in 2.16–2.37 sols, with 2–4 faults and 0–4 stuck events a run: about five times the nominal fault rate.
+1. What Earth has sent since the last observation.
+2. Every event never delivered to the coordinator, including those robots out of coverage were still holding back, as `observed` records.
+3. A final `truth` record.
 
-Over 2 sols the builder never strains the grid, so `solar_only` and `nominal` runs come out identical for it. The power variants matter for longer runs, bigger crews and storms.
+The coordinator still gets only `end`.
+
+## 18. Calibration
+
+These figures come from the scripted builder in `tests/support/builder.rs` on seeds 1–5. It works one task at a time:
+
+- It repairs field-repairable faults with the scout, tows faults that need the depot there for service, and revives offline robots with the mobile charger.
+- It keeps every task in direct coverage, building the berm from pits inside coverage.
+- It notifies Earth of each level-2 command (a tow), so it commits no policy violations and never needs an approval.
+
+| Variant | Sols to finish | Faults a run | Other |
+|---|---|---|---|
+| `nominal` | 1.76–1.97 | 0–2 | 0–1 stuck events a run, up to 2.1 robot-hours lost |
+| faults off | 1.57–1.78 | 0 | The core physics |
+| `cascading_faults` | 2.06–2.28 | 1–4 | About five times the nominal fault rate |
+| `conjunction` | 1.76–1.97 | 0–2 | The blackout starts 0.3–0.9 sols in, so most of the build happens during it; the builder needs nothing from Earth |
+
+Over 2 sols the builder never strains the grid, so its `solar_only` and `nuclear_heavy` runs come out identical to `nominal`. The power variants matter for longer runs, bigger crews and storms.
 
 A crew of four working continuously, with no repairs, sees four to six incidents in its first 3 sols.
 

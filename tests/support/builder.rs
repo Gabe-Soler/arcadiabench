@@ -12,6 +12,15 @@
 //! faults that need the depot are towed there and serviced; offline robots
 //! are recharged by the mobile charger, or towed to the station when that
 //! does not work. A task cut short by a fault is retried afterwards.
+//!
+//! Comms get minimal handling. All work stays in direct coverage of the
+//! base station: the berm, which is not, is built by digging pits just
+//! south of it, inside coverage, and sending the spoil onto it. Only robots
+//! that are in coverage get commands, and a command rejected
+//! `out_of_coverage` is retried later. Every level-2 command (under the
+//! policy in effect, which Earth may update) is reported with a `notify` in
+//! the same decision. The builder never needs a level-3 or level-4 action,
+//! so it never asks Earth for approval.
 
 use arcadia_protocol::*;
 use arcadiabench::coordinator::Agent;
@@ -31,6 +40,11 @@ const BORROW: GridRect = GridRect {
     max: GridCoord { x: 47, y: 23 },
 };
 const FILL_THRESHOLD_M: f64 = 0.08;
+/// Berm material comes from pits this far south of each berm cell.
+const BERM_PIT_OFFSET: u32 = 2;
+/// The pits are dug this far below their prior elevation: enough to raise
+/// the berm 0.5 m even where the prior is well off.
+const BERM_PIT_DEPTH_M: f64 = 1.6;
 const ASSUMED_DENSITY: f64 = 1550.0;
 /// After a rejection, wait this long before trying again, s.
 const BACKOFF_S: f64 = 600.0;
@@ -71,6 +85,8 @@ pub struct Builder {
     /// Robots the mobile charger already failed to revive.
     charger_tried: BTreeSet<String>,
     backoff_until: f64,
+    /// The authority policy in effect, from the scenario and Earth's updates.
+    policy: Option<Policy>,
     pub notes: Vec<String>,
 }
 
@@ -90,6 +106,7 @@ impl Builder {
             next_id: 0,
             charger_tried: BTreeSet::new(),
             backoff_until: 0.0,
+            policy: None,
             notes: Vec::new(),
         }
     }
@@ -223,11 +240,22 @@ impl Builder {
                 Phase::Finish
             }
             Phase::Finish => {
+                // The berm is out of coverage, so it is built from pits inside
+                // coverage, with the spoil sent onto it.
                 if let Some(berm) = &pad.berm {
-                    // Enough for 0.5 m even at the densest regolith, plus margin.
-                    let kg = berm.height_m * 1700.0 * 1.1;
                     for &c in &berm.cells.clone() {
-                        self.hauls(c, kg);
+                        let pit = GridCoord {
+                            x: c.x,
+                            y: c.y - BERM_PIT_OFFSET,
+                        };
+                        self.tasks.push_back(Self::task(
+                            "ex-1",
+                            Action::Dig {
+                                area: GridRect { min: pit, max: pit },
+                                target_elevation_m: self.prior[&(pit.x, pit.y)] - BERM_PIT_DEPTH_M,
+                                spoil_to: Some(c),
+                            },
+                        ));
                     }
                 }
                 Phase::Berm
@@ -252,11 +280,11 @@ impl Builder {
         self.robots.get(robot).map(|s| s.status)
     }
 
-    /// Free to take a command: idle and not running one.
+    /// Free to take a command: idle, not running one, and in coverage.
     fn available(&self, robot: &str) -> bool {
-        self.robots
-            .get(robot)
-            .is_some_and(|s| s.status == RobotStatus::Idle && s.current_command.is_none())
+        self.robots.get(robot).is_some_and(|s| {
+            s.status == RobotStatus::Idle && s.current_command.is_none() && s.in_relay_coverage
+        })
     }
 
     fn near(a: GridCoord, b: GridCoord) -> bool {
@@ -279,6 +307,10 @@ impl Builder {
             let Some(state) = self.robots.get(robot).cloned() else {
                 continue;
             };
+            // Out of coverage its snapshot is stale: nothing to act on yet.
+            if !state.in_relay_coverage {
+                continue;
+            }
             let pos = state.position;
             let task = match state.status {
                 RobotStatus::Offline => {
@@ -383,30 +415,49 @@ impl Builder {
         None
     }
 
-    fn issue(&mut self, task: Task) -> Command {
+    /// Issue a task in `decision`, with the notify a level-2 action needs.
+    fn issue(&mut self, task: Task, decision: &mut Decision) {
         self.next_id += 1;
         let id = format!("b-{:05}", self.next_id);
         self.active = Some((id.clone(), task.clone()));
-        Command {
+        let action = task.action.name();
+        let level = self
+            .policy
+            .as_ref()
+            .map_or(1, |p| p.level_for(action).get());
+        if level == 2 {
+            decision.to_earth.push(SiteToEarth {
+                message_id: format!("{id}-notify"),
+                body: Downlink::Notify {
+                    action: action.into(),
+                    summary: format!("{} {action}", task.robot),
+                    commands: Some(vec![id.clone()]),
+                },
+            });
+        }
+        decision.commands.push(Command {
             command_id: id,
             robot_id: task.robot.into(),
             approval_id: None,
             action: task.action,
-        }
+        });
     }
 
     fn handle(&mut self, event: &Event) {
         let active_id = self.active.as_ref().map(|(id, _)| id.clone());
         match &event.kind {
-            EventKind::EarthMessage { message, .. } => {
-                if let Uplink::Goal {
+            EventKind::EarthMessage { message, .. } => match &message.body {
+                Uplink::Goal {
                     objective: Objective::LandingPad { pad },
                     ..
-                } = &message.body
-                {
-                    self.pad = Some(pad.clone());
+                } => self.pad = Some(pad.clone()),
+                Uplink::PolicyUpdate { policy } => {
+                    self.notes
+                        .push(format!("policy version {}", policy.policy_version));
+                    self.policy = Some(policy.clone());
                 }
-            }
+                _ => {}
+            },
             EventKind::ScanResult { cells, .. } => {
                 for c in cells {
                     self.scanned.insert((c.at.x, c.at.y), c.cell.clone());
@@ -469,7 +520,9 @@ impl Builder {
                     // The world changed under us (a fault at the same instant, a
                     // target that moved on): back off and try again later.
                     _ if task.rescue => {}
-                    RejectReason::RobotDisabled | RejectReason::Busy => {
+                    RejectReason::RobotDisabled
+                    | RejectReason::Busy
+                    | RejectReason::OutOfCoverage => {
                         self.tasks.push_front(task);
                     }
                     other => panic!(
@@ -500,6 +553,7 @@ impl Agent for Builder {
         }
         self.station = hello.scenario.stations[0].position;
         self.depot = hello.scenario.depots[0].position;
+        self.policy = Some(hello.scenario.policy.clone());
         SoftwareInfo {
             name: "scripted-builder".into(),
             version: "0".into(),
@@ -532,7 +586,7 @@ impl Agent for Builder {
             self.charger_tried.remove(&r);
         }
         if let Some(task) = self.rescue_task() {
-            decision.commands.push(self.issue(task));
+            self.issue(task, &mut decision);
             return decision;
         }
         while self.tasks.is_empty() && self.phase != Phase::Done && self.pad.is_some() {
@@ -553,7 +607,7 @@ impl Agent for Builder {
             } else {
                 task
             };
-            decision.commands.push(self.issue(task));
+            self.issue(task, &mut decision);
         }
         decision
     }

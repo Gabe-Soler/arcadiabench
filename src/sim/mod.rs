@@ -1,16 +1,22 @@
 //! The discrete-event simulator.
 //!
-//! Robot actions, environment changes, failures and power accounting are
-//! events on one deterministic queue. [`Sim::advance`] runs events until the
-//! coordinator has something to decide, then returns an observation;
-//! [`Sim::apply`] feeds the decision back in. Command execution lives in
-//! [`actions`] and [`repair`], failures in [`hazards`] and [`faults`], and the
+//! Robot actions, environment changes, failures, power accounting, the Earth
+//! link and site coverage are events on one deterministic queue.
+//! [`Sim::advance`] runs events until the coordinator has something to
+//! decide, then returns an observation; [`Sim::apply`] feeds the decision
+//! back in. Command execution lives in [`actions`] and [`repair`], failures
+//! in [`hazards`] and [`faults`], the Earth link in [`link`] and [`earth`],
+//! authority enforcement in [`authority`], coverage in [`coverage`], and the
 //! run metrics in [`metrics`].
 
 pub mod actions;
+pub mod authority;
+pub mod coverage;
+pub mod earth;
 pub mod environment;
 pub mod faults;
 pub mod hazards;
+pub mod link;
 pub mod metrics;
 pub mod mission;
 pub mod params;
@@ -24,9 +30,13 @@ pub mod time;
 
 use crate::scenario::Generated;
 use arcadia_protocol::*;
+use authority::Authority;
+use coverage::Contact;
+use earth::{MissionControl, Outgoing};
 use environment::{EnvEvent, Environment};
 use faults::Exposure;
 use hazards::HazardKind;
+use link::EarthLink;
 use metrics::Tally;
 use mission::Mission;
 use params::Params;
@@ -62,6 +72,22 @@ pub(crate) enum Ev {
     Scripted(usize),
     PowerTick,
     Env(EnvEvent),
+    /// The `comms` report at this index of the link's reports is due.
+    Comms(usize),
+    /// Earth sends the message at this index of `outgoing`.
+    EarthSend(usize),
+    /// The Earth message at this index of `inbound` arrives at the site.
+    EarthArrive(usize),
+    /// The trust script's incident-free period ends (stale if an incident restarted it).
+    TrustCheck {
+        generation: u64,
+    },
+    /// A moving robot's cell may cross the edge of coverage.
+    CoverageCheck,
+    /// A robot's lost-link timeout may have run out.
+    LostLink {
+        robot: usize,
+    },
     Wake {
         generation: u64,
     },
@@ -105,13 +131,23 @@ pub(crate) struct Session {
     pub fill_tank: bool,
 }
 
+/// A `comms` event carrying a link report.
+fn comms_event(r: &link::Report) -> EventKind {
+    EventKind::Comms {
+        link: r.link,
+        cause: r.cause,
+        one_way_delay_s: r.delay_s,
+        expected_restore_t: r.expected_restore.map(secs),
+    }
+}
+
 /// Robots reach each other (to charge, repair, tow or strip) within this many cells.
 pub(crate) const REACH_CELLS: f64 = 1.5;
 
 /// Telemetry noise drawn for one robot in one observation.
-struct Noise {
-    battery_wh: f64,
-    health: [f64; 4],
+pub(crate) struct Noise {
+    pub battery_wh: f64,
+    pub health: [f64; 4],
 }
 
 pub struct Sim {
@@ -148,6 +184,30 @@ pub struct Sim {
     pub(crate) rng_stuck: Rng,
     /// Duration noise of repair, tow, strip and install work.
     pub(crate) rng_maintenance: Rng,
+    /// Telemetry noise of the snapshot a robot leaves when it loses contact.
+    pub(crate) rng_coverage: Rng,
+    /// The Earth link schedule.
+    pub(crate) link: EarthLink,
+    /// Scripted mission control.
+    pub(crate) earth: MissionControl,
+    /// Messages Earth will send, indexed by `Ev::EarthSend`.
+    pub(crate) outgoing: Vec<Outgoing>,
+    /// Earth messages on their way to the site with their send time, indexed by `Ev::EarthArrive`.
+    pub(crate) inbound: Vec<(SimMs, EarthToSite)>,
+    /// Earth messages sent and not yet logged: (send time, arrival, message).
+    pub(crate) uplink_log: Vec<(SimTime, Option<SimTime>, EarthToSite)>,
+    /// Approval requests, Earth's answers and the level-2 notify rule.
+    pub(crate) authority: Authority,
+    /// The site comms hub.
+    pub(crate) base: BaseStation,
+    /// Each robot's link to the site.
+    pub(crate) contact: Vec<Contact>,
+    /// Covered active relays: (position, relay range).
+    pub(crate) region: Vec<(GridCoord, f64)>,
+    /// Bumped whenever `region` changes.
+    pub(crate) region_version: u64,
+    /// Lost-link returns started.
+    pub(crate) lost_link_returns: u64,
     pub(crate) changed: BTreeSet<(u32, u32)>,
     pub(crate) command_ids: BTreeSet<String>,
     pub(crate) mission_dirty: bool,
@@ -167,6 +227,7 @@ impl Sim {
         } = generated;
         let time_limit = ms(scenario.time_limit_t);
         let env = Environment::generate(seed, time_limit, &params);
+        let link = EarthLink::generate(seed, time_limit, &params);
         let robots: Vec<RobotRt> = scenario
             .robots
             .iter()
@@ -209,6 +270,7 @@ impl Sim {
         let grid = Grid::new(&params);
         let tally = Tally::new(robots.len(), grid.bank_wh);
         let start = ms(scenario.start_t);
+        let contact = vec![Contact::default(); robots.len()];
 
         let mut sim = Self {
             grid,
@@ -242,6 +304,18 @@ impl Sim {
             rng_storm_faults: Rng::stream(seed, "storm_faults"),
             rng_stuck: Rng::stream(seed, "stuck"),
             rng_maintenance: Rng::stream(seed, "maintenance"),
+            rng_coverage: Rng::stream(seed, "coverage"),
+            link,
+            earth: MissionControl::new(seed, scenario.policy.clone()),
+            outgoing: Vec::new(),
+            inbound: Vec::new(),
+            uplink_log: Vec::new(),
+            authority: Authority::default(),
+            base: scenario.base_station.clone(),
+            contact,
+            region: Vec::new(),
+            region_version: 0,
+            lost_link_returns: 0,
             changed: BTreeSet::new(),
             command_ids: BTreeSet::new(),
             mission_dirty: false,
@@ -263,17 +337,14 @@ impl Sim {
         for r in 0..sim.robots.len() {
             sim.schedule_depletion(r);
         }
+        for (i, report) in sim.link.reports().iter().enumerate() {
+            sim.queue.push(report.t, Ev::Comms(i));
+        }
+        sim.schedule_trust_check();
+        sim.refresh_coverage();
 
         // What the coordinator sees at t = start: the link, the sky, the grid, and its goal.
-        sim.emit(
-            EventKind::Comms {
-                link: Link::Up,
-                cause: CommsCause::Nominal,
-                one_way_delay_s: sim.params.one_way_delay_s,
-                expected_restore_t: None,
-            },
-            true,
-        );
+        sim.emit(comms_event(&sim.link.report_at(sim.now)), true);
         sim.emit(sim.weather_event(), true);
         sim.emit(sim.power_event(), true);
         let now = secs(sim.now);
@@ -319,17 +390,20 @@ impl Sim {
                 .expect("the time-limit event is always queued");
             self.now = t;
             self.handle(ev);
+            self.refresh_coverage();
             self.refresh_out_of_action();
         }
     }
 
     /// Apply a coordinator decision. Returns the Earth-bound messages with
-    /// their delivery times.
-    pub fn apply(&mut self, decision: &Decision) -> Vec<(SiteToEarth, SimTime)> {
+    /// their arrival at Earth, absent when that would be after the time limit.
+    pub fn apply(&mut self, decision: &Decision) -> Vec<(SiteToEarth, Option<SimTime>)> {
         self.tally.decisions += 1;
         for command in &decision.commands {
             self.tally.commands += 1;
             self.submit(command);
+            // A command can start or end a relay, so the next one sees fresh coverage.
+            self.refresh_coverage();
         }
         self.wake_generation += 1;
         if let Some(w) = decision.wake_at {
@@ -343,22 +417,19 @@ impl Sim {
                 );
             }
         }
-        for m in &decision.to_earth {
-            self.tally.downlink(self.now, m, &self.policy);
-        }
-        self.refresh_out_of_action();
-        let deliver = secs(self.now) + self.params.one_way_delay_s;
-        decision
+        let sent = decision
             .to_earth
             .iter()
-            .map(|m| (m.clone(), deliver))
-            .collect()
+            .map(|m| (m.clone(), self.send_to_earth(m).map(secs)))
+            .collect();
+        self.refresh_out_of_action();
+        sent
     }
 
     /// Ground-truth robot states, free of telemetry noise.
     pub fn truth_robots(&self) -> Vec<RobotState> {
         (0..self.robots.len())
-            .map(|r| self.robot_state(r, None))
+            .map(|r| self.live_state(r, None))
             .collect()
     }
 
@@ -370,10 +441,19 @@ impl Sim {
             .collect()
     }
 
-    /// Events that happened but were never delivered in an observation
-    /// (those of the run's final instant).
-    pub fn take_pending(&mut self) -> Vec<Event> {
-        std::mem::take(&mut self.pending)
+    /// Events that happened but were never delivered in an observation:
+    /// those of the run's final instant, and those robots out of coverage
+    /// were still holding back, in time order.
+    pub fn take_undelivered(&mut self) -> Vec<Event> {
+        let mut events = std::mem::take(&mut self.pending);
+        events.extend(self.take_held());
+        events.sort_by(|a, b| a.t.total_cmp(&b.t));
+        events
+    }
+
+    /// Lost-link returns started so far.
+    pub fn lost_link_returns(&self) -> u64 {
+        self.lost_link_returns
     }
 
     /// True state of the site grid, sky and Earth link now.
@@ -387,6 +467,7 @@ impl Sim {
         } else {
             (self.grid.bank_wh, self.last_fraction)
         };
+        let link = self.link.report_at(self.now);
         SiteTruth {
             storage_wh,
             solar_w: self.grid.solar_w(&self.env, self.now),
@@ -394,8 +475,8 @@ impl Sim {
             demand_w: self.grid.essential_load_w + requested * fraction,
             optical_depth: self.env.tau(self.now),
             temperature_c: Environment::temperature_c(self.now),
-            link: Link::Up,
-            one_way_delay_s: self.params.one_way_delay_s,
+            link: link.link,
+            one_way_delay_s: link.delay_s,
         }
     }
 
@@ -459,6 +540,16 @@ impl Sim {
                 }
                 self.emit(self.power_event(), true);
             }
+            Ev::Comms(i) => {
+                let report = self.link.reports()[i];
+                self.emit(comms_event(&report), true);
+            }
+            Ev::EarthSend(i) => self.on_earth_send(i),
+            Ev::EarthArrive(i) => self.on_earth_arrive(i),
+            Ev::TrustCheck { generation } => self.on_trust_check(generation),
+            // The coverage refresh after every event does the work.
+            Ev::CoverageCheck => {}
+            Ev::LostLink { robot } => self.on_lost_link_timer(robot),
             Ev::Wake { generation } => {
                 if generation == self.wake_generation {
                     self.decision_due = true;
@@ -512,13 +603,19 @@ impl Sim {
         self.seq += 1;
         let robots = (0..self.robots.len())
             .map(|r| {
+                // Drawn for every robot, in coverage or not, so the noise of
+                // one robot never depends on another's coverage.
                 let noise = Noise {
                     battery_wh: self.params.telemetry_battery_noise_frac
                         * self.robots[r].spec.battery_capacity_wh
                         * self.rng_telemetry.normal(),
                     health: std::array::from_fn(|_| self.rng_health.normal()),
                 };
-                self.robot_state(r, Some(&noise))
+                match &self.contact[r].snapshot {
+                    // Out of coverage: what the site last heard.
+                    Some(last) if !self.contact[r].covered => last.clone(),
+                    _ => self.live_state(r, Some(&noise)),
+                }
             })
             .collect();
         Observation {
@@ -529,11 +626,14 @@ impl Sim {
         }
     }
 
-    fn robot_state(&self, r: usize, noise: Option<&Noise>) -> RobotState {
+    /// A robot's state now: telemetry with `noise`, or ground truth without.
+    pub(crate) fn live_state(&self, r: usize, noise: Option<&Noise>) -> RobotState {
         let robot = &self.robots[r];
+        let covered = self.contact[r].covered;
         if let Some(frozen) = &robot.frozen {
             return RobotState {
                 telemetry_t: secs(self.now),
+                in_relay_coverage: covered,
                 ..frozen.clone()
             };
         }
@@ -562,17 +662,42 @@ impl Sim {
             current_command: robot.running_command().map(String::from),
             health,
             faults: robot.health.active_faults(),
-            in_relay_coverage: true,
+            in_relay_coverage: covered,
             telemetry_t: secs(self.now),
         }
     }
 
+    /// Queue an event for the next observation; `decision` makes it a
+    /// decision point. A robot out of coverage holds back its own reports
+    /// until it is back in coverage, and they wake nobody meanwhile.
     pub(crate) fn emit(&mut self, kind: EventKind, decision: bool) {
-        self.pending.push(Event {
+        let event = Event {
             t: secs(self.now),
             kind,
-        });
+        };
+        let reporter = match &event.kind {
+            EventKind::CommandCompleted { robot_id, .. }
+            | EventKind::CommandFailed { robot_id, .. }
+            | EventKind::ScanResult { robot_id, .. }
+            | EventKind::RobotFault { robot_id, .. } => self.robot_ix.get(robot_id).copied(),
+            _ => None,
+        };
+        if let Some(r) = reporter
+            && !self.contact[r].covered
+        {
+            self.contact[r].held.push(event);
+            return;
+        }
+        self.pending.push(event);
         if decision {
+            self.decision_due = true;
+        }
+    }
+
+    /// A change to robot `r` that is a decision point with no event of its
+    /// own, if the site can hear the robot.
+    pub(crate) fn robot_changed(&mut self, r: usize) {
+        if self.contact[r].covered {
             self.decision_due = true;
         }
     }
@@ -630,14 +755,15 @@ impl Sim {
 
     // ----- a robot's own energy -----
 
-    /// Idle drain (plus the heater while it is cold) over `[t0, t1)`, Wh.
+    /// Idle drain (plus the heater while it is cold, and the radio of an
+    /// active relay) over `[t0, t1)`, Wh.
     fn drain_wh(&self, r: usize, t0: SimMs, t1: SimMs) -> f64 {
         if t1 <= t0 {
             return 0.0;
         }
         let robot = &self.robots[r];
-        let idle = robot.spec.idle_power_w;
-        let heater = self.params.heater_idle_factor * idle;
+        let idle = robot.spec.idle_power_w + robot.radio_w;
+        let heater = self.params.heater_idle_factor * robot.spec.idle_power_w;
         let cold_h = secs(self.env.cold_ms(t0, t1)) / 3600.0;
         (idle * secs(t1 - t0) / 3600.0 + heater * cold_h) * robot.health.energy_factor(&self.params)
     }
@@ -673,7 +799,7 @@ impl Sim {
         let robot = &self.robots[r];
         robot.drain_since?;
         let factor = robot.health.energy_factor(&self.params);
-        let idle_w = robot.spec.idle_power_w * factor;
+        let idle_w = (robot.spec.idle_power_w + robot.radio_w) * factor;
         let heater_w = self.params.heater_idle_factor * robot.spec.idle_power_w * factor;
         if idle_w <= 0.0 && heater_w <= 0.0 {
             return None;
@@ -931,7 +1057,7 @@ impl Sim {
             robot.offline = true;
             robot.drain_since = None;
             self.unschedule(r);
-            self.decision_due = true;
+            self.robot_changed(r);
         }
     }
 }

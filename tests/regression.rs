@@ -4,11 +4,17 @@
 //! text of week-2 runs of the null coordinator (`arcadiabench` 0.1.0,
 //! protocol 0.1.0), taken without parsing so they do not depend on how JSON
 //! numbers are parsed.
+//!
+//! The Earth link added in week 6 is part of the world too: its schedule
+//! comes from the seed alone, so every coordinator sees the same `comms`
+//! events.
+
+mod support;
 
 use arcadia_protocol::*;
 use arcadiabench::coordinator::{Agent, InProcess};
 use arcadiabench::log::EventLog;
-use arcadiabench::session::run_session;
+use arcadiabench::session::{RunReport, run_session};
 use arcadiabench::sim::params::Params;
 
 /// (seed, true_site text, scenario text, weather event texts, number of weather events).
@@ -157,4 +163,91 @@ fn seeds_1_to_5_keep_their_week_2_worlds() {
             "seed {seed}: weather"
         );
     }
+}
+
+fn strip_agent<A>((report, text, _): (RunReport, String, A)) -> (RunReport, String) {
+    (report, text)
+}
+
+/// The raw text of every `comms` event in a log, with its time.
+fn comms_events(text: &str) -> Vec<(f64, &str)> {
+    text.lines()
+        .filter(|l| {
+            l.contains("\"kind\":\"observed\",\"event\":{") && l.contains(",\"type\":\"comms\",")
+        })
+        .map(|l| {
+            let event = &l[l.find("\"event\":").unwrap() + "\"event\":".len()..l.len() - 1];
+            let t: serde_json::Value = serde_json::from_str(event).unwrap();
+            (t["t"].as_f64().unwrap(), event)
+        })
+        .collect()
+}
+
+#[test]
+fn the_link_schedule_does_not_depend_on_the_coordinator() {
+    for params in [Params::default(), Params::conjunction()] {
+        for seed in 1..=5 {
+            // A fleet kept alive for 60 sols, one that dies of cold in about
+            // 17, and one that builds the pad and talks to Earth.
+            let parker = Parker {
+                capacity: Vec::new(),
+                next: 0,
+            };
+            let runs = [
+                strip_agent(support::run_raw(parker, seed, &params)),
+                strip_agent(support::run_raw(support::Idle, seed, &params)),
+                strip_agent(support::run_raw(
+                    support::builder::Builder::new(),
+                    seed,
+                    &params,
+                )),
+            ];
+            let until = runs
+                .iter()
+                .map(|(r, _)| r.end_t)
+                .fold(f64::INFINITY, f64::min);
+            let link: Vec<Vec<&str>> = runs
+                .iter()
+                .map(|(_, text)| {
+                    comms_events(text)
+                        .into_iter()
+                        .filter(|&(t, _)| t < until)
+                        .map(|(_, e)| e)
+                        .collect()
+                })
+                .collect();
+            assert!(!link[0].is_empty());
+            assert_eq!(link[0], link[1], "seed {seed}: parker vs idle");
+            assert_eq!(link[0], link[2], "seed {seed}: parker vs builder");
+            if params.conjunction {
+                let parker_all = comms_events(&runs[0].1);
+                assert!(
+                    parker_all
+                        .iter()
+                        .any(|(_, e)| e.contains("\"cause\":\"conjunction\"")),
+                    "seed {seed}: the blackout is reported"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_60_sol_run_is_fast() {
+    // A fleet kept alive to the time limit, around a conjunction: every
+    // sol of the run is simulated, link and all.
+    let started = std::time::Instant::now();
+    let (report, _, _) = support::run_raw(
+        Parker {
+            capacity: Vec::new(),
+            next: 0,
+        },
+        3,
+        &Params::conjunction(),
+    );
+    let elapsed = started.elapsed();
+    assert_eq!(report.end_reason, EndReason::TimeLimit);
+    eprintln!("60-sol run: {elapsed:?}");
+    let bound = if cfg!(debug_assertions) { 30.0 } else { 1.0 };
+    assert!(elapsed.as_secs_f64() < bound, "{elapsed:?}");
 }
