@@ -28,7 +28,7 @@ usage:
                      [--save-logs] [--decision-timeout SECS] -- <coordinator> [args...]
   arcadiabench suite [--presets LIST] [--variants LIST] [--seeds LIST] [--jobs N] [--out DIR]
                      [--save-logs] [--decision-timeout SECS] -- <coordinator> [args...]
-  arcadiabench score [--json] <log or directory>...
+  arcadiabench score [--json] <log, metrics.jsonl or directory>...
 
   presets   small, medium, large (default small; suite: all)
   variants  nominal, dust_storm, conjunction, cascading_faults, solar_only,

@@ -55,7 +55,7 @@ speed = min(1, T_ref / sols)
 - **Scale-free.** Twice as fast is twice the speed, at any scale, so ratios of speeds are ratios of build rates. That is what lets resilience (§4) compare a slowed-down run with its nominal one fairly on every preset.
 - **Comparable across presets.** `T_ref` shrinks in proportion as a preset adds sinterers, so speed measures how well a coordinator uses the crew it has, not how big that crew is. A coordinator that keeps a Large crew as busy as a Small one gets the same speed on both.
 
-`T_ref` is a lower bound on any real build, apart from duration noise: a step's duration carries ±15% lognormal noise, so a perfect coordinator might beat `T_ref` by a few percent, and the cap absorbs that. No real build comes close. The pipeline has to fill before sintering can start, the Small compactor-sinterer needs about 5 hours of charging, and robots must drive. ArcadiaOS as of week 5 reaches a speed of about 0.56 on Small and 0.41 on Medium and Large.
+`T_ref` is a lower bound on any real build, apart from duration noise: a step's duration carries ±15% lognormal noise, so a perfect coordinator might beat `T_ref` by a few percent, and the cap absorbs that. No real build comes close. The pipeline has to fill before sintering can start, the Small compactor-sinterer needs about 5 hours of charging, and robots must drive. On seeds 1–50 of the nominal variant, ArcadiaOS reaches a mean speed of 0.56 on Small, 0.75 on Medium and 0.71 on Large, and the greedy baseline 0.50, 0.68 and 0.59 ([`results/v1.0/RESULTS.md`](../results/v1.0/RESULTS.md)).
 
 **Why not the time limit?** Speed could be measured against the 60-sol time limit, for example `1 − sols / 60`. That is comparable across presets, but builds take 0.1 to 2 sols, so every competent coordinator would score between 0.97 and 1.00, and a coordinator twice as fast as another would gain only about 1%. The headline would be the success rate in disguise. The outline's typical result, "finishes the pad X% faster than greedy", needs a speed that resolves those differences.
 
@@ -133,6 +133,7 @@ resilience = mean of resilience(preset) over the presets where it is known
 ```
 
 - **The stress variants** are the outline's three adversities. `solar_only` and `nuclear_heavy` are alternative power architectures, with nuclear-heavy the outline's "easy" mode, so they are scored but are not stresses.
+- **Every preset is stressed.** The dust storm and the blackout begin within the first 0.03 sol, so they cover most of even a Large crew's build, which takes under 0.1 sol ([`simulator.md`](simulator.md) §1, stress timing). Before week 9 they began up to 0.1 and 1.0 sols in, and a fast Medium or Large crew could finish before the stress arrived, which inflated its resilience.
 - **Retention is capped at 1.** A coordinator gains nothing from a stress variant that happens to go better than nominal; on a handful of seeds that is noise.
 - **Unknown cases.** A retention is null when that variant was not scored or the nominal headline is 0. A preset's resilience is null unless all three retentions are known.
 - **Scale-free.** Because speed is scale-free (§1), a run slowed to half its pace keeps half its score on every preset, so retentions are comparable across presets.
@@ -149,4 +150,4 @@ resilience = mean of resilience(preset) over the presets where it is known
   - With `--save-logs`, `logs/<run_id>.jsonl.gz`: every event log.
 
   `arcadiabench suite` writes one such directory per scenario, `<preset>-<variant>/`, plus `suite.json`, a report holding every scorecard and the resilience (`#/$defs/Report`). `arcadiabench score --json` prints the same report, built from event logs.
-- **Rescoring.** `arcadiabench score` reads only `run_start`, the opening goal and `run_end` from each log, so scorecards rebuilt from saved logs are identical to the ones the bench wrote. The one exception is the `error` text of runs that failed mid-run, which logs do not record.
+- **Rescoring.** `arcadiabench score` reads only `run_start`, the opening goal and `run_end` from each log, so scorecards rebuilt from saved logs are identical to the ones the bench wrote. The one exception is the `error` text of runs that failed mid-run, which logs do not record. Named as a file, a bench's `metrics.jsonl` is read as it is, `error` included, so the run records of several benches score together without their logs; that is how `results/v1.0/results.json` is built. A directory is searched for event logs only, so a bench's directory never gives a run twice.

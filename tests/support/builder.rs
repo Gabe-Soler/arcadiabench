@@ -575,11 +575,13 @@ impl Agent for Builder {
             decision.wake_at = Some(self.backoff_until);
             return decision;
         }
-        // A revived robot can be tried with the charger again later.
+        // A revived robot can be tried with the charger again later, once it
+        // has really recovered: a charger with a nearly empty tank leaves it
+        // just above empty, and it must then go to a station instead.
         let revived: Vec<String> = self
             .charger_tried
             .iter()
-            .filter(|r| self.status(r) != Some(RobotStatus::Offline))
+            .filter(|r| self.status(r) != Some(RobotStatus::Offline) && !self.battery_low(r))
             .cloned()
             .collect();
         for r in revived {

@@ -1,5 +1,7 @@
 //! ArcadiaBench: an open, seeded benchmark for coordinating robot crews building on Mars.
 //!
+//! - [`baselines`]: the random, greedy and first-come-first-served baseline
+//!   coordinators, protocol clients that share everything but allocation.
 //! - [`sim`]: the discrete-event simulator (terrain, robots, power, weather,
 //!   wear and faults, repair, mission, the Earth link, scripted mission
 //!   control, authority enforcement, coverage and relays, run metrics).
@@ -13,6 +15,7 @@
 //! - [`bench`](mod@bench): seeded batches and suites, run in parallel.
 //! - [`cli`]: the `arcadiabench` command line.
 
+pub mod baselines;
 pub mod bench;
 pub mod cli;
 pub mod coordinator;

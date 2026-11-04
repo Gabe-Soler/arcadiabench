@@ -391,8 +391,8 @@ impl Params {
             storm_peak_tau: (2.0, 4.0),
             dust_extinction: 0.6,
             dust_storm: false,
-            dust_storm_start_sols: (0.0, 0.1),
-            dust_storm_rise_sols: 0.1,
+            dust_storm_start_sols: (0.0, 0.02),
+            dust_storm_rise_sols: 0.03,
             dust_storm_sols: (4.0, 8.0),
             dust_storm_peak_tau: (3.5, 5.0),
 
@@ -401,7 +401,7 @@ impl Params {
             synodic_period_sols: 759.07,
             start_delay_s: 720.0,
             conjunction: false,
-            conjunction_start_sols: (0.2, 1.0),
+            conjunction_start_sols: (0.01, 0.03),
             conjunction_sols: 14.0,
             outage_per_sol: 0.15,
             outage_hours: (2.0, 8.0),
@@ -536,8 +536,10 @@ impl Params {
         }
     }
 
-    /// Nominal, around solar conjunction: the Earth link is down for about
-    /// two weeks starting early in the run, and the delay is near its longest.
+    /// Nominal, around solar conjunction: the Earth link goes down for about
+    /// two weeks between 15 and 45 minutes into the run, so the blackout
+    /// covers most of even the fastest build, and the delay is near its
+    /// longest.
     pub fn conjunction() -> Self {
         Self {
             variant: Variant::Conjunction,
@@ -546,10 +548,10 @@ impl Params {
         }
     }
 
-    /// Nominal, with a severe regional dust storm early in the run: its
-    /// front arrives within the first tenth of a sol (2.5 hours) and opacity
-    /// peaks a tenth of a sol later, so it weighs on every preset's build,
-    /// then dims the sun for days.
+    /// Nominal, with a severe regional dust storm from the start of the run:
+    /// its front arrives within the first half hour and opacity peaks about
+    /// 45 minutes later, so even the fastest build spends most of its time
+    /// in it, and it then dims the sun for days.
     pub fn dust_storm() -> Self {
         Self {
             variant: Variant::DustStorm,

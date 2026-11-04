@@ -6,7 +6,7 @@ ArcadiaBench is a fast, headless simulator of a construction site at Arcadia Pla
 
 ## Status
 
-**Week 7: scoring, presets and Python.** A coordinator can build a landing pad end to end while robots wear out, break down and get stuck, on a choice of power systems, with Earth minutes away behind a link that drops out, and authority rules that Earth enforces and updates. Crews come in three sizes, every scenario runs across seeds in parallel, and scorecards rank coordinators by success rate × speed. Python researchers can drive it all through the `arcadiabench` package.
+**Week 9: baselines and results.** A coordinator can build a landing pad end to end while robots wear out, break down and get stuck, on a choice of power systems, with Earth minutes away behind a link that drops out, and authority rules that Earth enforces and updates. Crews come in three sizes, every scenario runs across seeds in parallel, and scorecards rank coordinators by success rate × speed. Three baseline coordinators ship with the benchmark, and the first results compare them with ArcadiaOS across the whole catalog. Python researchers can drive it all through the `arcadiabench` package.
 
 - **Scenario catalog:** `landing-pad-<preset>-<variant>`. Three Standard track presets: Small (4 robots), Medium (10) and Large (20). Six variants: `nominal`, `dust_storm`, `conjunction`, `cascading_faults`, `solar_only` and `nuclear_heavy`. Every preset combines with every variant (see [Presets and variants](#presets-and-variants)).
 - **The site:** a seeded 60 × 60 m site (1 m cells) on a gently tilted plain, with variable regolith and a sparse boulder field. The goal is a 20 × 20 m pad with a 12 m blast berm. Crews are defined purely by capabilities and work from charge stations, depots and a comms base station. The coordinator starts with noisy orbital elevation data; scans reveal the ground truth, with sensor noise.
@@ -42,7 +42,9 @@ ArcadiaBench is a fast, headless simulator of a construction site at Arcadia Pla
 
   Every `truth` record carries the true state of the site's power grid, sky and link.
 - **Scoring:** per-run speed and score, scorecards over seeds with the headline success rate × speed, and resilience across stress variants (see [Scoring](#scoring)).
-- **Batch runs:** `arcadiabench bench` and `suite` run seeds in parallel coordinator processes and write per-run metrics, scorecards and gzipped logs. `arcadiabench score` rebuilds scorecards from saved logs. Results are byte-identical at any `--jobs`.
+- **Batch runs:** `arcadiabench bench` and `suite` run seeds in parallel coordinator processes and write per-run metrics, scorecards and gzipped logs. `arcadiabench score` rebuilds scorecards from saved logs or a bench's run records. Results are byte-identical at any `--jobs`.
+- **Baseline coordinators:** `baseline-random`, `baseline-greedy` and `baseline-fcfs` are honest protocol clients that share a task decomposition and safety behaviours and differ only in how they allocate tasks to robots (see [Baselines](#baselines)).
+- **Results:** ArcadiaOS and the baselines on every scenario over seeds 1–50, with four demo replays (see [Results](#results)).
 - **Python bindings:** the `arcadiabench` package (PyO3 + maturin) runs Python coordinators in process or as subprocesses, benches, scores and generates scenarios (see [Python](#python)).
 - **Discrete-event engine:** integer-millisecond clock and a deterministic event queue. Robot actions take durations and energy drawn from seeded distributions; there are no per-tick physics.
 - **Landing-pad task graph, enforced as physics:** each pad cell goes natural → cleared (dig) → graded → compacted → stabilized (sinter). Out-of-order work is rejected, and reworking a cell resets it. Material is conserved: dig spoil fills the robot's payload and then a stockpile, and haul moves real mass.
@@ -53,7 +55,7 @@ ArcadiaBench is a fast, headless simulator of a construction site at Arcadia Pla
 - **Coordinator harness:** every message is schema-validated, there's a per-decision wall-clock timeout (`--decision-timeout`, default 10 s), and a guard ends the run if a coordinator freezes sim time.
 - **Run event log:** JSONL (`event_log.schema.json`) with ground-truth robot snapshots, changed cells and site state at every decision point and at the very end. It is the input for scoring and for the replay viewer.
 
-**Not yet:** the random, greedy and first-come-first-served baseline coordinators, and full results across the catalog (week 9).
+**Next:** the v1.0 release (week 10).
 
 All tunables live in `src/sim/params.rs`, and [`docs/simulator.md`](docs/simulator.md) explains each one. They are plausible placeholders, and sourcing realistic values is still open. The interface semantics the simulator implements are in [arcadia-protocol's `docs/semantics.md`](https://github.com/Gabe-Soler/arcadia-protocol/blob/v0.2.0/docs/semantics.md).
 
@@ -72,8 +74,8 @@ Every robot is one of the same four designs, so results differ only by crew size
 | Variant | What it throws at the crew |
 |---|---|
 | `nominal` | Hybrid power and the nominal fault model. |
-| `dust_storm` | A severe regional storm arriving in the first 0.1 sol: sensor faults, faster wear, days of dim sun. |
-| `conjunction` | A 14-sol blackout of the Earth link early in the run, with the delay at its longest. |
+| `dust_storm` | A severe regional storm from the start: its front arrives in the first half hour and peaks within the next hour. Sensor faults, faster wear, days of dim sun. |
+| `conjunction` | A 14-sol blackout of the Earth link starting 15–45 minutes into the run, with the delay at its longest. |
 | `cascading_faults` | Four to five times the wear and failure rates, and fewer faults fixable in the field. |
 | `solar_only` | No fission: day-night swings and storms, with banking and rationing. |
 | `nuclear_heavy` | Mostly fission: steady supply against a fixed capacity limit. |
@@ -107,7 +109,7 @@ arcadiabench score results/small-nominal/logs
   - With `--save-logs`, every event log as `logs/<run_id>.jsonl.gz`.
 - **`suite`** writes one such directory per scenario under `results/` (or `--out DIR`), plus `suite.json` with every scorecard and the coordinator's resilience.
 - **Parallelism.** Runs go `--jobs` at a time (default: one per CPU), each with a fresh coordinator process. The outputs are byte-identical at any `--jobs`.
-- **`score`** reads `.jsonl` and `.jsonl.gz` event logs, and skips other files in a directory.
+- **`score`** reads `.jsonl` and `.jsonl.gz` event logs, and skips other files in a directory. Named as a file, a bench's `metrics.jsonl` is read too, so runs from several benches can be scored together without their logs.
 
 ## Scoring
 
@@ -125,6 +127,34 @@ The leaderboard ranks by one headline metric, **success rate × speed**, with a 
 - **Resilience** is, per preset, the mean over `dust_storm`, `conjunction` and `cascading_faults` of each one's headline over the nominal headline, capped at 1. A suite averages it over presets.
 
 [`docs/scoring.md`](docs/scoring.md) gives every formula and the reasoning behind it. [`schemas/scorecard.schema.json`](schemas/scorecard.schema.json) (draft 2020-12) describes run records, scorecards and reports.
+
+## Baselines
+
+Three baseline coordinators ship with the benchmark so results have a reference, as the project outline asks. Build them with `cargo build --release` and run them like any coordinator:
+
+```sh
+arcadiabench suite --seeds 1-50 -- ./target/release/baseline-greedy
+```
+
+They live in [`src/baselines/`](src/baselines/) and use only `arcadia_protocol`, so they know only what any coordinator could know; `tests/baselines.rs` checks this. They share everything but allocation:
+
+- **Task decomposition.** Each pad cell goes through survey, dig, fill (only if low), grade, compact, sinter and verify, one task at a time per cell, so cells can be at different stages and every robot can work at once. Dig spoil is cast onto low pad cells it suits, then onto the berm, then onto stockpiles beside the pad; the berm gets borrow pits inside coverage if the pad's spoil falls short.
+- **Safety.** A robot charges to full, at the station with the shortest trip and queue, when its battery falls below 20% or when it cannot afford the work waiting for it. A fault is repaired in the field by a repair-capable robot when it can be; otherwise the robot is towed to a depot and serviced, or left out of the work if nobody can help. A flat battery gets a mobile charger or a tow to a station.
+- **Coverage and authority.** All work stays in the base station's coverage, and a command refused `out_of_coverage` is retried after a pause. Every level-2 command gets a `notify` in the decision that issues it, and nothing at level 3 or 4 is ever done, so the baselines commit no policy violations.
+
+They differ only in how ready tasks meet free robots:
+
+| Baseline | Allocation |
+|---|---|
+| `baseline-random` | Ready tasks in priority order; each goes to a capable free robot drawn from a generator seeded with the run's seed. |
+| `baseline-greedy` | Ready tasks in priority order; each goes to the capable free robot with the lowest estimated cost, travel time plus work time. |
+| `baseline-fcfs` | First come, first served: robots in the order they became free; each takes the oldest ready task it can do. |
+
+Priority order is rescans and surveys, then verification scans, then the pad pipeline from its downstream end (sinter, compact, grade, fill, dig), then the berm; within a class, cells in sweep order. A robot only takes a task its battery covers, with the trip to a station after it. All three are deterministic.
+
+## Results
+
+[`results/v1.0/RESULTS.md`](results/v1.0/RESULTS.md) has the first benchmark results: ArcadiaOS and the three baselines on all 18 scenarios over seeds 1–50, 3,600 runs, with the headline table, every scorecard, resilience and the exact commands to reproduce them. In short, ArcadiaOS finishes the pad 15% faster than greedy on the nominal build and has the best headline in every scenario. [`docs/demos.md`](docs/demos.md) describes the four demo replays (a nominal build, a dust storm, a conjunction blackout and cascading faults) and how to open them in the replay viewer.
 
 ## Python
 
@@ -149,7 +179,7 @@ print(batch["scorecard"]["headline"])
 ## Develop
 
 ```sh
-cargo test     # unit tests, the scripted builder, faults and repair, energy, comms and authority, coverage, the catalog, scoring and batches, determinism, regression, harness robustness
+cargo test     # unit tests, the scripted builder, the baselines, faults and repair, energy, comms and authority, coverage, the catalog, scoring and batches, the published results, determinism, regression, harness robustness
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check
 ```
@@ -161,7 +191,7 @@ cd python && ~/.local/bin/uv venv .venv && ~/.local/bin/uv pip install --python 
 .venv/bin/maturin develop --uv --release && .venv/bin/python -m pytest
 ```
 
-`tests/support/builder.rs` is a naive scripted coordinator that builds the pad in about 2 sols using only what it observes, repairing, towing, servicing and recharging robots as faults strike. It keeps all its work in coverage and notifies Earth of every level-2 command. It's the proof that the default parameters make the mission buildable, through a conjunction and a dust storm, and on every preset. With faults turned off it takes about 1.7 sols.
+The baselines are the proof that the default parameters make the mission buildable: each of them finishes all 50 seeds of every scenario in the catalog. `tests/support/builder.rs` is an older, naive scripted coordinator that builds the pad one task at a time, in about 2 sols, using only what it observes and repairing, towing, servicing and recharging robots as faults strike. The regression tests pin its runs. With faults turned off it takes about 1.7 sols.
 
 ## License
 

@@ -319,9 +319,13 @@ mod tests {
             let mid = b.start + (b.end - b.start) / 2;
             assert!(c.delay_s(mid) > 1439.99, "{}", c.delay_s(mid));
             assert!(c.delay_s(0) > 1400.0 && c.delay_s(LIMIT) > 1390.0);
-            // About 14 sols, starting early in the run.
+            // About 14 sols, starting 0.01 to 0.03 sols into the run.
             assert_eq!(b.end - b.start, 14 * SOL_MS);
-            assert!(b.start >= SOL_MS / 5 && b.start <= SOL_MS, "{}", b.start);
+            assert!(
+                b.start >= SOL_MS / 100 && b.start <= 3 * SOL_MS / 100,
+                "{}",
+                b.start
+            );
         }
     }
 

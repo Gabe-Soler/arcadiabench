@@ -252,6 +252,16 @@ fn saved_logs_score_to_the_same_scorecards() {
     let scorecard: Scorecard =
         serde_json::from_str(&fs::read_to_string(out.join("scorecard.json")).unwrap()).unwrap();
     assert_eq!(scorecard, result.scorecard, "scorecard.json round-trips");
+    // Named as a file, metrics.jsonl gives the bench's run records, without
+    // the logs; something else named as a file is refused.
+    let metrics = out.join("metrics.jsonl");
+    assert_eq!(
+        logs::read_logs(std::slice::from_ref(&metrics)).unwrap(),
+        result.runs
+    );
+    let other = out.join("other.jsonl");
+    fs::write(&other, "{\"hello\":1}\n").unwrap();
+    assert!(logs::read_logs(&[other]).is_err());
 }
 
 fn cli(args: &[&str]) -> (i32, String, String) {

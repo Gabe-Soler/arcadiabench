@@ -4,6 +4,11 @@
 //! A log is scored from three of its records: `run_start` (seed, scenario,
 //! coordinator), the goal Earth sent at the start (the pad), and `run_end`
 //! (reason and metrics). Nothing else is parsed.
+//!
+//! A bench's `metrics.jsonl` already holds run records, one per line. Named
+//! as a file, it is read as it is, so runs from several benches can be
+//! scored together without their logs. A directory is searched for event
+//! logs only, so a bench directory never yields the same run twice.
 
 use super::RunRecord;
 use arcadia_protocol::*;
@@ -128,13 +133,43 @@ fn record_from_lines(lines: impl Iterator<Item = io::Result<String>>) -> Result<
     ))
 }
 
-/// Whether a file starts like an event log.
-fn starts_like_a_log(path: &Path) -> Result<bool, LogError> {
+/// The first line of a file.
+fn first_line(path: &Path) -> Result<String, LogError> {
     let mut first = String::new();
     open(path)?
         .read_line(&mut first)
         .map_err(|e| LogError::Io(path.into(), e))?;
-    Ok(first.contains("\"kind\":\"run_start\""))
+    Ok(first)
+}
+
+/// Whether a file starts like an event log.
+fn starts_like_a_log(path: &Path) -> Result<bool, LogError> {
+    Ok(first_line(path)?.contains("\"kind\":\"run_start\""))
+}
+
+/// The run records of a bench's `metrics.jsonl`, one per line.
+pub fn read_records(path: &Path) -> Result<Vec<RunRecord>, LogError> {
+    let mut out = Vec::new();
+    for line in open(path)?.lines() {
+        let line = line.map_err(|e| LogError::Io(path.into(), e))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let record = serde_json::from_str(&line)
+            .map_err(|e| LogError::Invalid(path.into(), format!("not a run record: {e}")))?;
+        out.push(record);
+    }
+    Ok(out)
+}
+
+/// The runs in one file: an event log's single run, or every record of a
+/// bench's `metrics.jsonl`.
+fn read_file(path: &Path) -> Result<Vec<RunRecord>, LogError> {
+    if starts_like_a_log(path)? || !first_line(path)?.contains("\"run_id\"") {
+        read_log(path).map(|r| vec![r])
+    } else {
+        read_records(path)
+    }
 }
 
 /// The event logs among `paths`: files as given, and every `.jsonl` or
@@ -170,16 +205,19 @@ pub fn find_logs(paths: &[PathBuf]) -> Result<Vec<PathBuf>, LogError> {
     Ok(out)
 }
 
-/// Score every log in `paths` (see [`find_logs`]), reading them in parallel.
-/// The records come back in the order of the sorted paths.
+/// One file's runs, once a reader thread has read it.
+type Slot = Mutex<Option<Result<Vec<RunRecord>, LogError>>>;
+
+/// Score every log in `paths` (see [`find_logs`]), reading them in parallel;
+/// a `metrics.jsonl` named as a file gives its run records. The records
+/// come back in the order of the sorted paths.
 pub fn read_logs(paths: &[PathBuf]) -> Result<Vec<RunRecord>, LogError> {
     let files = find_logs(paths)?;
     let jobs = thread::available_parallelism()
         .map_or(1, |n| n.get())
         .min(files.len().max(1));
     let next = Mutex::new(0usize);
-    let results: Vec<Mutex<Option<Result<RunRecord, LogError>>>> =
-        files.iter().map(|_| Mutex::new(None)).collect();
+    let results: Vec<Slot> = files.iter().map(|_| Mutex::new(None)).collect();
     thread::scope(|s| {
         for _ in 0..jobs {
             s.spawn(|| {
@@ -191,13 +229,14 @@ pub fn read_logs(paths: &[PathBuf]) -> Result<Vec<RunRecord>, LogError> {
                         i
                     };
                     let Some(path) = files.get(i) else { break };
-                    *results[i].lock().expect("lock") = Some(read_log(path));
+                    *results[i].lock().expect("lock") = Some(read_file(path));
                 }
             });
         }
     });
-    results
-        .into_iter()
-        .map(|r| r.into_inner().expect("lock").expect("every file is read"))
-        .collect()
+    let mut out = Vec::new();
+    for r in results {
+        out.extend(r.into_inner().expect("lock").expect("every file is read")?);
+    }
+    Ok(out)
 }
