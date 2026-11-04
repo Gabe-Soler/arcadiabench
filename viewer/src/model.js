@@ -9,7 +9,7 @@
 // station); everything that depends on them is optional. Unknown record
 // kinds, event types and fields are ignored.
 
-import { Series, Intervals, lastAtOrBefore } from './series.js';
+import { Series, Intervals, lastAtOrBefore, firstAtOrAfter } from './series.js';
 import { buildTrack, Track } from './motion.js';
 import { SiteIndex, padProgress } from './site.js';
 import { itemFromEvent, itemFromCommand, itemFromLink, itemFromRunEnd } from './feed.js';
@@ -21,6 +21,8 @@ export const KNOWN_PROTOCOLS = ['0.1', '0.2'];
 
 /** Statuses in which a robot cannot act. */
 export const DISABLED_STATUSES = new Set(['stuck', 'failed', 'offline', 'being_towed', 'lost']);
+/** Disabled statuses that hold until the next truth record says otherwise. */
+const HELD_STATUSES = new Set(['stuck', 'failed', 'offline', 'lost']);
 
 const isPoint = (p) => p != null && Number.isFinite(p.x) && Number.isFinite(p.y);
 const num = (v) => (Number.isFinite(v) ? v : null);
@@ -195,6 +197,16 @@ export class ReplayModel {
     this.t0 = this.info.startT;
     const lastTruth = b.truths.length ? b.truths[b.truths.length - 1].t : this.t0;
     this.lastTruthT = b.truths.length ? lastTruth : null;
+    // Since protocol 0.2 the simulator also writes the run's final instant: the
+    // events still pending and a last truth record at run_end's time, after the
+    // last decision. Older logs stop at the last decision, so the end of the
+    // run has to be inferred (see buildCommands and buildGoals).
+    let lastCommandT = -Infinity;
+    for (const it of b.stream) if (it.kind === 'commanded') lastCommandT = Math.max(lastCommandT, it.t);
+    this.finalInstant =
+      b.runEnd != null && b.truths.length > 0 && lastTruth >= Number(b.runEnd.t) - 1e-6 && lastCommandT < lastTruth - 1e-9;
+    /** Decision points: the metrics' count, else truth records less the final instant. */
+    this.decisionCount = num(this.info.metrics?.decisions) ?? b.truths.length - (this.finalInstant ? 1 : 0);
     this.tEnd = Math.max(num(Number(b.runEnd?.t)) ?? -Infinity, Number.isFinite(b.lastT) ? b.lastT : this.t0, lastTruth, this.t0);
     this.info.endT = b.runEnd ? Number(b.runEnd.t) : null;
     this.duration = Math.max(0, this.tEnd - this.t0);
@@ -332,11 +344,12 @@ export class ReplayModel {
           break;
       }
     }
-    // A run ends before the simulator sends its last observation, so commands
-    // issued at the final decision point never get an acceptance in the log.
-    // Treat them as running until the end.
+    // Logs without the final instant end before the simulator's last
+    // observation, so commands issued at the final decision point never get
+    // an acceptance in the log. Treat them as running until the end.
     const lastDecision = this.lastTruthT ?? -Infinity;
     for (const entry of this.commandEntries) {
+      if (this.finalInstant) break;
       if (entry.start == null && entry.outcome == null && entry.issued >= lastDecision) {
         entry.start = entry.issued;
         entry.assumed = true;
@@ -400,7 +413,12 @@ export class ReplayModel {
       const to = lastAtOrBefore(s.t, cmd.end);
       let towed = false;
       for (let i = Math.max(0, from); i <= to; i++) if (s.status[i] === 'being_towed') towed = true;
-      if (!towed) continue;
+      // A short tow may fall between snapshots: then the target simply turns
+      // up somewhere else when it ends.
+      const pre = Math.max(0, from - 1);
+      const post = firstAtOrAfter(s.t, cmd.end);
+      const moved = post < s.t.length && Math.hypot(s.x[post] - s.x[pre], s.y[post] - s.y[pre]) > 0.5;
+      if (!towed && !moved) continue;
       const old = target.track;
       const tower = p.tower.track;
       // A disabled robot stays put until it is picked up.
@@ -485,7 +503,7 @@ export class ReplayModel {
       scans.push({ start, end, cells, robot: it.e.robot_id });
     }
     const complete = this.info.endReason === 'goals_complete';
-    if (complete) {
+    if (complete && !this.finalInstant) {
       // The scan that completed the goal ends the run, and its result is never
       // logged: count scans still running at the end as finishing then.
       for (const entry of this.commandEntries) {
@@ -502,8 +520,11 @@ export class ReplayModel {
     }
     this.scans = scans;
     const progress = padProgress(this.site, spec, scans);
-    // goals_complete means the simulator judged every pad cell verified.
-    if (complete && (progress.verified.step(this.tEnd) ?? 0) < progress.total) progress.verified.push(this.tEnd, progress.total);
+    // goals_complete means the simulator judged every pad cell verified; logs
+    // without the final instant lack the scan that proved it.
+    if (complete && !this.finalInstant && (progress.verified.step(this.tEnd) ?? 0) < progress.total) {
+      progress.verified.push(this.tEnd, progress.total);
+    }
     this.pad = { goalId: g.goal.goal_id, arrivedT: g.t, spec, progress };
   }
 
@@ -668,11 +689,24 @@ export class ReplayModel {
 
   buildFeed(b) {
     const items = [];
+    // Policy updates are described by what they change: against the policy
+    // Earth last sent for the uplink, and the one in force at the site for
+    // its arrival.
+    let sitePolicy = this.info.policy;
     for (const it of b.stream) {
-      const item = it.kind === 'commanded' ? itemFromCommand(it.c, it.t) : itemFromEvent(it.e, it.t);
+      let item;
+      if (it.kind === 'commanded') item = itemFromCommand(it.c, it.t);
+      else {
+        item = itemFromEvent(it.e, it.t, { prevPolicy: sitePolicy });
+        if (it.e.type === 'earth_message' && it.e.message?.type === 'policy_update') sitePolicy = it.e.message.policy;
+      }
       if (item) items.push({ ...item, seq: it.seq });
     }
-    for (const u of b.uplinks) items.push({ ...itemFromLink('up', u), seq: u.seq });
+    let sentPolicy = this.info.policy;
+    for (const u of b.uplinks) {
+      items.push({ ...itemFromLink('up', u, { prevPolicy: sentPolicy }), seq: u.seq });
+      if (u.message?.type === 'policy_update') sentPolicy = u.message.policy;
+    }
     for (const d of b.downlinks) items.push({ ...itemFromLink('down', d), seq: d.seq });
     if (b.runEnd) items.push({ ...itemFromRunEnd({ ...b.runEnd, t: this.tEnd }), seq: b.seq });
     items.sort((x, y) => x.t - y.t || x.seq - y.seq);
@@ -723,14 +757,18 @@ export class ReplayModel {
     }
     if (j < 0) j = 0;
     const cap = r.spec.batteryWh;
+    // A robot the truth shows as disabled stays so in between, even while a
+    // command of its own (such as depot service) runs.
+    let status = st.status;
+    if (status !== 'being_towed' && HELD_STATUSES.has(s.status[j]) && s.t[j] <= t) status = s.status[j];
     return {
       index: i,
       id: r.id,
       spec: r.spec,
       x: st.x,
       y: st.y,
-      heading: st.heading,
-      status: st.status,
+      heading: status === st.status ? st.heading : null,
+      status,
       battery,
       batteryFrac: battery != null && cap ? Math.min(1, Math.max(0, battery / cap)) : null,
       payload: st.payload ?? 0,
@@ -740,7 +778,7 @@ export class ReplayModel {
       health: s.health[j],
       sampleT: s.t[j],
       command: this.activeCommand(i, t),
-      lost: st.status === 'lost',
+      lost: status === 'lost',
     };
   }
 

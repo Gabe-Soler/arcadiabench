@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SiteIndex, padProgress, surfaceCode, SURFACES, OTHER_SURFACE } from '../src/site.js';
+import { SiteIndex, padProgress, padStage, surfaceCode, SURFACES, OTHER_SURFACE } from '../src/site.js';
 
 function site(width = 6, height = 4, elev = -4102) {
   const cells = [];
@@ -76,4 +76,20 @@ test('a pad that only needs compaction counts compacted cells', () => {
   const p = padProgress(s, { ...pad, stabilize: false, berm: undefined }, []);
   assert.equal(p.inSpec.step(10), 1);
   assert.equal(p.bermTotal, 0);
+});
+
+test('the pad stage reads the work done, not only cells in spec', () => {
+  const counts = (inSpec, verified, berm) => ({ inSpec, verified, berm, total: 4, bermTotal: 1 });
+  const natural = [4, 0, 0, 0, 0, 0, 0, 0];
+  const graded = [1, 0, 3, 0, 0, 0, 0, 0];
+  const done = [0, 0, 0, 0, 4, 0, 0, 0];
+  assert.equal(padStage(null, natural, { t: 5 }).key, 'none');
+  assert.equal(padStage(counts(0, 0, 0), natural, { t: 5, goalT: 10 }).key, 'waiting');
+  assert.equal(padStage(counts(0, 0, 0), natural, { t: 50, goalT: 10 }).key, 'not_started');
+  assert.deepEqual(padStage(counts(0, 0, 0), graded, { t: 50 }), { key: 'in_progress', label: 'in progress' });
+  assert.equal(padStage(counts(0, 0, 1), natural, { t: 50 }).key, 'in_progress', 'a berm cell counts as work');
+  assert.equal(padStage(counts(4, 2, 0), done, { t: 50 }).key, 'in_progress', 'the berm is not built yet');
+  assert.equal(padStage(counts(4, 2, 1), done, { t: 50 }).key, 'verifying');
+  assert.equal(padStage(counts(4, 4, 1), done, { t: 50 }).key, 'complete');
+  assert.equal(padStage(counts(3, 3, 1), done, { t: 50, complete: true }).key, 'complete');
 });

@@ -301,6 +301,17 @@ function computeFrame(t) {
     const r = robots[state.selected];
     if (r?.command) frame.selectedPath = m.robots[state.selected].track.between(t, r.command.end);
   }
+  // Robots working on other robots, and robots under repair or service.
+  frame.links = [];
+  for (const r of robots) {
+    const c = r?.command?.cmd;
+    if (!c) continue;
+    if (c.type === 'service') r.servicing = true;
+    const target = ['repair', 'tow', 'cannibalize'].includes(c.type) ? m.robotIndex.get(c.target_robot) : undefined;
+    if (target == null || !robots[target]) continue;
+    frame.links.push({ from: r.index, to: target, kind: c.type });
+    if (c.type === 'repair') robots[target].servicing = true;
+  }
   return frame;
 }
 

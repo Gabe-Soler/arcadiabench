@@ -202,3 +202,52 @@ test('runs without run_start or a site map are rejected with a clear error', () 
   delete noSite.true_site;
   assert.throws(() => modelFromRecords([noSite]), (e) => e instanceof LogError && /true_site/.test(e.message));
 });
+
+test('a log with the final instant is taken at its word, and its final truth is not a decision', () => {
+  const recs = log({ end: null });
+  const area = goal.objective.pad.area;
+  recs.push({ t: 600, kind: 'commanded', command: { command_id: 'c-3', robot_id: 'sc-1', type: 'scan', area } });
+  // Protocol 0.2: the acceptance rides with the next observation, here the final instant.
+  recs.push({ t: 640, kind: 'observed', event: { t: 600, type: 'command_accepted', command_id: 'c-3', robot_id: 'sc-1', estimated_duration_s: 40 } });
+  recs.push(ev(640, { type: 'scan_result', command_id: 'c-3', robot_id: 'sc-1', cells: [2, 3].map((x) => ({ at: { x, y: 2 }, cell: { elevation_m: -4102, surface: 'compacted' } })) }));
+  recs.push(ev(640, { type: 'command_completed', command_id: 'c-3', robot_id: 'sc-1', energy_used_wh: 1 }));
+  recs.push(truth(640, [robot('hl-1', 2, 2, 'idle', 860), robot('sc-1', 3, 2)]));
+  recs.push({ t: 640, kind: 'run_end', reason: 'goals_complete' });
+  const m = modelFromRecords(recs);
+  assert.equal(m.finalInstant, true);
+  assert.equal(m.decisionCount, 3, 'truth records at 0, 300 and 600; 640 is the final instant');
+  assert.ok(m.commandEntries.every((c) => !c.assumed));
+  assert.ok(!m.scans.some((s) => s.synthetic));
+  const scan = m.commandEntries.find((c) => c.id === 'c-3');
+  assert.deepEqual([scan.start, scan.end, scan.outcome], [600, 640, 'completed']);
+  assert.deepEqual(m.padAt(639), { inSpec: 1, verified: 0, berm: 0, total: 2, bermTotal: 0 });
+  assert.equal(m.padAt(640).verified, 2, 'the logged scan verifies both pad cells');
+  const late = m.feed.items.filter((i) => i.late > 0);
+  assert.deepEqual(late, [], 'acceptances that ride along are not reported as late');
+});
+
+test('a 20-robot crew replays: every robot moves, works and shows in the feed', () => {
+  const rs = runStart();
+  const base = rs.scenario.robots[0];
+  rs.scenario.robots = Array.from({ length: 20 }, (_, i) => ({ ...base, robot_id: `r-${i + 1}` }));
+  const at = (t, k) => rs.scenario.robots.map((spec, i) => robot(spec.robot_id, i % 8, Math.floor(i / 8) + k, k === 1 ? 'moving' : 'idle'));
+  const recs = [rs, truth(0, at(0, 0))];
+  rs.scenario.robots.forEach((spec, i) => {
+    recs.push({ t: 0, kind: 'commanded', command: { command_id: `m-${i}`, robot_id: spec.robot_id, type: 'move_to', target: { x: i % 8, y: Math.floor(i / 8) + 2 } } });
+    recs.push(ev(0, { type: 'command_accepted', command_id: `m-${i}`, robot_id: spec.robot_id, estimated_duration_s: 2 }));
+  });
+  rs.scenario.robots.forEach((spec, i) => recs.push(ev(2, { type: 'command_completed', command_id: `m-${i}`, robot_id: spec.robot_id, energy_used_wh: 1 })));
+  recs.push(truth(2, at(2, 2)));
+  recs.push({ t: 3, kind: 'run_end', reason: 'time_limit' });
+  const m = modelFromRecords(recs);
+  assert.deepEqual(m.warnings, []);
+  assert.equal(m.robots.length, 20);
+  for (let i = 0; i < 20; i++) {
+    const mid = m.robotAt(i, 1);
+    assert.equal(mid.status, 'moving');
+    assert.equal(mid.command.id, `m-${i}`);
+    assert.equal(m.robotAt(i, 2.5).y, Math.floor(i / 8) + 2);
+  }
+  assert.equal(m.feed.items.filter((it) => it.cat === 'command').length, 20);
+  assert.equal(new Set(m.feed.items.filter((it) => it.robot).map((it) => it.robot)).size, 20);
+});

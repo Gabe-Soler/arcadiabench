@@ -11,8 +11,47 @@ export const CATEGORIES = [
   ['site', 'Site'],
 ];
 
-/** Short description of an Earth link message (either direction). */
-export function describeEarthMessage(m) {
+/** Drop a leading "action:" from a summary that repeats its action name. */
+function summaryAfter(action, summary) {
+  const text = String(summary ?? '').trim();
+  const name = String(action ?? '');
+  if (!name) return text;
+  for (const prefix of [name, humanize(name)]) {
+    if (text.toLowerCase().startsWith(`${prefix.toLowerCase()}:`)) return text.slice(prefix.length + 1).trim();
+  }
+  return text;
+}
+
+/**
+ * Changes from one authority policy to the next, as short phrases such as
+ * "tow 2→1". Levels for actions not listed fall back to the default level.
+ */
+export function policyChanges(prev, next) {
+  if (!next || typeof next !== 'object') return [];
+  const out = [];
+  const levelOf = (p, a) => p?.levels?.[a] ?? p?.default_level;
+  const actions = new Set([...Object.keys(prev?.levels ?? {}), ...Object.keys(next.levels ?? {})]);
+  for (const a of [...actions].sort()) {
+    const before = levelOf(prev, a);
+    const after = levelOf(next, a);
+    if (before !== after) out.push(`${humanize(a)} ${before ?? '?'}→${after ?? '?'}`);
+  }
+  if (prev && prev.default_level !== next.default_level) out.push(`default ${prev.default_level}→${next.default_level}`);
+  const l3a = prev?.level3;
+  const l3b = next.level3;
+  if (l3a && l3b) {
+    if (l3a.max_wait_s !== l3b.max_wait_s) out.push(`level-3 wait ${fmtDuration(l3a.max_wait_s)}→${fmtDuration(l3b.max_wait_s)}`);
+    if (l3a.default_fallback !== l3b.default_fallback) out.push(`level-3 fallback ${l3a.default_fallback}→${l3b.default_fallback}`);
+  }
+  return out;
+}
+
+/**
+ * Short description of an Earth link message (either direction). For a
+ * policy update, `prevPolicy` is the policy it replaces, so the changes can
+ * be listed.
+ */
+export function describeEarthMessage(m, prevPolicy) {
   if (!m || typeof m !== 'object') return 'message';
   switch (m.type) {
     case 'goal': {
@@ -30,12 +69,15 @@ export function describeEarthMessage(m) {
       return `veto ${m.request_id}${m.note ? ` (“${m.note}”)` : ''}`;
     case 'reprioritize':
       return 'reprioritize goals';
-    case 'policy_update':
-      return `policy update v${m.policy?.policy_version ?? '?'}`;
+    case 'policy_update': {
+      const changes = prevPolicy ? policyChanges(prevPolicy, m.policy) : [];
+      const what = prevPolicy ? (changes.length ? `: ${changes.join(', ')}` : ': no level changes') : '';
+      return `policy update v${m.policy?.policy_version ?? '?'}${what}`;
+    }
     case 'notify':
-      return `notify ${humanize(m.action)}: ${m.summary ?? ''}`.trim();
+      return `notify (${humanize(m.action)}): ${summaryAfter(m.action, m.summary)}`;
     case 'approval_request':
-      return `approval request ${humanize(m.action)}: ${m.summary ?? ''}`.trim();
+      return `approval request (${humanize(m.action)}): ${summaryAfter(m.action, m.summary)}`;
     case 'status_report':
       return `status report: ${m.summary ?? ''}`.trim();
     default:
@@ -52,7 +94,7 @@ function late(recordT, eventT) {
  * (acceptances and routine power reports are summarised elsewhere).
  * `t` is when the record was logged (delivery); `et` is when the event happened.
  */
-export function itemFromEvent(e, t) {
+export function itemFromEvent(e, t, { prevPolicy } = {}) {
   const et = Number.isFinite(e.t) ? e.t : t;
   const base = { t, et, late: late(t, et), robot: e.robot_id ?? null, id: e.command_id ?? null };
   switch (e.type) {
@@ -106,7 +148,7 @@ export function itemFromEvent(e, t) {
         robot: null,
         cat: 'earth',
         sev: 'info',
-        text: `received from Earth: ${describeEarthMessage(e.message)}`,
+        text: `received from Earth: ${describeEarthMessage(e.message, prevPolicy)}`,
         note: Number.isFinite(e.sent_t) && et - e.sent_t > 0 ? `sent ${fmtDuration(et - e.sent_t)} earlier` : '',
       };
     default:
@@ -129,7 +171,7 @@ export function itemFromCommand(c, t) {
 }
 
 /** Feed item for an Earth link record; `rec.deliver` (or `deliver_t`) is the arrival time. */
-export function itemFromLink(direction, rec) {
+export function itemFromLink(direction, rec, { prevPolicy } = {}) {
   const toEarth = direction === 'down';
   const at = rec.deliver !== undefined ? rec.deliver : rec.deliver_t;
   const deliver = Number.isFinite(at) ? at : null;
@@ -141,7 +183,7 @@ export function itemFromLink(direction, rec) {
     id: rec.message?.message_id ?? null,
     cat: 'earth',
     sev: 'info',
-    text: `${toEarth ? 'sent to Earth' : 'Earth sent'}: ${describeEarthMessage(rec.message)}`,
+    text: `${toEarth ? 'sent to Earth' : 'Earth sent'}: ${describeEarthMessage(rec.message, prevPolicy)}`,
     note: deliver == null ? 'never delivered' : `arrives in ${fmtDuration(deliver - rec.t)}`,
   };
 }

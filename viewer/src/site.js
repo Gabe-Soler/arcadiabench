@@ -269,3 +269,26 @@ export function padProgress(site, pad, scans = []) {
     },
   };
 }
+
+/**
+ * Where the pad stands, for the panel's tag. `counts` is a padAt() result,
+ * `surfaces` the pad cells per surface code, and `opts` gives the time, when
+ * the goal arrived and whether the run finished the goal by then.
+ *
+ * - `waiting`: the goal has not arrived yet.
+ * - `not_started`: every pad cell is untouched.
+ * - `in_progress`: work has begun, even if no cell is in spec yet.
+ * - `verifying`: every cell is in spec (and the berm built), awaiting scans.
+ * - `complete`: in spec, berm built and verified, or the run ended complete.
+ */
+export function padStage(counts, surfaces, { t, goalT = -Infinity, complete = false } = {}) {
+  if (!counts) return { key: 'none', label: 'no goal' };
+  if (t < goalT) return { key: 'waiting', label: 'no goal yet' };
+  const built = counts.inSpec >= counts.total && counts.berm >= counts.bermTotal;
+  if (complete || (built && counts.verified >= counts.total)) return { key: 'complete', label: 'complete' };
+  if (built) return { key: 'verifying', label: 'awaiting verification' };
+  const natural = surfaces?.[0] ?? counts.total;
+  const worked = counts.total - natural;
+  if (worked > 0 || counts.inSpec > 0 || counts.berm > 0) return { key: 'in_progress', label: 'in progress' };
+  return { key: 'not_started', label: 'not started' };
+}

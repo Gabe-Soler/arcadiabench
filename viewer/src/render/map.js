@@ -4,6 +4,7 @@
 import { drawGlyph, drawStation, drawDepot, drawBaseStation } from './glyphs.js';
 import { statusColor, batteryColor } from './palette.js';
 import { nightFactor } from '../format.js';
+import { spread, placeLabels } from '../layout.js';
 
 const MARGIN = 26;
 
@@ -133,6 +134,7 @@ export class MapView {
     this.drawFixtures(ctx);
     this.drawEnvironment(ctx, f, x0, y0, sw, sh);
     this.drawPath(ctx, f);
+    this.drawLinks(ctx, f);
     this.drawRobots(ctx, f);
     this.drawScale(ctx);
   }
@@ -334,30 +336,37 @@ export class MapView {
     ctx.restore();
   }
 
+  /** Dashed links from robots repairing, towing or stripping other robots. */
+  drawLinks(ctx, f) {
+    if (!f.links?.length) return;
+    const colors = { repair: '#7dd3fc', tow: '#c084fc', cannibalize: '#f87171' };
+    ctx.save();
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 3]);
+    for (const l of f.links) {
+      const a = f.robots[l.from];
+      const b = f.robots[l.to];
+      if (!a || !b) continue;
+      // Only once they are together: before that the path shows the approach.
+      if (Math.hypot(a.x - b.x, a.y - b.y) > 2.5) continue;
+      const [ax, ay] = this.cellCentre(a.x, a.y);
+      const [bx, by] = this.cellCentre(b.x, b.y);
+      ctx.strokeStyle = colors[l.kind] ?? '#e2e8f0';
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   drawRobots(ctx, f) {
     const R = Math.max(8, Math.min(17, this.scale * 0.9));
     // Spread robots that share a spot so each stays legible.
-    const placed = f.robots.filter(Boolean).map((r) => ({ r, x: r.x, y: r.y }));
-    const min = (2.1 * R) / this.scale;
-    for (let pass = 0; pass < 8; pass++) {
-      let moved = false;
-      for (let i = 0; i < placed.length; i++) {
-        for (let j = 0; j < i; j++) {
-          const a = placed[i];
-          const b = placed[j];
-          const d = Math.hypot(a.x - b.x, a.y - b.y);
-          if (d >= min - 1e-6) continue;
-          const ang = d > 1e-6 ? Math.atan2(a.y - b.y, a.x - b.x) : (i * Math.PI * 2) / placed.length;
-          const push = (min - d) / 2;
-          a.x += Math.cos(ang) * push;
-          a.y += Math.sin(ang) * push;
-          b.x -= Math.cos(ang) * push;
-          b.y -= Math.sin(ang) * push;
-          moved = true;
-        }
-      }
-      if (!moved) break;
-    }
+    const placed = spread(
+      f.robots.filter(Boolean).map((r) => ({ r, x: r.x, y: r.y })),
+      (2.1 * R) / this.scale,
+    );
     placed.sort((a, b) => (a.r.lost ? -1 : 0) - (b.r.lost ? -1 : 0) || (a.r.index === f.selected) - (b.r.index === f.selected));
     this.hitboxes = [];
     for (const p of placed) {
@@ -367,40 +376,28 @@ export class MapView {
       this.drawRobot(ctx, p.r, sx, sy, R, p.r.index === f.selected, p.r.index === f.hover);
       this.hitboxes.push({ index: p.r.index, x: sx, y: sy, r: R });
     }
-    this.drawLabels(ctx, placed, R, f.selected);
+    this.drawLabels(ctx, placed, R, f.selected, f.hover);
   }
 
-  /**
-   * Robot labels, drawn after every robot so none is hidden. Each goes above
-   * its robot unless that would cover another robot or label; then below the
-   * bars, then to either side.
-   */
-  drawLabels(ctx, placed, R, selected) {
+  /** Robot labels, drawn after every robot so none is hidden (see layout.placeLabels). */
+  drawLabels(ctx, placed, R, selected, hover) {
     ctx.save();
     ctx.font = '600 11px system-ui, sans-serif';
-    const bodies = placed.map((p) => ({ owner: p, x0: p.sx - R - 2, x1: p.sx + R + 2, y0: p.sy - R - 6, y1: p.sy + R + 13 }));
-    const taken = [];
-    const hits = (box, owner) =>
-      taken.some((o) => box.x0 < o.x1 && box.x1 > o.x0 && box.y0 < o.y1 && box.y1 > o.y0) ||
-      bodies.some((o) => o.owner !== owner && box.x0 < o.x1 && box.x1 > o.x0 && box.y0 < o.y1 && box.y1 > o.y0);
-    // The selected robot chooses first, then the rest from the top down.
-    const order = [...placed].sort((a, b) => (b.r.index === selected) - (a.r.index === selected) || a.sy - b.sy);
-    for (const p of order) {
-      const { sx, sy } = p;
-      const w = ctx.measureText(p.r.id).width + 4;
-      const options = [
-        { x: sx, y: sy - R - 3, align: 'center', base: 'bottom', box: { x0: sx - w / 2, x1: sx + w / 2, y0: sy - R - 16, y1: sy - R - 3 } },
-        { x: sx, y: sy + R + 26, align: 'center', base: 'bottom', box: { x0: sx - w / 2, x1: sx + w / 2, y0: sy + R + 13, y1: sy + R + 26 } },
-        { x: sx + R + 7, y: sy, align: 'left', base: 'middle', box: { x0: sx + R + 5, x1: sx + R + 7 + w, y0: sy - 7, y1: sy + 7 } },
-        { x: sx - R - 7, y: sy, align: 'right', base: 'middle', box: { x0: sx - R - 7 - w, x1: sx - R - 5, y0: sy - 7, y1: sy + 7 } },
-      ];
-      const pick = options.find((o) => !hits(o.box, p)) ?? options[0];
-      taken.push(pick.box);
-      ctx.textAlign = pick.align;
-      ctx.textBaseline = pick.base;
+    const items = placed.map((p) => ({
+      sx: p.sx,
+      sy: p.sy,
+      w: ctx.measureText(p.r.id).width + 4,
+      priority: p.r.index === selected || p.r.index === hover,
+    }));
+    const spots = placeLabels(items, { R });
+    placed.forEach((p, i) => {
+      const spot = spots[i];
+      if (!spot) return;
+      ctx.textAlign = spot.align;
+      ctx.textBaseline = spot.base;
       ctx.globalAlpha = p.r.lost ? 0.75 : 1;
-      this.labelText(ctx, p.r.id, pick.x, pick.y, p.r.index === selected ? '#ffffff' : '#eef3f8');
-    }
+      this.labelText(ctx, p.r.id, spot.x, spot.y, p.r.index === selected ? '#ffffff' : '#eef3f8');
+    });
     ctx.restore();
   }
 
@@ -500,6 +497,22 @@ export class MapView {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(faults.length > 1 ? String(faults.length) : '!', bxp, byp + 0.5);
+    }
+
+    // Under repair or depot service: a wrench badge.
+    if (r.servicing && !r.lost) {
+      const wx = x + R * 0.8;
+      const wy = y + R * 0.75;
+      const wr = Math.max(5.5, R * 0.42);
+      ctx.beginPath();
+      ctx.arc(wx, wy, wr, 0, Math.PI * 2);
+      ctx.fillStyle = '#0f2236';
+      ctx.fill();
+      ctx.strokeStyle = '#7dd3fc';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.fillStyle = '#7dd3fc';
+      drawGlyph(ctx, 'repair', wx, wy, wr * 0.75);
     }
 
     // Out of coverage: a crossed-out antenna.

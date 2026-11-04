@@ -18,6 +18,12 @@ import { lastAtOrBefore } from './series.js';
 const PATH_TOL = 0.75;
 /** Robots that work on another robot stop next to it rather than on it. */
 const NEAR_TOL = 1.6;
+/**
+ * A tow moves at a fraction of the tower's speed (ArcadiaBench documents 0.5).
+ * Only the shape of the timing depends on it: legs are fitted to the
+ * snapshots either way.
+ */
+export const TOW_PACE = 0.5;
 
 export function dist(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
@@ -68,6 +74,7 @@ export function clipArea(area, bounds) {
  * - `scan`: the scan happens there.
  * - `near`: the robot stops next to it (another robot).
  * - `pickup`: a tow picks up this robot there.
+ * - `pace`: speed on the leg into this waypoint, as a fraction of top speed.
  *
  * `ctx` supplies `start` (position when the command began), `stations` and
  * `depots` (id -> position), `robotPos(id)` and the site `bounds`.
@@ -115,7 +122,7 @@ export function commandWaypoints(cmd, ctx) {
       break;
     case 'tow':
       add(ctx.robotPos?.(cmd.target_robot), { near: true, pickup: cmd.target_robot });
-      add(cmd.to);
+      add(cmd.to, { pace: TOW_PACE });
       break;
     case 'cannibalize':
       add(ctx.robotPos?.(cmd.target_robot), { ...work, near: true });
@@ -141,16 +148,18 @@ export function schedule(path, t0, t1, speed) {
   const n = path.length;
   const span = Math.max(0, t1 - t0);
   const len = [0];
-  let total = 0;
+  const legTime = [0];
+  let travel = 0;
   let weights = 0;
+  const v = speed > 0 ? speed : 1;
   for (let i = 1; i < n; i++) {
     const d = dist(path[i - 1], path[i]);
     len.push(d);
-    total += d;
+    const pace = path[i].pace > 0 ? path[i].pace : 1;
+    legTime.push(d / (v * pace));
+    travel += legTime[i];
     weights += path[i].w || 0;
   }
-  const v = speed > 0 ? speed : 1;
-  const travel = total / v;
   let scale = 1;
   let spare = 0;
   if (weights > 0 && travel < span) spare = span - travel;
@@ -159,7 +168,7 @@ export function schedule(path, t0, t1, speed) {
   const leave = [t0];
   let t = t0;
   for (let i = 1; i < n; i++) {
-    t += (len[i] / v) * scale;
+    t += legTime[i] * scale;
     arrive.push(Math.min(t, t1));
     if (weights > 0) t += (spare * (path[i].w || 0)) / weights;
     leave.push(Math.min(t, t1));

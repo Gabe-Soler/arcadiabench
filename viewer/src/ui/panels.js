@@ -13,10 +13,10 @@ import {
   solClock,
   SUNRISE,
   SUNSET,
-  formatMetric,
 } from '../format.js';
 import { CATEGORIES } from '../feed.js';
-import { SURFACES } from '../site.js';
+import { SURFACES, padStage } from '../site.js';
+import { scorecard, scorecardHeadline } from '../scorecard.js';
 import { SURFACE_RGB, SURFACE_LABELS, STATUS_COLORS, STATUS_LABELS, statusColor, batteryColor, rgb } from '../render/palette.js';
 import { drawGlyph, drawStation, drawDepot, drawBaseStation } from '../render/glyphs.js';
 
@@ -71,6 +71,18 @@ export class Panels {
   buildChips() {
     const box = $('feed-chips');
     box.innerHTML = '';
+    const mine = document.createElement('button');
+    mine.type = 'button';
+    mine.className = 'chip robot-chip';
+    mine.textContent = 'Selected robot';
+    mine.title = 'Show only the selected robot';
+    mine.addEventListener('click', () => {
+      this.robotOnly = !this.robotOnly;
+      mine.classList.toggle('on', this.robotOnly);
+      this.feedKey = null;
+      this.updateFeed(this.lastT ?? 0);
+    });
+    this.robotChip = mine;
     for (const [key, label] of CATEGORIES) {
       const b = document.createElement('button');
       b.type = 'button';
@@ -85,6 +97,7 @@ export class Panels {
       });
       box.appendChild(b);
     }
+    box.appendChild(mine);
   }
 
   buildLegend() {
@@ -101,6 +114,7 @@ export class Panels {
       ['base', 'Base station'],
       ['fault', 'Fault (amber/red)'],
       ['nocov', 'Out of coverage'],
+      ['service', 'Under repair or service'],
       ['pad', 'Pad / berm target'],
     ];
     const iconHtml = icons.map(([k, label]) => `<div class="item"><canvas width="28" height="28" style="width:14px;height:14px" data-icon="${k}"></canvas>${label}</div>`).join('');
@@ -136,6 +150,16 @@ export class Panels {
         ctx.moveTo(3, 11);
         ctx.lineTo(11, 3);
         ctx.stroke();
+      } else if (k === 'service') {
+        ctx.fillStyle = '#0f2236';
+        ctx.beginPath();
+        ctx.arc(7, 7, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#7dd3fc';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.fillStyle = '#7dd3fc';
+        drawGlyph(ctx, 'repair', 7, 7, 4.2);
       } else if (k === 'pad') {
         ctx.setLineDash([3, 2]);
         ctx.strokeStyle = '#eef5ff';
@@ -149,6 +173,8 @@ export class Panels {
 
   update(t, frame) {
     this.lastT = t;
+    this.selectedId = frame.selected != null ? this.model.robots[frame.selected]?.id ?? null : null;
+    this.robotChip.disabled = this.selectedId == null;
     this.updateMission(t, frame);
     this.updatePower(t);
     this.updateWeather(t, frame);
@@ -170,15 +196,16 @@ export class Panels {
     }
     $('pipeline').hidden = false;
     const frac = p.inSpec / Math.max(1, p.total);
+    const counts = frame.padSurfaces;
+    const stage = padStage(p, counts, { t, goalT: m.pad.arrivedT, complete: m.info.endReason === 'goals_complete' && t >= m.tEnd });
     const tag = $('pad-tag');
-    const done = m.info.endReason === 'goals_complete' && t >= m.tEnd;
-    setText(tag, done ? 'complete' : frac > 0 ? 'building' : t < m.pad.arrivedT ? 'no goal yet' : 'not started');
-    tag.className = `tag ${done ? 'ok' : ''}`;
+    setText(tag, stage.label);
+    tag.className = `tag ${{ complete: 'ok', verifying: 'warn', in_progress: 'busy' }[stage.key] ?? ''}`;
+    const worked = p.total - (counts[0] ?? 0);
     setHtml(
       $('pad-numbers'),
-      `<span class="big">${fmtPct(frac)}</span><span class="sub">${p.inSpec} of ${p.total} cells in spec<br>${p.verified} verified by scan</span>`,
+      `<span class="big">${fmtPct(frac)}</span><span class="sub">${p.inSpec} of ${p.total} cells in spec, ${p.verified} verified<br>${worked} of ${p.total} cells worked on</span>`,
     );
-    const counts = frame.padSurfaces;
     const total = Math.max(1, p.total);
     setHtml(
       $('pipeline'),
@@ -247,22 +274,33 @@ export class Panels {
       restoreRow.hidden = true;
     }
     $('lightpath').classList.toggle('down', c.link === 'down');
-    const msgs = m.inFlight(t).slice(0, 24);
+    const msgs = m.inFlight(t);
     setHtml(
       $('lightpath-track'),
       msgs
+        .slice(0, 24)
         .map((q) => {
           const f = q.dir === 'down' ? q.frac : 1 - q.frac;
           return `<span class="msg ${q.dir}${q.queued ? ' queued' : ''}" style="left:${(f * 100).toFixed(1)}%" title="${esc(q.dir === 'down' ? 'to Earth' : 'to Mars')}: ${esc(q.message?.type ?? 'message')}${q.queued ? ' (waiting for the link)' : ''}"></span>`;
         })
         .join(''),
     );
+    const queuedDown = msgs.filter((q) => q.dir === 'down' && q.queued).length;
+    const queuedUp = msgs.filter((q) => q.dir === 'up' && q.queued).length;
+    const flying = msgs.length - queuedDown - queuedUp;
+    const caption = [
+      queuedDown ? `${queuedDown} waiting at Mars` : '',
+      queuedUp ? `${queuedUp} waiting at Earth` : '',
+      flying ? `${flying} in flight` : '',
+    ].filter(Boolean);
+    setText($('lightpath-caption'), caption.length ? caption.join(' · ') : 'no messages in transit');
   }
 
   updateFeed(t) {
     const m = this.model;
     const last = m.feedIndexAt(t);
-    const key = `${last}|${[...this.filters].join(',')}`;
+    const only = this.robotOnly && this.selectedId ? this.selectedId : null;
+    const key = `${last}|${[...this.filters].join(',')}|${only}`;
     if (key === this.feedKey) return;
     this.feedKey = key;
     const sol = m.info.solLength;
@@ -270,6 +308,7 @@ export class Panels {
     for (let i = last; i >= 0 && out.length < FEED_WINDOW; i--) {
       const it = m.feed.items[i];
       if (!this.filters.has(it.cat)) continue;
+      if (only && it.robot !== only) continue;
       const robot = it.robot ? `<span class="rb" style="color:${this.robotColor(it.robot, t)}">${esc(it.robot)}</span>` : '';
       const id = it.cat === 'command' && it.id ? `<span class="id">${esc(it.id)}</span>` : '';
       const note = it.note ? ` <span class="note">${esc(it.note)}</span>` : '';
@@ -300,7 +339,15 @@ export class Panels {
         return `<tr data-i="${i}" class="${frame.selected === i ? 'sel' : ''}"><td><span class="status-dot" style="background:${statusColor(r.status)}"></span> <b>${esc(r.id)}</b>${badges}</td><td>${esc(humanize(r.status))}</td><td class="bat"><span class="minibar"><i style="width:${((frac ?? 0) * 100).toFixed(0)}%;background:${batteryColor(frac)}"></i></span>${frac != null ? fmtPct(frac) : '–'}</td><td class="cmd" title="${esc(cmd)}">${esc(cmd || '–')}</td></tr>`;
       })
       .join('');
-    setHtml($('fleet'), `<tr><th>Robot</th><th>Status</th><th>Battery</th><th>Command</th></tr>${rows}`);
+    setHtml($('fleet'), `<thead><tr><th>Robot</th><th>Status</th><th>Battery</th><th>Command</th></tr></thead><tbody>${rows}</tbody>`);
+    const byStatus = new Map();
+    for (const r of frame.robots) if (r) byStatus.set(r.status, (byStatus.get(r.status) ?? 0) + 1);
+    const order = ['working', 'moving', 'charging', 'idle', 'stuck', 'failed', 'being_towed', 'offline', 'lost'];
+    const summary = [...byStatus.entries()]
+      .sort((a, b) => (order.indexOf(a[0]) + 99) % 99 - (order.indexOf(b[0]) + 99) % 99)
+      .map(([st, n]) => `<span><i class="status-dot" style="background:${statusColor(st)}"></i>${n} ${esc(humanize(st))}</span>`)
+      .join('');
+    setHtml($('fleet-summary'), `<b>${frame.robots.filter(Boolean).length} robots</b>${summary}`);
 
     const sel = frame.selected != null ? frame.robots[frame.selected] : null;
     if (!sel) {
@@ -312,7 +359,9 @@ export class Panels {
     const faults = sel.faults.length
       ? `<ul class="faults">${sel.faults.map((f) => `<li>${esc(humanize(f.component))} <b style="color:${f.severity === 'disabled' ? '#f25c5c' : '#f5b942'}">${esc(f.severity)}</b> (${esc(humanize(f.cause))}${f.field_repairable === false ? ', depot only' : ''}) since ${esc(solClock(f.since_t, m.info.solLength).text)}</li>`).join('')}</ul>`
       : 'none';
-    const contact = sel.telemetryT != null && t - sel.telemetryT > 1 ? `last contact ${fmtDuration(t - sel.telemetryT, m.info.solLength)} ago` : 'current';
+    // telemetry_t trails its own snapshot only when contact was lost.
+    const stale = sel.telemetryT != null && sel.sampleT - sel.telemetryT > 1;
+    const contact = stale ? `last contact ${fmtDuration(t - sel.telemetryT, m.info.solLength)} ago` : 'current';
     const h = sel.health;
     const health = h
       ? `slip ${fmtPct(h.wheel_slip, 1)}, motor ${fmtNumber(h.motor_current_ratio, 2)}×, dust ${fmtPct(h.dust_coverage)}, ${Math.round(h.temperature_c)} °C`
@@ -343,7 +392,19 @@ export class Panels {
     const dl = (rows) => `<dl>${rows.filter((r) => r && r[1] != null).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`;
     const sol = i.solLength;
     const soft = (s) => (s ? `${s.name} ${s.version}` : '–');
-    let html = `<h3>Run</h3>${dl([
+    let html = '';
+    if (i.metrics) {
+      const groups = scorecard(i.metrics, sol);
+      html += `<div class="score-head"><b>Scorecard</b><span>${esc(scorecardHeadline(i.metrics, sol) ?? '')}</span></div><div class="scorecard">${groups
+        .map(
+          (g) =>
+            `<section class="score-card score-${g.id}"><h4>${esc(g.title)}</h4><dl>${g.rows
+              .map((r) => `<dt title="${esc(r.hint)}">${esc(r.label)}</dt><dd${r.tone ? ` class="tone-${r.tone}"` : ''}>${esc(r.text)}</dd>`)
+              .join('')}</dl></section>`,
+        )
+        .join('')}</div>`;
+    }
+    html += `<h3>Run</h3>${dl([
       ['Coordinator', soft(i.coordinator)],
       ['Simulator', soft(i.simulator)],
       ['Protocol', i.protocol],
@@ -366,7 +427,7 @@ export class Panels {
     }
     const s = m.stats;
     html += `<h3>Activity (whole run)</h3>${dl([
-      ['Decision points', fmtNumber(m.decisionTimes.length)],
+      ['Decision points', fmtNumber(m.decisionCount)],
       ['Commands', fmtNumber(s.commands)],
       ['Completed', fmtNumber(s.completed)],
       ['Failed', fmtNumber(s.failed)],
@@ -386,25 +447,8 @@ export class Panels {
         ['Loaded in', `${(ls.ms / 1000).toFixed(2)} s`],
       ])}`;
     }
-    if (i.metrics) html += `<h3>Run metrics (from run_end)</h3>${renderMetrics(i.metrics, sol)}`;
-    else html += '<p class="note">This log has no run metrics (they arrive with protocol 0.2).</p>';
+    if (!i.metrics) html += '<p class="note">This log has no run metrics (they arrive with protocol 0.2).</p>';
     if (m.warnings.length) html += `<h3>Notes on this log</h3><ul class="warnings">${m.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>`;
     setHtml($('run-summary'), html);
   }
-}
-
-function renderMetrics(metrics, solLength) {
-  const rows = [];
-  const walk = (obj, prefix) => {
-    for (const [k, v] of Object.entries(obj)) {
-      if (v && typeof v === 'object' && !Array.isArray(v)) {
-        rows.push(`<dt class="grp" style="grid-column:1/-1;color:var(--faint);margin-top:3px">${esc(humanize(k))}</dt>`);
-        walk(v, `${prefix}${k}.`);
-      } else {
-        rows.push(`<dt>${esc(humanize(k))}</dt><dd>${esc(formatMetric(k, v, solLength))}</dd>`);
-      }
-    }
-  };
-  walk(metrics, '');
-  return `<dl>${rows.join('')}</dl>`;
 }
