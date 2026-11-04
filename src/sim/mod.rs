@@ -1,16 +1,22 @@
 //! The discrete-event simulator.
 //!
-//! Robot actions, environment changes and power accounting are events on one
-//! deterministic queue. [`Sim::advance`] runs events until the coordinator has
-//! something to decide, then returns an observation; [`Sim::apply`] feeds the
-//! decision back in. Command execution lives in [`actions`].
+//! Robot actions, environment changes, failures and power accounting are
+//! events on one deterministic queue. [`Sim::advance`] runs events until the
+//! coordinator has something to decide, then returns an observation;
+//! [`Sim::apply`] feeds the decision back in. Command execution lives in
+//! [`actions`] and [`repair`], failures in [`hazards`] and [`faults`], and the
+//! run metrics in [`metrics`].
 
 pub mod actions;
 pub mod environment;
+pub mod faults;
+pub mod hazards;
+pub mod metrics;
 pub mod mission;
 pub mod params;
 pub mod power;
 pub mod queue;
+pub mod repair;
 pub mod rng;
 pub mod robot;
 pub mod terrain;
@@ -19,6 +25,9 @@ pub mod time;
 use crate::scenario::Generated;
 use arcadia_protocol::*;
 use environment::{EnvEvent, Environment};
+use faults::Exposure;
+use hazards::HazardKind;
+use metrics::Tally;
 use mission::Mission;
 use params::Params;
 use power::Grid;
@@ -31,12 +40,31 @@ use time::{SimMs, ms, secs};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Ev {
-    StepDone { robot: usize, generation: u64 },
-    SessionDone { robot: usize, generation: u64 },
-    Depleted { robot: usize, generation: u64 },
+    StepDone {
+        robot: usize,
+        generation: u64,
+    },
+    SessionDone {
+        robot: usize,
+        generation: u64,
+    },
+    Depleted {
+        robot: usize,
+        generation: u64,
+    },
+    /// A failure process fires (stale if the robot's exposure changed since).
+    Hazard {
+        robot: usize,
+        generation: u64,
+        kind: HazardKind,
+    },
+    /// The scripted incident at this index of `params.scripted` happens.
+    Scripted(usize),
     PowerTick,
     Env(EnvEvent),
-    Wake { generation: u64 },
+    Wake {
+        generation: u64,
+    },
     TimeLimit,
 }
 
@@ -49,6 +77,15 @@ pub enum Advance {
 pub(crate) struct StationRt {
     pub spec: ChargeStation,
     pub occupants: Vec<usize>,
+    pub waiting: VecDeque<usize>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DepotRt {
+    pub spec: Depot,
+    /// Robots being serviced.
+    pub occupants: Vec<usize>,
+    /// Robots waiting for a service bay, first come first served.
     pub waiting: VecDeque<usize>,
 }
 
@@ -68,19 +105,33 @@ pub(crate) struct Session {
     pub fill_tank: bool,
 }
 
+/// Robots reach each other (to charge, repair, tow or strip) within this many cells.
+pub(crate) const REACH_CELLS: f64 = 1.5;
+
+/// Telemetry noise drawn for one robot in one observation.
+struct Noise {
+    battery_wh: f64,
+    health: [f64; 4],
+}
+
 pub struct Sim {
     pub(crate) params: Params,
     pub(crate) now: SimMs,
+    pub(crate) start: SimMs,
+    pub(crate) time_limit: SimMs,
     pub(crate) queue: Queue<Ev>,
     pub(crate) terrain: Terrain,
     pub(crate) robots: Vec<RobotRt>,
     pub(crate) robot_ix: BTreeMap<String, usize>,
     pub(crate) stations: Vec<StationRt>,
     pub(crate) station_ix: BTreeMap<String, usize>,
+    pub(crate) depots: Vec<DepotRt>,
+    pub(crate) depot_ix: BTreeMap<String, usize>,
     pub(crate) sessions: Vec<Session>,
     pub(crate) grid: Grid,
     pub(crate) env: Environment,
     pub(crate) mission: Option<Mission>,
+    pub(crate) policy: Policy,
     pub(crate) pending: Vec<Event>,
     pub(crate) decision_due: bool,
     pub(crate) wake_generation: u64,
@@ -90,10 +141,18 @@ pub struct Sim {
     pub(crate) rng_work: Rng,
     pub(crate) rng_scan: Rng,
     pub(crate) rng_telemetry: Rng,
+    pub(crate) rng_health: Rng,
+    pub(crate) rng_wear_faults: Rng,
+    pub(crate) rng_random_faults: Rng,
+    pub(crate) rng_storm_faults: Rng,
+    pub(crate) rng_stuck: Rng,
+    /// Duration noise of repair, tow, strip and install work.
+    pub(crate) rng_maintenance: Rng,
     pub(crate) changed: BTreeSet<(u32, u32)>,
     pub(crate) command_ids: BTreeSet<String>,
     pub(crate) mission_dirty: bool,
     pub(crate) ended: Option<EndReason>,
+    pub(crate) tally: Tally,
     same_time: (SimMs, u64),
 }
 
@@ -133,34 +192,63 @@ impl Sim {
             .enumerate()
             .map(|(i, s)| (s.spec.station_id.clone(), i))
             .collect();
+        let depots: Vec<DepotRt> = scenario
+            .depots
+            .iter()
+            .map(|d| DepotRt {
+                spec: d.clone(),
+                occupants: Vec::new(),
+                waiting: VecDeque::new(),
+            })
+            .collect();
+        let depot_ix = depots
+            .iter()
+            .enumerate()
+            .map(|(i, d)| (d.spec.depot_id.clone(), i))
+            .collect();
+        let grid = Grid::new(&params);
+        let tally = Tally::new(robots.len(), grid.bank_wh);
+        let start = ms(scenario.start_t);
 
         let mut sim = Self {
-            grid: Grid::new(&params),
-            params,
-            now: ms(scenario.start_t),
+            grid,
+            now: start,
+            start,
+            time_limit,
             queue: Queue::default(),
             terrain,
             robots,
             robot_ix,
             stations,
             station_ix,
+            depots,
+            depot_ix,
             sessions: Vec::new(),
             env,
             mission: Some(mission),
+            policy: scenario.policy.clone(),
             pending: Vec::new(),
             decision_due: true,
             wake_generation: 0,
             seq: 0,
-            last_power_ms: ms(scenario.start_t),
+            last_power_ms: start,
             last_fraction: 1.0,
             rng_work: Rng::stream(seed, "work"),
             rng_scan: Rng::stream(seed, "scan"),
             rng_telemetry: Rng::stream(seed, "telemetry"),
+            rng_health: Rng::stream(seed, "health"),
+            rng_wear_faults: Rng::stream(seed, "wear_faults"),
+            rng_random_faults: Rng::stream(seed, "random_faults"),
+            rng_storm_faults: Rng::stream(seed, "storm_faults"),
+            rng_stuck: Rng::stream(seed, "stuck"),
+            rng_maintenance: Rng::stream(seed, "maintenance"),
             changed: BTreeSet::new(),
             command_ids: BTreeSet::new(),
             mission_dirty: false,
             ended: None,
+            tally,
             same_time: (u64::MAX, 0),
+            params,
         };
 
         for (t, e) in sim.env.schedule(time_limit) {
@@ -169,6 +257,9 @@ impl Sim {
         sim.queue.push(time_limit, Ev::TimeLimit);
         sim.queue
             .push(sim.now + ms(sim.params.power_tick_s), Ev::PowerTick);
+        for (i, s) in sim.params.scripted.iter().enumerate() {
+            sim.queue.push(ms(s.t_s).max(sim.now), Ev::Scripted(i));
+        }
         for r in 0..sim.robots.len() {
             sim.schedule_depletion(r);
         }
@@ -228,13 +319,16 @@ impl Sim {
                 .expect("the time-limit event is always queued");
             self.now = t;
             self.handle(ev);
+            self.refresh_out_of_action();
         }
     }
 
     /// Apply a coordinator decision. Returns the Earth-bound messages with
     /// their delivery times.
     pub fn apply(&mut self, decision: &Decision) -> Vec<(SiteToEarth, SimTime)> {
+        self.tally.decisions += 1;
         for command in &decision.commands {
+            self.tally.commands += 1;
             self.submit(command);
         }
         self.wake_generation += 1;
@@ -249,6 +343,10 @@ impl Sim {
                 );
             }
         }
+        for m in &decision.to_earth {
+            self.tally.downlink(self.now, m, &self.policy);
+        }
+        self.refresh_out_of_action();
         let deliver = secs(self.now) + self.params.one_way_delay_s;
         decision
             .to_earth
@@ -270,6 +368,35 @@ impl Sim {
             .into_iter()
             .map(|(x, y)| self.terrain.truth_observation(GridCoord { x, y }))
             .collect()
+    }
+
+    /// Events that happened but were never delivered in an observation
+    /// (those of the run's final instant).
+    pub fn take_pending(&mut self) -> Vec<Event> {
+        std::mem::take(&mut self.pending)
+    }
+
+    /// True state of the site grid, sky and Earth link now.
+    pub fn site_truth(&self) -> SiteTruth {
+        let requested = self.station_requested_w();
+        let (storage_wh, fraction) = if self.now > self.last_power_ms {
+            let (bank, s) = self
+                .grid
+                .preview(&self.env, self.last_power_ms, self.now, requested);
+            (bank, s.fraction)
+        } else {
+            (self.grid.bank_wh, self.last_fraction)
+        };
+        SiteTruth {
+            storage_wh,
+            solar_w: self.grid.solar_w(&self.env, self.now),
+            fission_w: self.grid.fission_w,
+            demand_w: self.grid.essential_load_w + requested * fraction,
+            optical_depth: self.env.tau(self.now),
+            temperature_c: Environment::temperature_c(self.now),
+            link: Link::Up,
+            one_way_delay_s: self.params.one_way_delay_s,
+        }
     }
 
     /// Fraction of the pad meeting spec.
@@ -298,6 +425,16 @@ impl Sim {
                     self.deplete(robot);
                 }
             }
+            Ev::Hazard {
+                robot,
+                generation,
+                kind,
+            } => {
+                if self.robots[robot].hazard_generation == generation {
+                    self.on_hazard(robot, kind);
+                }
+            }
+            Ev::Scripted(i) => self.on_scripted(i),
             Ev::PowerTick => {
                 self.settle_power();
                 self.repredict_sessions();
@@ -341,7 +478,33 @@ impl Sim {
                 self.ended = Some(EndReason::GoalsComplete);
             }
         }
+        if self.ended.is_none() && self.fleet_lost() {
+            self.ended = Some(EndReason::FleetLost);
+        }
         self.ended
+    }
+
+    /// No robot can ever act again (semantics §6.8).
+    fn fleet_lost(&self) -> bool {
+        !(0..self.robots.len()).any(|r| {
+            let robot = &self.robots[r];
+            robot.commandable() || robot.in_service() || self.recoverable_in_place(r)
+        })
+    }
+
+    /// Whether a disabled robot could become commandable, without moving, by
+    /// the commands it may still accept: service on a depot's cell, then
+    /// charge from a station on its cell.
+    fn recoverable_in_place(&self, r: usize) -> bool {
+        let robot = &self.robots[r];
+        if robot.lost || robot.towed {
+            return false;
+        }
+        let on_depot = self.depots.iter().any(|d| d.spec.position == robot.pos);
+        let on_station = self.stations.iter().any(|s| s.spec.position == robot.pos);
+        (!robot.health.has_disabled() || on_depot)
+            && (!robot.health.stuck || on_depot)
+            && (!robot.offline || on_station)
     }
 
     fn observation(&mut self) -> Observation {
@@ -349,10 +512,13 @@ impl Sim {
         self.seq += 1;
         let robots = (0..self.robots.len())
             .map(|r| {
-                let noise = self.params.telemetry_battery_noise_frac
-                    * self.robots[r].spec.battery_capacity_wh
-                    * self.rng_telemetry.normal();
-                self.robot_state(r, Some(noise))
+                let noise = Noise {
+                    battery_wh: self.params.telemetry_battery_noise_frac
+                        * self.robots[r].spec.battery_capacity_wh
+                        * self.rng_telemetry.normal(),
+                    health: std::array::from_fn(|_| self.rng_health.normal()),
+                };
+                self.robot_state(r, Some(&noise))
             })
             .collect();
         Observation {
@@ -363,29 +529,41 @@ impl Sim {
         }
     }
 
-    fn robot_state(&self, r: usize, battery_noise: Option<f64>) -> RobotState {
+    fn robot_state(&self, r: usize, noise: Option<&Noise>) -> RobotState {
         let robot = &self.robots[r];
-        let mut battery = robot.battery_wh;
-        if let Some(since) = robot.drain_since {
-            battery -= robot.spec.idle_power_w * secs(self.now.saturating_sub(since)) / 3600.0;
+        if let Some(frozen) = &robot.frozen {
+            return RobotState {
+                telemetry_t: secs(self.now),
+                ..frozen.clone()
+            };
         }
-        if let Some(n) = battery_noise {
-            battery += n;
+        let p = &self.params;
+        let mut battery = robot.battery_wh - self.pending_drain_wh(r);
+        let heater_on = self.env.is_cold(self.now) && !robot.offline;
+        let mut health = robot
+            .health
+            .telemetry(p, Environment::temperature_c(self.now), heater_on);
+        if let Some(n) = noise {
+            battery += n.battery_wh;
+            health.wheel_slip =
+                (health.wheel_slip + n.health[0] * p.telemetry_slip_noise).clamp(0.0, 1.0);
+            health.motor_current_ratio =
+                (health.motor_current_ratio + n.health[1] * p.telemetry_current_noise).max(0.0);
+            health.dust_coverage =
+                (health.dust_coverage + n.health[2] * p.telemetry_dust_noise).clamp(0.0, 1.0);
+            health.temperature_c += n.health[3] * p.telemetry_temp_noise_c;
         }
         RobotState {
             robot_id: robot.spec.robot_id.clone(),
             position: robot.position_at(self.now),
-            status: robot.status,
+            status: robot.reported_status(),
             battery_wh: battery.clamp(0.0, robot.spec.battery_capacity_wh),
             payload_kg: robot.payload_kg,
             current_command: robot.running_command().map(String::from),
-            health: HealthTelemetry {
-                wheel_slip: 0.02,
-                motor_current_ratio: 1.0,
-                dust_coverage: 0.0,
-                temperature_c: Environment::temperature_c(self.now),
-            },
+            health,
+            faults: robot.health.active_faults(),
             in_relay_coverage: true,
+            telemetry_t: secs(self.now),
         }
     }
 
@@ -412,17 +590,20 @@ impl Sim {
         }
     }
 
-    fn power_event(&self) -> EventKind {
-        let charging_w: f64 = self
-            .sessions
+    /// Charging power requested by robots at stations, W.
+    fn station_requested_w(&self) -> f64 {
+        self.sessions
             .iter()
             .filter(|s| matches!(s.source, Source::Station(_)))
-            .map(|s| s.power_w * self.last_fraction)
-            .sum();
+            .map(|s| s.power_w)
+            .sum()
+    }
+
+    fn power_event(&self) -> EventKind {
         EventKind::Power {
             solar_w: self.grid.solar_w(&self.env, self.now),
             fission_w: self.grid.fission_w,
-            demand_w: self.grid.base_load_w + charging_w,
+            demand_w: self.grid.essential_load_w + self.station_requested_w() * self.last_fraction,
             storage_wh: self.grid.bank_wh,
             storage_capacity_wh: self.grid.bank_capacity_wh,
             daylight: Environment::daylight(self.now),
@@ -447,9 +628,81 @@ impl Sim {
         self.robots[r].generation += 1;
     }
 
+    // ----- a robot's own energy -----
+
+    /// Idle drain (plus the heater while it is cold) over `[t0, t1)`, Wh.
+    fn drain_wh(&self, r: usize, t0: SimMs, t1: SimMs) -> f64 {
+        if t1 <= t0 {
+            return 0.0;
+        }
+        let robot = &self.robots[r];
+        let idle = robot.spec.idle_power_w;
+        let heater = self.params.heater_idle_factor * idle;
+        let cold_h = secs(self.env.cold_ms(t0, t1)) / 3600.0;
+        (idle * secs(t1 - t0) / 3600.0 + heater * cold_h) * robot.health.energy_factor(&self.params)
+    }
+
+    /// Drain owed since the robot last settled, Wh.
+    fn pending_drain_wh(&self, r: usize) -> f64 {
+        self.robots[r]
+            .drain_since
+            .map_or(0.0, |since| self.drain_wh(r, since, self.now))
+    }
+
+    /// Apply idle drain up to now.
+    pub(crate) fn settle_drain(&mut self, r: usize) {
+        let Some(since) = self.robots[r].drain_since else {
+            return;
+        };
+        let used = self.drain_wh(r, since, self.now);
+        let robot = &mut self.robots[r];
+        let drawn = used.min(robot.battery_wh.max(0.0));
+        robot.battery_wh = (robot.battery_wh - used).max(0.0);
+        robot.drain_since = Some(self.now);
+        robot.health.grow(
+            &self.params,
+            &Exposure {
+                kwh: drawn / 1000.0,
+                ..Exposure::default()
+            },
+        );
+    }
+
+    /// When idle drain empties the battery, if it does before the time limit.
+    fn time_to_empty(&self, r: usize) -> Option<SimMs> {
+        let robot = &self.robots[r];
+        robot.drain_since?;
+        let factor = robot.health.energy_factor(&self.params);
+        let idle_w = robot.spec.idle_power_w * factor;
+        let heater_w = self.params.heater_idle_factor * robot.spec.idle_power_w * factor;
+        if idle_w <= 0.0 && heater_w <= 0.0 {
+            return None;
+        }
+        let mut left = robot.battery_wh - self.pending_drain_wh(r);
+        let mut t = self.now;
+        loop {
+            if left <= 0.0 {
+                return Some(t);
+            }
+            let rate_w = idle_w + if self.env.is_cold(t) { heater_w } else { 0.0 };
+            let next = self.env.next_cold_change(t).unwrap_or(u64::MAX);
+            if rate_w > 0.0 {
+                let empty = t.saturating_add(ms(left / rate_w * 3600.0));
+                if empty <= next {
+                    return (empty <= self.time_limit).then_some(empty);
+                }
+                left -= rate_w * secs(next - t) / 3600.0;
+            }
+            if next > self.time_limit {
+                return None;
+            }
+            t = next;
+        }
+    }
+
     pub(crate) fn schedule_depletion(&mut self, r: usize) {
-        match self.robots[r].time_to_empty_s() {
-            Some(s) => self.schedule(r, self.now + ms(s), |robot, generation| Ev::Depleted {
+        match self.time_to_empty(r) {
+            Some(at) => self.schedule(r, at, |robot, generation| Ev::Depleted {
                 robot,
                 generation,
             }),
@@ -463,26 +716,27 @@ impl Sim {
     pub(crate) fn settle_power(&mut self) {
         let (t0, t1) = (self.last_power_ms, self.now);
         if t1 > t0 {
-            let requested: f64 = self
-                .sessions
-                .iter()
-                .filter(|s| matches!(s.source, Source::Station(_)))
-                .map(|s| s.power_w)
-                .sum();
-            let f = self.grid.settle(&self.env, t0, t1, requested);
+            let s = self
+                .grid
+                .settle(&self.env, t0, t1, self.station_requested_w());
+            if s.deficit {
+                self.tally.deficit_ms += t1 - t0;
+            }
             let dt_h = secs(t1 - t0) / 3600.0;
             for i in 0..self.sessions.len() {
-                let s = self.sessions[i].clone();
-                let offered = match s.source {
-                    Source::Station(_) => s.power_w * f * dt_h,
-                    Source::Mobile(c) => (s.power_w * dt_h).min(self.robots[c].tank_wh),
+                let session = self.sessions[i].clone();
+                let offered = match session.source {
+                    Source::Station(_) => session.power_w * s.fraction * dt_h,
+                    Source::Mobile(c) => (session.power_w * dt_h).min(self.robots[c].tank_wh),
                 };
-                let given = self.give_energy(&s, offered);
-                if let Source::Mobile(c) = s.source {
-                    self.robots[c].tank_wh -= given;
+                let given = self.give_energy(&session, offered);
+                match session.source {
+                    Source::Station(_) => self.tally.grid_energy_wh += given,
+                    Source::Mobile(c) => self.robots[c].tank_wh -= given,
                 }
             }
-            self.last_fraction = f;
+            self.last_fraction = s.fraction;
+            self.tally.min_storage_wh = self.tally.min_storage_wh.min(self.grid.bank_wh);
         }
         self.last_power_ms = t1;
     }
@@ -502,6 +756,10 @@ impl Sim {
         let r = &mut self.robots[s.robot];
         let to_battery = offered.min((s.target_battery_wh - r.battery_wh).max(0.0));
         r.battery_wh += to_battery;
+        r.received_wh += to_battery;
+        if to_battery > 0.0 {
+            r.offline = false;
+        }
         let mut used = to_battery;
         if s.fill_tank {
             let to_tank = (offered - to_battery).min((r.tank_capacity_wh() - r.tank_wh).max(0.0));
@@ -531,6 +789,18 @@ impl Sim {
         }
     }
 
+    /// A robot starts drawing from a session: idle drain stops and, once
+    /// energy flows, it is no longer offline.
+    fn begin_session(&mut self, r: usize, rate_w: f64) {
+        self.settle_drain(r);
+        let robot = &mut self.robots[r];
+        robot.drain_since = None;
+        robot.status = RobotStatus::Charging;
+        if rate_w > 0.0 {
+            robot.offline = false;
+        }
+    }
+
     pub(crate) fn start_station_session(
         &mut self,
         r: usize,
@@ -538,15 +808,13 @@ impl Sim {
         until_wh: Option<f64>,
     ) {
         self.settle_power();
-        let robot = &mut self.robots[r];
-        robot.settle_drain(self.now);
-        robot.drain_since = None;
-        robot.status = RobotStatus::Charging;
-        let cap = robot.spec.battery_capacity_wh;
-        let fill_tank = until_wh.is_none() && robot.tank_capacity_wh() > 0.0;
         let st = &mut self.stations[station];
         st.occupants.push(r);
         let power_w = st.spec.max_power_w / f64::from(st.spec.slots.max(1));
+        self.begin_session(r, power_w * self.last_fraction);
+        let robot = &self.robots[r];
+        let cap = robot.spec.battery_capacity_wh;
+        let fill_tank = until_wh.is_none() && robot.tank_capacity_wh() > 0.0;
         self.sessions.push(Session {
             robot: r,
             source: Source::Station(station),
@@ -562,12 +830,14 @@ impl Sim {
         let rate_w = self.robots[charger]
             .capability(CapabilityName::Charge)
             .map_or(0.0, |c| c.rate * 3600.0);
-        self.robots[charger].locked_by = Some(r);
-        let robot = &mut self.robots[r];
-        robot.settle_drain(self.now);
-        robot.drain_since = None;
-        robot.status = RobotStatus::Charging;
-        let cap = robot.spec.battery_capacity_wh;
+        self.robots[charger].engaged_by = Some(r);
+        let flowing = if self.robots[charger].tank_wh > 0.0 {
+            rate_w
+        } else {
+            0.0
+        };
+        self.begin_session(r, flowing);
+        let cap = self.robots[r].spec.battery_capacity_wh;
         self.sessions.push(Session {
             robot: r,
             source: Source::Mobile(charger),
@@ -588,7 +858,7 @@ impl Sim {
                     self.stations[st].occupants.retain(|&o| o != r);
                     self.admit_next(st);
                 }
-                Source::Mobile(c) => self.robots[c].locked_by = None,
+                Source::Mobile(c) => self.robots[c].engaged_by = None,
             }
         }
         for st in &mut self.stations {
@@ -622,7 +892,9 @@ impl Sim {
             // Snap to exactly full when the prediction landed within rounding.
             if self.session_need(&s) < 0.01 {
                 let robot = &mut self.robots[r];
-                robot.battery_wh = robot.battery_wh.max(s.target_battery_wh);
+                let topped = (s.target_battery_wh - robot.battery_wh).max(0.0);
+                robot.battery_wh += topped;
+                robot.received_wh += topped;
                 if s.fill_tank {
                     robot.tank_wh = robot.tank_capacity_wh();
                 }
@@ -636,9 +908,8 @@ impl Sim {
     }
 
     fn deplete(&mut self, r: usize) {
-        let robot = &mut self.robots[r];
-        robot.settle_drain(self.now);
-        robot.battery_wh = 0.0;
+        self.settle_drain(r);
+        self.robots[r].battery_wh = 0.0;
         // A dead mobile charger ends the sessions it was feeding.
         let fed: Vec<usize> = self
             .sessions
@@ -657,7 +928,7 @@ impl Sim {
             );
         } else {
             let robot = &mut self.robots[r];
-            robot.status = RobotStatus::Offline;
+            robot.offline = true;
             robot.drain_since = None;
             self.unschedule(r);
             self.decision_due = true;

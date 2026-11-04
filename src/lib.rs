@@ -1,6 +1,8 @@
 //! ArcadiaBench: an open, seeded benchmark for coordinating robot crews building on Mars.
 //!
-//! - [`sim`]: the discrete-event simulator (terrain, robots, power, weather, mission).
+//! - [`sim`]: the discrete-event simulator (terrain, robots, power, weather,
+//!   wear and faults, repair, mission, run metrics). `docs/simulator.md`
+//!   documents its parameters.
 //! - [`scenario`]: seeded scenario generation.
 //! - [`coordinator`]: transports to a coordinator (subprocess or in-process).
 //! - [`session`]: one run end to end; [`run`] wraps it for subprocess coordinators.

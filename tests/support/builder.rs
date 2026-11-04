@@ -6,12 +6,25 @@
 //! haul fill into low cells → grade → compact → sinter → build the berm →
 //! verification scan. Charges any robot below 35% before giving it work, and
 //! retries a task after an `insufficient_energy` failure.
+//!
+//! Faults get simple handling before any other work: the repair-capable
+//! scout repairs field-repairable faults and frees stuck robots; robots with
+//! faults that need the depot are towed there and serviced; offline robots
+//! are recharged by the mobile charger, or towed to the station when that
+//! does not work. A task cut short by a fault is retried afterwards.
 
 use arcadia_protocol::*;
 use arcadiabench::coordinator::Agent;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 const STATION: &str = "st-1";
+const DEPOT: &str = "dp-1";
+const REPAIRER: &str = "sc-1";
+const CHARGER: &str = "hl-1";
+/// Robots that can tow (they have `haul`), in order of preference.
+const TOWERS: [&str; 2] = ["hl-1", "ex-1"];
+/// Order in which disabled robots are rescued: helpers first.
+const RESCUE_ORDER: [&str; 4] = ["sc-1", "hl-1", "ex-1", "cp-1"];
 const STOCKPILE: GridCoord = GridCoord { x: 45, y: 30 };
 const BORROW: GridRect = GridRect {
     min: GridCoord { x: 44, y: 20 },
@@ -19,6 +32,8 @@ const BORROW: GridRect = GridRect {
 };
 const FILL_THRESHOLD_M: f64 = 0.08;
 const ASSUMED_DENSITY: f64 = 1550.0;
+/// After a rejection, wait this long before trying again, s.
+const BACKOFF_S: f64 = 600.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
@@ -37,6 +52,8 @@ enum Phase {
 struct Task {
     robot: &'static str,
     action: Action,
+    /// A rescue: not retried if it fails, because the next one is worked out afresh.
+    rescue: bool,
 }
 
 pub struct Builder {
@@ -44,11 +61,16 @@ pub struct Builder {
     pad: Option<LandingPadSpec>,
     prior: BTreeMap<(u32, u32), f64>,
     battery_capacity: BTreeMap<String, f64>,
+    station: GridCoord,
+    depot: GridCoord,
     robots: BTreeMap<String, RobotState>,
     scanned: BTreeMap<(u32, u32), Cell>,
     tasks: VecDeque<Task>,
     active: Option<(String, Task)>,
     next_id: u64,
+    /// Robots the mobile charger already failed to revive.
+    charger_tried: BTreeSet<String>,
+    backoff_until: f64,
     pub notes: Vec<String>,
 }
 
@@ -59,11 +81,15 @@ impl Builder {
             pad: None,
             prior: BTreeMap::new(),
             battery_capacity: BTreeMap::new(),
+            station: GridCoord { x: 0, y: 0 },
+            depot: GridCoord { x: 0, y: 0 },
             robots: BTreeMap::new(),
             scanned: BTreeMap::new(),
             tasks: VecDeque::new(),
             active: None,
             next_id: 0,
+            charger_tried: BTreeSet::new(),
+            backoff_until: 0.0,
             notes: Vec::new(),
         }
     }
@@ -78,7 +104,19 @@ impl Builder {
     }
 
     fn task(robot: &'static str, action: Action) -> Task {
-        Task { robot, action }
+        Task {
+            robot,
+            action,
+            rescue: false,
+        }
+    }
+
+    fn rescue(robot: &'static str, action: Action) -> Task {
+        Task {
+            robot,
+            action,
+            rescue: true,
+        }
     }
 
     fn hauls(&mut self, to: GridCoord, kg: f64) {
@@ -210,6 +248,141 @@ impl Builder {
             .is_some_and(|s| s.battery_wh < 0.35 * cap)
     }
 
+    fn status(&self, robot: &str) -> Option<RobotStatus> {
+        self.robots.get(robot).map(|s| s.status)
+    }
+
+    /// Free to take a command: idle and not running one.
+    fn available(&self, robot: &str) -> bool {
+        self.robots
+            .get(robot)
+            .is_some_and(|s| s.status == RobotStatus::Idle && s.current_command.is_none())
+    }
+
+    fn near(a: GridCoord, b: GridCoord) -> bool {
+        let (dx, dy) = (
+            f64::from(a.x) - f64::from(b.x),
+            f64::from(a.y) - f64::from(b.y),
+        );
+        (dx * dx + dy * dy).sqrt() <= 1.5
+    }
+
+    fn tower_for(&self, robot: &str) -> Option<&'static str> {
+        TOWERS
+            .into_iter()
+            .find(|&t| t != robot && self.available(t))
+    }
+
+    /// The next step of rescuing a disabled robot, helpers first.
+    fn rescue_task(&mut self) -> Option<Task> {
+        for robot in RESCUE_ORDER {
+            let Some(state) = self.robots.get(robot).cloned() else {
+                continue;
+            };
+            let pos = state.position;
+            let task = match state.status {
+                RobotStatus::Offline => {
+                    let charger = self.robots.get(CHARGER).map(|c| c.position);
+                    if robot != CHARGER
+                        && self.available(CHARGER)
+                        && !self.charger_tried.contains(robot)
+                    {
+                        let at = charger.expect("charger state");
+                        if Self::near(at, pos) {
+                            self.charger_tried.insert(robot.into());
+                            Self::rescue(
+                                robot,
+                                Action::Charge {
+                                    source: CHARGER.into(),
+                                    until_wh: None,
+                                },
+                            )
+                        } else {
+                            Self::rescue(CHARGER, Action::MoveTo { target: pos })
+                        }
+                    } else if pos == self.station {
+                        Self::rescue(
+                            robot,
+                            Action::Charge {
+                                source: STATION.into(),
+                                until_wh: None,
+                            },
+                        )
+                    } else if let Some(tower) = self.tower_for(robot) {
+                        Self::rescue(
+                            tower,
+                            Action::Tow {
+                                target_robot: robot.into(),
+                                to: self.station,
+                            },
+                        )
+                    } else {
+                        continue;
+                    }
+                }
+                RobotStatus::Stuck => {
+                    if robot != REPAIRER && self.available(REPAIRER) {
+                        Self::rescue(
+                            REPAIRER,
+                            Action::Repair {
+                                target_robot: robot.into(),
+                            },
+                        )
+                    } else if let Some(tower) = self.tower_for(robot) {
+                        Self::rescue(
+                            tower,
+                            Action::Tow {
+                                target_robot: robot.into(),
+                                to: self.depot,
+                            },
+                        )
+                    } else {
+                        continue;
+                    }
+                }
+                RobotStatus::Failed => {
+                    let repairable = state
+                        .faults
+                        .iter()
+                        .filter(|f| f.severity == Severity::Disabled)
+                        .all(|f| f.field_repairable);
+                    if repairable && robot != REPAIRER && self.available(REPAIRER) {
+                        Self::rescue(
+                            REPAIRER,
+                            Action::Repair {
+                                target_robot: robot.into(),
+                            },
+                        )
+                    } else if pos == self.depot {
+                        Self::rescue(
+                            robot,
+                            Action::Service {
+                                depot: DEPOT.into(),
+                            },
+                        )
+                    } else if let Some(tower) = self.tower_for(robot) {
+                        Self::rescue(
+                            tower,
+                            Action::Tow {
+                                target_robot: robot.into(),
+                                to: self.depot,
+                            },
+                        )
+                    } else {
+                        continue;
+                    }
+                }
+                _ => continue,
+            };
+            self.notes.push(format!(
+                "rescue {robot} ({:?}): {:?}",
+                state.status, task.action
+            ));
+            return Some(task);
+        }
+        None
+    }
+
     fn issue(&mut self, task: Task) -> Command {
         self.next_id += 1;
         let id = format!("b-{:05}", self.next_id);
@@ -252,6 +425,10 @@ impl Builder {
             } if Some(command_id) == active_id.as_ref() => {
                 let (_, task) = self.active.take().unwrap();
                 match reason {
+                    _ if task.rescue => {
+                        self.notes
+                            .push(format!("rescue {command_id} failed: {reason:?} {detail:?}"));
+                    }
                     FailReason::InsufficientEnergy => {
                         self.notes
                             .push(format!("{} ran out of energy; recharging", task.robot));
@@ -265,6 +442,16 @@ impl Builder {
                             },
                         ));
                     }
+                    FailReason::Fault
+                    | FailReason::Stuck
+                    | FailReason::Blocked
+                    | FailReason::TargetLost => {
+                        self.notes.push(format!(
+                            "{command_id} ({}) failed: {reason:?} {detail:?}; will retry",
+                            task.robot
+                        ));
+                        self.tasks.push_front(task);
+                    }
                     other => panic!(
                         "{command_id} ({:?}) failed: {other:?} {detail:?}",
                         task.action
@@ -276,9 +463,24 @@ impl Builder {
                 reason,
                 detail,
                 ..
-            } => {
-                let task = self.active.as_ref().map(|(_, t)| t.action.clone());
-                panic!("{command_id} ({task:?}) rejected: {reason:?} {detail:?}");
+            } if Some(command_id) == active_id.as_ref() => {
+                let (_, task) = self.active.take().unwrap();
+                match reason {
+                    // The world changed under us (a fault at the same instant, a
+                    // target that moved on): back off and try again later.
+                    _ if task.rescue => {}
+                    RejectReason::RobotDisabled | RejectReason::Busy => {
+                        self.tasks.push_front(task);
+                    }
+                    other => panic!(
+                        "{command_id} ({:?}) rejected: {other:?} {detail:?}",
+                        task.action
+                    ),
+                }
+                self.notes.push(format!(
+                    "{command_id} rejected: {reason:?} {detail:?}; backing off"
+                ));
+                self.backoff_until = event.t + BACKOFF_S;
             }
             _ => {}
         }
@@ -296,6 +498,8 @@ impl Agent for Builder {
             self.battery_capacity
                 .insert(r.robot_id.clone(), r.battery_capacity_wh);
         }
+        self.station = hello.scenario.stations[0].position;
+        self.depot = hello.scenario.depots[0].position;
         SoftwareInfo {
             name: "scripted-builder".into(),
             version: "0".into(),
@@ -311,6 +515,24 @@ impl Agent for Builder {
         }
         let mut decision = Decision::empty(obs.seq);
         if self.active.is_some() {
+            return decision;
+        }
+        if obs.t < self.backoff_until {
+            decision.wake_at = Some(self.backoff_until);
+            return decision;
+        }
+        // A revived robot can be tried with the charger again later.
+        let revived: Vec<String> = self
+            .charger_tried
+            .iter()
+            .filter(|r| self.status(r) != Some(RobotStatus::Offline))
+            .cloned()
+            .collect();
+        for r in revived {
+            self.charger_tried.remove(&r);
+        }
+        if let Some(task) = self.rescue_task() {
+            decision.commands.push(self.issue(task));
             return decision;
         }
         while self.tasks.is_empty() && self.phase != Phase::Done && self.pad.is_some() {

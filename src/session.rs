@@ -20,6 +20,8 @@ pub struct RunReport {
     pub commands: usize,
     /// Fraction of the pad meeting spec at the end.
     pub progress: f64,
+    /// The metrics written on `run_end`.
+    pub metrics: RunMetrics,
 }
 
 pub fn run_session<L: CoordinatorLink + ?Sized, W: Write>(
@@ -72,17 +74,33 @@ pub fn run_session<L: CoordinatorLink + ?Sized, W: Write>(
         decisions: 0,
         commands: 0,
         progress: 0.0,
+        metrics: RunMetrics::default(),
     };
     let result = drive(link, &mut sim, log, &mut report);
     let reason = match &result {
         Ok(reason) => *reason,
         Err(_) => EndReason::CoordinatorError,
     };
+    // The final instant: events the coordinator never saw, then the ground
+    // truth at the end, then run_end. The log always ends this way, even when
+    // the coordinator misbehaved; the coordinator itself only gets `end`.
+    for event in sim.take_pending() {
+        log.record(event.t, LogEntry::Observed { event })?;
+    }
+    log.record(
+        sim.now(),
+        LogEntry::Truth {
+            robots: sim.truth_robots(),
+            changed_cells: sim.take_changed_cells(),
+            site: sim.site_truth(),
+        },
+    )?;
+    let metrics = sim.metrics(reason);
     report.end_reason = reason;
     report.end_t = sim.now();
     report.progress = sim.progress();
-    // The log always ends with run_end, even when the coordinator misbehaved.
-    log.record(sim.now(), LogEntry::RunEnd { reason })?;
+    report.metrics = metrics.clone();
+    log.record(sim.now(), LogEntry::RunEnd { reason, metrics })?;
     result.map(|_| report)
 }
 
@@ -108,6 +126,7 @@ fn drive<L: CoordinatorLink + ?Sized, W: Write>(
                     LogEntry::Truth {
                         robots: sim.truth_robots(),
                         changed_cells: sim.take_changed_cells(),
+                        site: sim.site_truth(),
                     },
                 )?;
                 let seq = obs.seq;

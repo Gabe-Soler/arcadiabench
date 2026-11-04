@@ -26,16 +26,33 @@ pub enum EnvEvent {
     StormEnd(usize),
 }
 
+/// When robot heaters run: the part of each sol colder than the heater threshold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cold {
+    Never,
+    Always,
+    /// Cold from `start` to `end` ms after midnight; wraps past midnight when `start > end`.
+    Window {
+        start: SimMs,
+        end: SimMs,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub struct Environment {
     pub storms: Vec<Storm>,
     clear_tau: f64,
     extinction: f64,
+    cold: Cold,
 }
 
 const SUNRISE: f64 = 0.25;
 const NOON: f64 = 0.5;
 const SUNSET: f64 = 0.75;
+/// Daily temperature cycle: mean, half-swing, and the phase at which it crosses the mean going up.
+const TEMP_MEAN_C: f64 = -50.0;
+const TEMP_SWING_C: f64 = 30.0;
+const TEMP_RISING_PHASE: f64 = 0.375;
 
 impl Environment {
     pub fn generate(seed: u64, time_limit: SimMs, p: &Params) -> Self {
@@ -60,6 +77,68 @@ impl Environment {
             storms,
             clear_tau: p.clear_tau,
             extinction: p.dust_extinction,
+            cold: Self::cold_window(p.heater_threshold_c),
+        }
+    }
+
+    /// The part of each sol whose temperature is below `threshold_c`.
+    fn cold_window(threshold_c: f64) -> Cold {
+        let s = (threshold_c - TEMP_MEAN_C) / TEMP_SWING_C;
+        if s <= -1.0 {
+            return Cold::Never;
+        }
+        if s >= 1.0 {
+            return Cold::Always;
+        }
+        // Warm while sin(2π(φ - rising)) >= s, i.e. for φ in [rising + a/2π, rising + 1/2 - a/2π].
+        let a = libm::asin(s) / (2.0 * PI);
+        let frac = |x: f64| x - libm::floor(x);
+        let at = |phase: f64| ((frac(phase) * SOL_MS as f64).round() as SimMs).min(SOL_MS - 1);
+        Cold::Window {
+            start: at(TEMP_RISING_PHASE + 0.5 - a),
+            end: at(TEMP_RISING_PHASE + 1.0 + a),
+        }
+    }
+
+    /// Milliseconds of `[t0, t1)` colder than the heater threshold.
+    pub fn cold_ms(&self, t0: SimMs, t1: SimMs) -> SimMs {
+        if t1 <= t0 {
+            return 0;
+        }
+        let overlap = |a0: SimMs, a1: SimMs| t1.min(a1).saturating_sub(t0.max(a0));
+        match self.cold {
+            Cold::Never => 0,
+            Cold::Always => t1 - t0,
+            Cold::Window { start, end } => (t0 / SOL_MS..=(t1 - 1) / SOL_MS)
+                .map(|k| {
+                    let base = k * SOL_MS;
+                    if start <= end {
+                        overlap(base + start, base + end)
+                    } else {
+                        overlap(base, base + end) + overlap(base + start, base + SOL_MS)
+                    }
+                })
+                .sum(),
+        }
+    }
+
+    /// Whether robot heaters run at `t`.
+    pub fn is_cold(&self, t: SimMs) -> bool {
+        self.cold_ms(t, t + 1) == 1
+    }
+
+    /// The next time after `t` at which heaters switch on or off.
+    pub fn next_cold_change(&self, t: SimMs) -> Option<SimMs> {
+        match self.cold {
+            Cold::Never | Cold::Always => None,
+            Cold::Window { start, end } => {
+                let base = t / SOL_MS * SOL_MS;
+                [start, end, SOL_MS + start, SOL_MS + end]
+                    .into_iter()
+                    .map(|o| base + o)
+                    .filter(|&c| c > t)
+                    .min()
+            }
         }
     }
 
@@ -105,7 +184,25 @@ impl Environment {
 
     /// Surface air temperature, °C: about -80 before dawn, -20 mid-afternoon.
     pub fn temperature_c(t: SimMs) -> f64 {
-        -50.0 + 30.0 * libm::sin(2.0 * PI * (Self::sol_phase(t) - 0.375))
+        TEMP_MEAN_C + TEMP_SWING_C * libm::sin(2.0 * PI * (Self::sol_phase(t) - TEMP_RISING_PHASE))
+    }
+
+    /// Whether a dust storm is active at `t`.
+    pub fn storm_active(&self, t: SimMs) -> bool {
+        self.storm_at(t).is_some()
+    }
+
+    /// Total time within `[t0, t1)` with a dust storm active, ms.
+    pub fn storm_ms(&self, t0: SimMs, t1: SimMs) -> SimMs {
+        self.storms
+            .iter()
+            .map(|s| t1.min(s.end).saturating_sub(t0.max(s.start)))
+            .sum()
+    }
+
+    /// Clear-sky optical depth.
+    pub fn clear_tau(&self) -> f64 {
+        self.clear_tau
     }
 
     /// Every scheduled environment event up to `until`, in time order.
@@ -182,6 +279,84 @@ mod tests {
         );
         assert!(a.transmittance(peak) < 0.5);
         assert!(a.storms.windows(2).all(|w| w[0].end <= w[1].start));
+    }
+
+    #[test]
+    fn cold_window_matches_the_temperature_curve() {
+        let p = Params::default();
+        let env = Environment::generate(1, SOL_MS, &p);
+        // Sampled every minute over two sols, away from the boundaries.
+        let mut cold_minutes = 0;
+        for i in 0..(2 * SOL_MS / 60_000) {
+            let t = i * 60_000;
+            let temp = Environment::temperature_c(t);
+            if (temp - p.heater_threshold_c).abs() > 0.05 {
+                assert_eq!(
+                    env.is_cold(t),
+                    temp < p.heater_threshold_c,
+                    "t = {t}, {temp} C"
+                );
+            }
+            cold_minutes += u64::from(env.is_cold(t));
+        }
+        // About 39% of a sol is below -60 C.
+        let frac = cold_minutes as f64 / (2 * SOL_MS / 60_000) as f64;
+        assert!((0.35..0.43).contains(&frac), "{frac}");
+        // Coldest before dawn, warm in the afternoon.
+        assert!(env.is_cold(SOL_MS / 8));
+        assert!(!env.is_cold(SOL_MS * 6 / 10));
+    }
+
+    #[test]
+    fn cold_time_adds_up_and_changes_are_found() {
+        let env = Environment::generate(1, 3 * SOL_MS, &Params::default());
+        let (a, b, c) = (12_345, SOL_MS + 777, 2 * SOL_MS + 99_999);
+        assert_eq!(env.cold_ms(a, b) + env.cold_ms(b, c), env.cold_ms(a, c));
+        assert_eq!(env.cold_ms(a, a), 0);
+        let total = env.cold_ms(0, SOL_MS);
+        let mut t = 0;
+        let mut summed = 0;
+        while let Some(next) = env.next_cold_change(t).filter(|&n| n <= SOL_MS) {
+            assert!(next > t);
+            if env.is_cold(t) {
+                summed += next - t;
+            }
+            t = next;
+        }
+        if env.is_cold(t) {
+            summed += SOL_MS - t;
+        }
+        assert_eq!(summed, total);
+        let never = Environment::generate(
+            1,
+            SOL_MS,
+            &Params {
+                heater_threshold_c: -200.0,
+                ..Params::default()
+            },
+        );
+        assert_eq!(never.cold_ms(0, 10 * SOL_MS), 0);
+        assert_eq!(never.next_cold_change(5), None);
+    }
+
+    #[test]
+    fn storm_time_is_exact() {
+        let p = Params {
+            storm_chance_per_sol: 0.5,
+            ..Params::default()
+        };
+        let limit = 60 * SOL_MS;
+        let env = Environment::generate(9, limit, &p);
+        let expected: SimMs = env.storms.iter().map(|s| s.end.min(limit) - s.start).sum();
+        assert_eq!(env.storm_ms(0, limit), expected);
+        let s = env.storms[0].clone();
+        assert_eq!(
+            env.storm_ms(0, s.start),
+            0,
+            "nothing before the first storm"
+        );
+        assert_eq!(env.storm_ms(s.start, s.start + 1000), 1000);
+        assert!(env.storm_active(s.start) && !env.storm_active(s.end));
     }
 
     #[test]

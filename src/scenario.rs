@@ -1,7 +1,8 @@
-//! Scenario generation. Week 2 ships one scenario, `landing-pad-small`: a
-//! seeded 60 × 60 m Arcadia Planitia site with a 20 × 20 m pad, a short blast
-//! berm, four robots, one charge station and one depot. The Small/Medium/Large
-//! presets arrive with scoring in week 7.
+//! Scenario generation. One scenario, `landing-pad-small`: a seeded
+//! 60 × 60 m Arcadia Planitia site with a 20 × 20 m pad, a short blast berm,
+//! four robots, one charge station, one depot and a comms base station. Its
+//! power system comes from the parameters, so the power variants change it.
+//! The Small/Medium/Large presets arrive with scoring in week 7.
 
 use crate::sim::mission::Mission;
 use crate::sim::params::Params;
@@ -19,6 +20,12 @@ pub const BERM_Y: u32 = 42;
 pub const BERM_X: (u32, u32) = (24, 35);
 pub const BERM_HEIGHT_M: f64 = 0.5;
 pub const TIME_LIMIT_SOLS: u64 = 60;
+pub const STATION: GridCoord = GridCoord { x: 10, y: 10 };
+pub const DEPOT: GridCoord = GridCoord { x: 8, y: 14 };
+/// The comms hub sits between the station and the depot; with the default
+/// range it covers the pad, the berm and the work areas around them, but not
+/// the far corners of the site (coverage is enforced from week 6).
+pub const BASE_STATION: GridCoord = GridCoord { x: 10, y: 12 };
 
 /// Everything a run needs: what the coordinator is told, and the ground truth.
 pub struct Generated {
@@ -105,14 +112,25 @@ pub fn generate(seed: u64, p: &Params) -> Generated {
         robots,
         stations: vec![ChargeStation {
             station_id: "st-1".into(),
-            position: GridCoord { x: 10, y: 10 },
+            position: STATION,
             max_power_w: 6000.0,
             slots: 2,
         }],
         depots: vec![Depot {
             depot_id: "dp-1".into(),
-            position: GridCoord { x: 8, y: 14 },
+            position: DEPOT,
         }],
+        power: PowerSystem {
+            mode: p.power_mode,
+            fission_w: p.fission_w,
+            solar_peak_w: p.solar_peak_w,
+            storage_capacity_wh: p.bank_capacity_wh,
+            essential_load_w: p.essential_load_w,
+        },
+        base_station: BaseStation {
+            position: BASE_STATION,
+            range_m: p.base_station_range_m,
+        },
         policy: default_policy(),
     };
     Generated {
@@ -239,6 +257,7 @@ pub fn default_policy() -> Policy {
         ("wait", 1),
         ("cancel", 1),
         ("repair", 1),
+        ("service", 1),
         ("tow", 2),
         ("replan", 2),
         ("reassign_task", 2),
