@@ -1,0 +1,2 @@
+# The repository ignores *.jsonl run logs; keep the viewer's test fixtures.
+!test/fixtures/*.jsonl
