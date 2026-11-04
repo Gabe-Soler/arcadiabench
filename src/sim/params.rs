@@ -8,11 +8,20 @@
 
 use super::faults::Comp;
 use arcadia_protocol::{FaultCause, PowerMode, Severity};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Params {
+    // --- the scenario catalog ---
+    /// The crew and the outpost it works from (a Standard track preset).
+    pub preset: Preset,
+    /// The catalog variant these parameters were built from. It names the
+    /// scenario (`landing-pad-<preset>-<variant>`); a parameter set edited by
+    /// hand keeps the name of the variant it started from.
+    pub variant: Variant,
+
     // --- terrain (Arcadia Planitia: smooth, low rock abundance) ---
     /// Mean surface elevation of the site, m (MOLA datum).
     pub base_elevation_m: f64,
@@ -100,6 +109,18 @@ pub struct Params {
     pub storm_peak_tau: (f64, f64),
     /// Solar transmittance = exp(-extinction * (tau - clear_tau)).
     pub dust_extinction: f64,
+    /// The run contains a guaranteed regional dust storm early on (the
+    /// `dust_storm` variant), drawn from the `dust_storm` stream. Seasonal
+    /// storms that would overlap it are dropped.
+    pub dust_storm: bool,
+    /// Range of when that storm's front arrives, sols into the run (uniform).
+    pub dust_storm_start_sols: (f64, f64),
+    /// Time from the front's arrival to peak opacity, sols.
+    pub dust_storm_rise_sols: f64,
+    /// Range of that storm's length, sols.
+    pub dust_storm_sols: (f64, f64),
+    /// Range of that storm's peak optical depth.
+    pub dust_storm_peak_tau: (f64, f64),
 
     // --- Earth link (one-way delay geometry, outages, conjunction) ---
     /// Shortest one-way light time, at opposition, s.
@@ -323,6 +344,9 @@ impl Params {
     /// The default variant: hybrid power and the nominal fault model.
     pub fn nominal() -> Self {
         Self {
+            preset: Preset::Small,
+            variant: Variant::Nominal,
+
             base_elevation_m: -4102.0,
             tilt_sigma: 0.004,
             noise_octaves: [(16.0, 0.30), (8.0, 0.12), (4.0, 0.04)],
@@ -366,6 +390,11 @@ impl Params {
             storm_sols: (2.0, 10.0),
             storm_peak_tau: (2.0, 4.0),
             dust_extinction: 0.6,
+            dust_storm: false,
+            dust_storm_start_sols: (0.0, 0.1),
+            dust_storm_rise_sols: 0.1,
+            dust_storm_sols: (4.0, 8.0),
+            dust_storm_peak_tau: (3.5, 5.0),
 
             delay_min_s: 240.0,
             delay_max_s: 1440.0,
@@ -466,6 +495,7 @@ impl Params {
     pub fn cascading_faults() -> Self {
         let n = Self::nominal();
         Self {
+            variant: Variant::CascadingFaults,
             wear_wheels_per_km: n.wear_wheels_per_km * 4.0,
             wear_drive_motor_per_km: n.wear_drive_motor_per_km * 4.0,
             wear_tool_per_work_h: n.wear_tool_per_work_h * 4.0,
@@ -485,6 +515,7 @@ impl Params {
     /// Solar arrays and storage only: day-night swings and storms dominate.
     pub fn solar_only() -> Self {
         Self {
+            variant: Variant::SolarOnly,
             power_mode: PowerMode::SolarOnly,
             fission_w: 0.0,
             solar_peak_w: 30_000.0,
@@ -496,6 +527,7 @@ impl Params {
     /// Mostly fission: a steady supply with a small solar top-up.
     pub fn nuclear_heavy() -> Self {
         Self {
+            variant: Variant::NuclearHeavy,
             power_mode: PowerMode::NuclearHeavy,
             fission_w: 15_000.0,
             solar_peak_w: 5_000.0,
@@ -508,51 +540,135 @@ impl Params {
     /// two weeks starting early in the run, and the delay is near its longest.
     pub fn conjunction() -> Self {
         Self {
+            variant: Variant::Conjunction,
             conjunction: true,
             ..Self::nominal()
         }
     }
 
-    /// The parameters of a variant.
+    /// Nominal, with a severe regional dust storm early in the run: its
+    /// front arrives within the first tenth of a sol (2.5 hours) and opacity
+    /// peaks a tenth of a sol later, so it weighs on every preset's build,
+    /// then dims the sun for days.
+    pub fn dust_storm() -> Self {
+        Self {
+            variant: Variant::DustStorm,
+            dust_storm: true,
+            ..Self::nominal()
+        }
+    }
+
+    /// The parameters of a variant, for the Small preset.
     pub fn variant(v: Variant) -> Self {
         match v {
             Variant::Nominal => Self::nominal(),
+            Variant::DustStorm => Self::dust_storm(),
+            Variant::Conjunction => Self::conjunction(),
             Variant::CascadingFaults => Self::cascading_faults(),
             Variant::SolarOnly => Self::solar_only(),
             Variant::NuclearHeavy => Self::nuclear_heavy(),
-            Variant::Conjunction => Self::conjunction(),
+        }
+    }
+
+    /// The parameters of a scenario in the catalog: a preset's crew and
+    /// outpost, under a variant.
+    pub fn scenario(preset: Preset, variant: Variant) -> Self {
+        Self {
+            preset,
+            ..Self::variant(variant)
         }
     }
 }
 
-/// A named scenario variant: a small, fixed mapping to parameter sets.
-/// Week 7 replaces this with the full scenario catalog.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// A Standard track preset: a crew with a defined capability mix and the
+/// outpost it works from. `src/presets.rs` defines them.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Preset {
+    /// Four robots, one of each design.
+    #[default]
+    Small,
+    /// Ten robots.
+    Medium,
+    /// Twenty robots.
+    Large,
+}
+
+impl Preset {
+    pub const ALL: [Preset; 3] = [Preset::Small, Preset::Medium, Preset::Large];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Preset::Small => "small",
+            Preset::Medium => "medium",
+            Preset::Large => "large",
+        }
+    }
+}
+
+impl fmt::Display for Preset {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+impl FromStr for Preset {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Preset::ALL
+            .into_iter()
+            .find(|p| p.name() == s)
+            .ok_or_else(|| {
+                let names: Vec<&str> = Preset::ALL.iter().map(|p| p.name()).collect();
+                format!("unknown preset '{s}' (expected {})", names.join(", "))
+            })
+    }
+}
+
+/// A named scenario variant: what the run throws at the crew, as a fixed
+/// change to the nominal parameters. Every variant combines with every preset.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
 pub enum Variant {
     #[default]
     Nominal,
+    DustStorm,
+    Conjunction,
     CascadingFaults,
     SolarOnly,
     NuclearHeavy,
-    Conjunction,
 }
 
 impl Variant {
-    pub const ALL: [Variant; 5] = [
+    pub const ALL: [Variant; 6] = [
         Variant::Nominal,
+        Variant::DustStorm,
+        Variant::Conjunction,
         Variant::CascadingFaults,
         Variant::SolarOnly,
         Variant::NuclearHeavy,
+    ];
+
+    /// The variants that stress a crew, against which resilience is measured:
+    /// the outline's dust storms, blackouts and faults.
+    pub const STRESS: [Variant; 3] = [
+        Variant::DustStorm,
         Variant::Conjunction,
+        Variant::CascadingFaults,
     ];
 
     pub fn name(self) -> &'static str {
         match self {
             Variant::Nominal => "nominal",
+            Variant::DustStorm => "dust_storm",
+            Variant::Conjunction => "conjunction",
             Variant::CascadingFaults => "cascading_faults",
             Variant::SolarOnly => "solar_only",
             Variant::NuclearHeavy => "nuclear_heavy",
-            Variant::Conjunction => "conjunction",
         }
     }
 }
@@ -584,16 +700,27 @@ mod tests {
     fn variants_parse_and_differ_where_they_should() {
         for v in Variant::ALL {
             assert_eq!(v.name().parse::<Variant>().unwrap(), v);
+            assert_eq!(Params::variant(v).variant, v);
         }
-        assert!("dust_storm".parse::<Variant>().is_err());
+        assert!("sandstorm".parse::<Variant>().is_err());
         assert!(Params::conjunction().conjunction && !Params::nominal().conjunction);
         assert_eq!(
             Params {
+                variant: Variant::Nominal,
                 conjunction: false,
                 ..Params::conjunction()
             },
             Params::nominal(),
             "conjunction changes only the link"
+        );
+        assert_eq!(
+            Params {
+                variant: Variant::Nominal,
+                dust_storm: false,
+                ..Params::dust_storm()
+            },
+            Params::nominal(),
+            "dust_storm adds only the storm"
         );
         for v in Variant::ALL {
             assert!(Params::variant(v).outage_per_sol > 0.0, "{v} has outages");
@@ -607,5 +734,32 @@ mod tests {
         assert_eq!(Params::nuclear_heavy().power_mode, PowerMode::NuclearHeavy);
         assert!(Params::nuclear_heavy().fission_w > n.fission_w);
         assert_eq!(Params::default(), n);
+        assert!(Variant::STRESS.iter().all(|v| Variant::ALL.contains(v)));
+        for v in Variant::ALL {
+            assert_eq!(serde_json::to_value(v).unwrap(), v.name());
+        }
+        for p in Preset::ALL {
+            assert_eq!(serde_json::to_value(p).unwrap(), p.name());
+        }
+    }
+
+    #[test]
+    fn presets_parse_and_change_only_the_crew() {
+        for p in Preset::ALL {
+            assert_eq!(p.name().parse::<Preset>().unwrap(), p);
+            for v in Variant::ALL {
+                let params = Params::scenario(p, v);
+                assert_eq!((params.preset, params.variant), (p, v));
+                assert_eq!(
+                    Params {
+                        preset: Preset::Small,
+                        ..params
+                    },
+                    Params::variant(v)
+                );
+            }
+        }
+        assert!("huge".parse::<Preset>().is_err());
+        assert_eq!(Params::default().preset, Preset::Small);
     }
 }

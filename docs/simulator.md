@@ -6,7 +6,7 @@ All values are placeholders. They are chosen to be physically plausible, to make
 
 ## Contents
 
-1. [Variants](#1-variants)
+1. [The scenario catalog](#1-the-scenario-catalog)
 2. [Time and environment](#2-time-and-environment)
 3. [Terrain](#3-terrain)
 4. [Actions: durations and energy](#4-actions-durations-and-energy)
@@ -20,24 +20,62 @@ All values are placeholders. They are chosen to be physically plausible, to make
 12. [Scripted mission control](#12-scripted-mission-control)
 13. [Authority enforcement](#13-authority-enforcement)
 14. [Coverage and relays](#14-coverage-and-relays)
-15. [The `landing-pad-small` scenario](#15-the-landing-pad-small-scenario)
+15. [The landing-pad scenarios](#15-the-landing-pad-scenarios)
 16. [Randomness and reproducibility](#16-randomness-and-reproducibility)
 17. [Session limits and the event log](#17-session-limits-and-the-event-log)
 18. [Calibration](#18-calibration)
 
-## 1. Variants
+## 1. The scenario catalog
 
-A variant is a named parameter set. Select one with `arcadiabench run --variant <name>`, or in Rust with `Params::variant(Variant::…)` or one of `Params::nominal()`, `Params::cascading_faults()`, `Params::solar_only()`, `Params::nuclear_heavy()` and `Params::conjunction()`. The default is `nominal`. Week 7 replaces this small mapping with the full scenario catalog.
+A scenario is a **preset** (the crew and its outpost) combined with a **variant** (what the run throws at the crew). Every preset combines with every variant, and the scenario is named `landing-pad-<preset>-<variant>`.
+
+- **Command line:** `arcadiabench run --preset <name> --variant <name>`. `bench`, `suite` and the Python package take the same names.
+- **Rust:** `Params::scenario(Preset::…, Variant::…)`. `Params::variant(Variant::…)` and the constructors `Params::nominal()`, `Params::dust_storm()`, `Params::conjunction()`, `Params::cascading_faults()`, `Params::solar_only()` and `Params::nuclear_heavy()` give the Small preset.
+- **Defaults:** `small` and `nominal`.
+
+Every scenario has the same site, the same landing-pad goal and the same base station (§15), and a seed gives the same terrain, weather and Earth link in every preset.
+
+### Presets
+
+The Standard track presets are defined in [`src/presets.rs`](../src/presets.rs).
+
+| Preset | Robots | Crew | Stations (6 kW, 2 slots each) | Depots |
+|---|---|---|---|---|
+| `small` | 4 | 1 scout, 1 excavator, 1 hauler, 1 compactor-sinterer | `st-1` (10, 10) | `dp-1` (8, 14) |
+| `medium` | 10 | 2 scouts, 2 excavators, 2 haulers, 4 compactor-sinterers | + `st-2` (49, 10) | + `dp-2` (51, 14) |
+| `large` | 20 | 4 scouts, 4 excavators, 4 haulers, 8 compactor-sinterers | + `st-3` (10, 30), `st-4` (49, 30) | + `dp-3` (8, 26), `dp-4` (51, 26) |
+
+Why this capability mix:
+
+- **The same four designs.** Every robot is one of the Small crew's four designs, with unchanged specs (§15). A rate, a battery or a speed means the same in every preset, so results differ only by crew size and coordination.
+- **Weighted toward sintering.** Sintering is the slowest step and dominates the work. On Small, ArcadiaOS keeps its compactor-sinterer busy about 20 of the crew's 33 busy robot-hours, including the charging that sintering's 24 kWh needs. So beyond the minimal Small crew of one robot per design, compactor-sinterers make up 40% of the crew.
+- **No single points of failure.** Every other design is doubled in Medium and doubled again in Large. Every capability is carried by at least two robots in Medium and four in Large, so no single breakdown strands a capability.
+- **Nested crews.** Medium is the Small crew plus six robots, and Large is the Medium crew plus ten, with the same ids (`sc-1`, `ex-1`, `hl-1`, `cp-1`, then `sc-2`, ...). A coordinator that only knows the Small crew still runs on every preset.
+
+The outpost scales with the crew:
+
+- **Stations and depots.** Medium mirrors the Small station and depot across the base station, to the east of the outpost. Large adds a station and a depot on each side of the pad.
+- **Constant ratios.** Every station keeps the Small station's 3 kW per slot. That makes 0.5 slots per robot in Small and 0.4 in Medium and Large, and 4 to 5 robots per depot.
+- **Everything in coverage.** Every station, depot and start position stands inside the base station's coverage and off the pad.
+- **The same base station.** It is unchanged in every preset, so every crew meets the same coverage problem at the berm.
+- **The same power plant.** The power system is the variant's (§6) whatever the preset. A bigger crew shares the same supply: Large's eight charge slots can draw 24 kW, more than the 10 kW hybrid baseline gives at night.
+
+Robots start in rows of ten eastward from (12, 10): Small at (12–15, 10), Medium at (12–21, 10), and Large adds (12–21, 11).
+
+The presets need no randomness of their own. Small is exactly the week-6 scenario, apart from its name, and `tests/regression.rs` checks this byte for byte.
+
+### Variants
 
 | Variant | What changes from `nominal` |
 |---|---|
 | `nominal` | Hybrid power and the nominal fault model. |
+| `dust_storm` | A severe regional dust storm early in the run: its front arrives in the first 0.1 sol, opacity peaks 0.1 sol later at tau 3.5–5, and the storm lasts 4–8 sols (§2). |
+| `conjunction` | A 14-sol solar-conjunction blackout of the Earth link starting early in the run, with the one-way delay near its 24-minute maximum (§11). |
 | `cascading_faults` | Every wear rate and the wear hazard ×4, the random hazard ×5, the storm sensor hazard ×3, the stuck rate ×3, and only 40% of disabling faults field repairable. |
 | `solar_only` | No fission; 30 kW solar peak; 150 kWh storage (§6). |
 | `nuclear_heavy` | 15 kW fission; 5 kW solar peak; 50 kWh storage (§6). |
-| `conjunction` | A 14-sol solar-conjunction blackout of the Earth link starting early in the run, with the one-way delay near its 24-minute maximum (§11). |
 
-Unplanned link outages (§11) happen in every variant.
+Unplanned link outages (§11) happen in every variant. `dust_storm`, `conjunction` and `cascading_faults` are the stress variants that resilience is measured against ([`docs/scoring.md`](scoring.md)). `solar_only` and `nuclear_heavy` are alternative power architectures.
 
 `Params { faults_enabled: false, .. }` turns off wear growth and every random failure process: the core physics without faults. Scripted incidents still happen. `scripted` holds incidents forced at fixed times, for tests and demo scenarios: a fault on a given component, or getting stuck. It is empty in every built-in variant.
 
@@ -57,6 +95,17 @@ Sim time is kept in integer milliseconds. One sol is 88,775 s, and `t = 0` is lo
 | `dust_extinction` | 0.6 | Solar transmittance `exp(−0.6 (tau − clear_tau))`: about 30% of clear-sky output at tau 2.5. |
 
 Storms come from the `weather` stream, at most one at a time. Each sol with no storm raging starts one with probability `storm_chance_per_sol`, at a uniform time within the sol. Opacity ramps linearly from clear to the peak over the first fifth of the storm, then falls linearly back to clear at its end.
+
+**The `dust_storm` variant's storm** is drawn from its own `dust_storm` stream, so the seasonal storms it leaves in place are the same as in every other variant. Seasonal storms that would overlap it are dropped. Its front arrives at a uniform time in `dust_storm_start_sols`, and opacity climbs linearly to the peak over `dust_storm_rise_sols`, then falls linearly back to clear at its end.
+
+| Parameter | Value | Rationale |
+|---|---|---|
+| `dust_storm_start_sols` | 0.0–0.1 sols | Within 2.5 hours of the start, so the storm overlaps every preset's build: a Large crew can finish in about 0.15 sols. |
+| `dust_storm_rise_sols` | 0.1 sols | A storm front blows in over hours, not days. |
+| `dust_storm_sols` | 4–8 sols | Longer than most seasonal storms. |
+| `dust_storm_peak_tau` | 3.5–5 | Severe: solar transmittance falls to 7–17% of clear sky. |
+
+The storm brings everything a seasonal storm does: storm sensor faults on robots that scan or drive, faster wear, more dust exposure, and less solar power. A build that finishes during the first night (sunrise is at sol phase 0.25) meets only the first three.
 
 ## 3. Terrain
 
@@ -327,9 +376,9 @@ Coverage is re-derived after every event and after every command, so each comman
 - the whole pad, whose far corners are 32.3 and 32.6 m away;
 - the ground east and west of the pad.
 
-It does not reach the blast berm 3 m north of the pad (34.0–34.5 m away), nor the north of the site. So every coordinator meets coverage when it builds the berm, and has three ways to deal with it:
+It does not reach the blast berm 3 m north of the pad (34.0–34.5 m away), nor the north of the site. It is the same in every preset. So every coordinator meets coverage when it builds the berm, and has three ways to deal with it:
 
-- **Hold a relay.** The hauler's 150 m relay covers the whole site from anywhere, at the cost of its hauling and charging.
+- **Hold a relay.** A hauler's 150 m relay covers the whole site from anywhere, at the cost of its hauling and charging.
 - **Plan work that stays in coverage.** The scripted builder digs pits inside coverage and sends the spoil onto the berm.
 - **Pay a lost-link timeout** for each command that ends out there.
 
@@ -351,26 +400,30 @@ The pad itself never needs a relay, so coverage costs time without making the mi
 - It shows `moving` with no `current_command`, and reports nothing.
 - If the drive ends out of coverage after all, because the coverage it was heading for has gone, the next drive starts at once.
 
-## 15. The `landing-pad-small` scenario
+## 15. The landing-pad scenarios
+
+Every scenario in the catalog (§1) shares the site, the goal, the base station and the time limit. The preset brings the crew, the stations and the depots.
 
 - **Site:** 60 × 60 m with 1 m cells. Prior knowledge is noisy orbital elevation only.
 - **Goal:** a 20 × 20 m pad at (20, 20)–(39, 39), levelled to its mean prior elevation rounded to the centimetre, within ±0.05 m and ≤ 2°, stabilized. The berm is cells x = 24–35 at y = 42, 0.5 m high.
-- **Infrastructure:** charge station `st-1` at (10, 10), 6 kW over 2 slots; depot `dp-1` at (8, 14); base station at (30, 8) with `base_station_range_m` = 33 m, covering the outpost and the pad but not the berm (§14).
+- **Infrastructure:** the base station at (30, 8) with `base_station_range_m` = 33 m, covering the outpost and the pad but not the berm (§14). Charge station `st-1` at (10, 10), 6 kW over 2 slots, and depot `dp-1` at (8, 14), plus the larger presets' stations and depots (§1).
 - **Time limit:** 60 sols.
-- **Crew:** robots start at (12–15, 10).
+- **Crew:** robots of four designs, starting at (12, 10) and eastward (§1). In the Small crew they are `sc-1`, `ex-1`, `hl-1` and `cp-1`; the larger presets number further robots of each design from 2.
 
-| Robot | Mass | Battery | Speed | Drive | Idle | Capabilities |
+| Design | Mass | Battery | Speed | Drive | Idle | Capabilities |
 |---|---|---|---|---|---|---|
-| `sc-1` scout | 90 kg | 1,500 Wh | 0.5 m/s | 0.2 Wh/m | 8 W | scan 4 m²/s at 0.05 Wh/m²; repair 0.0005/s at 400 Wh/unit |
-| `ex-1` excavator | 420 kg | 6,000 Wh | 0.15 m/s | 0.9 Wh/m | 35 W | dig 0.004 m³/s at 100 Wh/m³; grade 0.05 m²/s at 8 Wh/m²; haul 2 kg/s, 250 kg |
-| `hl-1` hauler | 300 kg | 12,000 Wh | 0.3 m/s | 0.7 Wh/m | 20 W | haul 3 kg/s, 400 kg; charge 0.5 Wh/s from an 8 kWh tank; relay 150 m |
-| `cp-1` compactor-sinterer | 500 kg | 10,000 Wh | 0.15 m/s | 1.0 Wh/m | 30 W | compact 0.1 m²/s at 4 Wh/m²; sinter 0.01 m²/s at 60 Wh/m² |
+| `sc` scout | 90 kg | 1,500 Wh | 0.5 m/s | 0.2 Wh/m | 8 W | scan 4 m²/s at 0.05 Wh/m²; repair 0.0005/s at 400 Wh/unit |
+| `ex` excavator | 420 kg | 6,000 Wh | 0.15 m/s | 0.9 Wh/m | 35 W | dig 0.004 m³/s at 100 Wh/m³; grade 0.05 m²/s at 8 Wh/m²; haul 2 kg/s, 250 kg |
+| `hl` hauler | 300 kg | 12,000 Wh | 0.3 m/s | 0.7 Wh/m | 20 W | haul 3 kg/s, 400 kg; charge 0.5 Wh/s from an 8 kWh tank; relay 150 m |
+| `cp` compactor-sinterer | 500 kg | 10,000 Wh | 0.15 m/s | 1.0 Wh/m | 30 W | compact 0.1 m²/s at 4 Wh/m²; sinter 0.01 m²/s at 60 Wh/m² |
 
 **Default policy:** move_to, scan, dig, grade, haul, compact, sinter, charge, relay, wait, cancel, repair and service at level 1; tow, replan and reassign_task at 2; abandon_section and cannibalize at 3; commit_energy_reserve at 4. Anything else defaults to 2. Earth's trust script may change it during the run (§12).
 
 ## 16. Randomness and reproducibility
 
 Every random draw comes from a named stream, seeded from the run seed and the stream name. Adding a process never shifts another's draws, and a stream is never drawn from at a new call site. Terrain, weather, the orbital prior and the scenario are therefore identical for every coordinator on a seed, and the same as in week 2. `tests/regression.rs` checks this byte for byte on seeds 1–5, and checks that the Earth link's `comms` events are the same for every coordinator.
+
+The catalog left the Small preset untouched. On seeds 1–10, `small` + `nominal` gives the same terrain, scenario and whole runs (of a parked fleet, an idle one and the scripted builder) as week 6, byte for byte apart from the scenario's name. On seeds 1–3, so does every other week-6 variant. The larger presets use the same streams, so they see the same site, weather and link as Small on a seed; only the crew and the outpost differ.
 
 | Stream | Draws |
 |---|---|
@@ -389,6 +442,7 @@ Every random draw comes from a named stream, seeded from the run seed and the st
 | `comms` | The Earth link: the conjunction's start, then the unplanned outages. |
 | `earth` | Mission control's response times and approvals. |
 | `coverage` | Telemetry noise of the snapshot a robot leaves when it loses contact. |
+| `dust_storm` | The `dust_storm` variant's storm: its arrival, length and peak opacity. |
 
 Faults depend on what robots do, and Earth's answers on what the coordinator asks, so they differ between coordinators. A coordinator that does the same things on the same seed gets the same faults and answers, and the log is byte-identical.
 
@@ -415,21 +469,25 @@ The coordinator still gets only `end`.
 
 ## 18. Calibration
 
-These figures come from the scripted builder in `tests/support/builder.rs` on seeds 1–5. It works one task at a time:
+These figures come from the scripted builder in `tests/support/builder.rs` on seeds 1–5, on the Small preset unless noted. It works one task at a time:
 
 - It repairs field-repairable faults with the scout, tows faults that need the depot there for service, and revives offline robots with the mobile charger.
 - It keeps every task in direct coverage, building the berm from pits inside coverage.
 - It notifies Earth of each level-2 command (a tow), so it commits no policy violations and never needs an approval.
 
-| Variant | Sols to finish | Faults a run | Other |
+| Scenario | Sols to finish | Faults a run | Other |
 |---|---|---|---|
 | `nominal` | 1.76–1.97 | 0–2 | 0–1 stuck events a run, up to 2.1 robot-hours lost |
 | faults off | 1.57–1.78 | 0 | The core physics |
 | `cascading_faults` | 2.06–2.28 | 1–4 | About five times the nominal fault rate |
 | `conjunction` | 1.76–1.97 | 0–2 | The blackout starts 0.3–0.9 sols in, so most of the build happens during it; the builder needs nothing from Earth |
+| `dust_storm` | 1.86–2.29 | 0–4 | Storm sensor faults and faster wear; the first day's sun is mostly lost |
+| Medium and Large, `nominal` | 1.75–1.97 | 0–2 | The builder only uses `sc-1`, `ex-1`, `hl-1` and `cp-1`, which every preset has |
 
 Over 2 sols the builder never strains the grid, so its `solar_only` and `nuclear_heavy` runs come out identical to `nominal`. The power variants matter for longer runs, bigger crews and storms.
 
 A crew of four working continuously, with no repairs, sees four to six incidents in its first 3 sols.
+
+Scorecards for these runs, and how to read them, are in [`docs/scoring.md`](scoring.md). The builder's speed is about 0.25 on Small: it works one robot at a time.
 
 Wear-driven faults are rare in short runs and dominate longer ones as wear builds up. Random faults set the floor.

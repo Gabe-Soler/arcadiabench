@@ -1,7 +1,10 @@
 //! Sol clock, daylight, temperature and the seeded dust-storm schedule.
 //!
 //! The whole schedule is drawn up front from the "weather" stream, so every
-//! coordinator on the same seed faces exactly the same weather.
+//! coordinator on the same seed faces exactly the same weather. The
+//! `dust_storm` variant adds a storm front from its own `dust_storm` stream,
+//! so the seasonal storms it leaves in place are the same as in every other
+//! variant.
 
 use super::params::Params;
 use super::rng::Rng;
@@ -13,6 +16,18 @@ pub struct Storm {
     pub start: SimMs,
     pub end: SimMs,
     pub peak_tau: f64,
+    /// When a storm front's opacity peaks. `None` for a seasonal storm,
+    /// which builds over the first fifth of its length.
+    pub front_peak: Option<SimMs>,
+}
+
+impl Storm {
+    /// When opacity peaks: a fifth of the way through a seasonal storm, or
+    /// at a front's peak. Opacity falls linearly from there to the end.
+    pub fn peak(&self) -> SimMs {
+        self.front_peak
+            .unwrap_or(self.start + (self.end - self.start) / 5)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,15 +84,41 @@ impl Environment {
                     start,
                     end: start + length,
                     peak_tau: rng.range(p.storm_peak_tau.0, p.storm_peak_tau.1),
+                    front_peak: None,
                 });
             }
             sol += 1;
+        }
+        if p.dust_storm {
+            let front = Self::storm_front(seed, p);
+            // Seasonal storms that would overlap the front give way to it.
+            storms.retain(|s| s.end <= front.start || s.start >= front.end);
+            let at = storms.partition_point(|s| s.start < front.start);
+            storms.insert(at, front);
         }
         Self {
             storms,
             clear_tau: p.clear_tau,
             extinction: p.dust_extinction,
             cold: Self::cold_window(p.heater_threshold_c),
+        }
+    }
+
+    /// The `dust_storm` variant's storm: a front arriving early in the run,
+    /// drawn from its own stream.
+    fn storm_front(seed: u64, p: &Params) -> Storm {
+        let mut rng = Rng::stream(seed, "dust_storm");
+        let sol_s = secs(SOL_MS);
+        let (s0, s1) = p.dust_storm_start_sols;
+        let start = ms(rng.range(s0, s1) * sol_s);
+        let length = ms(rng.range(p.dust_storm_sols.0, p.dust_storm_sols.1) * sol_s).max(2);
+        let peak_tau = rng.range(p.dust_storm_peak_tau.0, p.dust_storm_peak_tau.1);
+        let rise = ms(p.dust_storm_rise_sols * sol_s).clamp(1, length - 1);
+        Storm {
+            start,
+            end: start + length,
+            peak_tau,
+            front_peak: Some(start + rise),
         }
     }
 
@@ -165,13 +206,20 @@ impl Environment {
         self.storms.iter().find(|s| s.start <= t && t < s.end)
     }
 
-    /// Dust optical depth: ramps up over the first 20% of a storm, then decays.
+    /// Dust optical depth: ramps up linearly to the storm's peak (the first
+    /// 20% of a seasonal storm), then decays linearly to clear at its end.
     pub fn tau(&self, t: SimMs) -> f64 {
         match self.storm_at(t) {
             None => self.clear_tau,
             Some(s) => {
-                let f = (t - s.start) as f64 / (s.end - s.start) as f64;
-                let shape = if f < 0.2 { f / 0.2 } else { (1.0 - f) / 0.8 };
+                let shape = match s.front_peak {
+                    None => {
+                        let f = (t - s.start) as f64 / (s.end - s.start) as f64;
+                        if f < 0.2 { f / 0.2 } else { (1.0 - f) / 0.8 }
+                    }
+                    Some(peak) if t < peak => (t - s.start) as f64 / (peak - s.start) as f64,
+                    Some(peak) => (s.end - t) as f64 / (s.end - peak) as f64,
+                };
                 self.clear_tau + (s.peak_tau - self.clear_tau) * shape
             }
         }
@@ -226,7 +274,7 @@ impl Environment {
             if s.start < until {
                 out.push((s.start, EnvEvent::StormStart(i)));
             }
-            let peak = s.start + (s.end - s.start) / 5;
+            let peak = s.peak();
             if peak < until {
                 out.push((peak, EnvEvent::StormPeak(i)));
             }
@@ -369,5 +417,54 @@ mod tests {
             .filter(|(_, e)| matches!(e, EnvEvent::Sunrise | EnvEvent::Noon | EnvEvent::Sunset))
             .count();
         assert_eq!(solar, 9);
+    }
+
+    #[test]
+    fn the_dust_storm_variant_brings_a_severe_storm_early_and_keeps_the_rest() {
+        let limit = 60 * SOL_MS;
+        let p = Params::dust_storm();
+        for seed in 1..=40 {
+            let nominal = Environment::generate(seed, limit, &Params::nominal());
+            let env = Environment::generate(seed, limit, &p);
+            let front: Vec<&Storm> = env
+                .storms
+                .iter()
+                .filter(|s| s.front_peak.is_some())
+                .collect();
+            assert_eq!(front.len(), 1, "seed {seed}");
+            let s = front[0];
+            let sol = |x: f64| ms(x * secs(SOL_MS));
+            assert!(
+                s.start >= sol(p.dust_storm_start_sols.0)
+                    && s.start <= sol(p.dust_storm_start_sols.1)
+            );
+            assert!(
+                s.end - s.start >= sol(p.dust_storm_sols.0)
+                    && s.end - s.start <= sol(p.dust_storm_sols.1)
+            );
+            assert_eq!(s.peak() - s.start, sol(p.dust_storm_rise_sols));
+            assert!((p.dust_storm_peak_tau.0..=p.dust_storm_peak_tau.1).contains(&s.peak_tau));
+            // Opacity climbs to the peak, then falls back to clear by the end.
+            assert!((env.tau(s.peak()) - s.peak_tau).abs() < 1e-9);
+            let mid_rise = s.start + (s.peak() - s.start) / 2;
+            let half = env.clear_tau() + (s.peak_tau - env.clear_tau()) / 2.0;
+            assert!((env.tau(mid_rise) - half).abs() < 1e-3);
+            assert!(env.tau(s.end - 1) - env.clear_tau() < 1e-3);
+            assert!(env.transmittance(s.peak()) < 0.2);
+            // Seasonal storms clear of the front are untouched; none overlap it.
+            assert!(env.storms.windows(2).all(|w| w[0].end <= w[1].start));
+            for n in &nominal.storms {
+                let clear = n.end <= s.start || n.start >= s.end;
+                assert_eq!(env.storms.contains(n), clear, "seed {seed}");
+            }
+            assert!(
+                env.schedule(limit)
+                    .iter()
+                    .any(|&(t, e)| t == s.peak() && matches!(e, EnvEvent::StormPeak(_)))
+            );
+        }
+        // Nominal never draws a front.
+        let env = Environment::generate(3, limit, &Params::nominal());
+        assert!(env.storms.iter().all(|s| s.front_peak.is_none()));
     }
 }

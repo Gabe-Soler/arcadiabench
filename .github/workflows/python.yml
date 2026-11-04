@@ -1,0 +1,41 @@
+name: Python
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  bindings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: python
+      - name: Lint the binding crate
+        working-directory: python
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets --all-features -- -D warnings
+      - name: Build and install the package
+        working-directory: python
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "maturin>=1.9,<2" pytest
+          maturin build --release --out dist
+          python -m pip install dist/*.whl
+      # The `pytest` command, not `python -m pytest`, so the source tree's
+      # `arcadiabench/` (which has no native module) does not shadow the
+      # installed package.
+      - name: Test
+        working-directory: python
+        run: pytest -v

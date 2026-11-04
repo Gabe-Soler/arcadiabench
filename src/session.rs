@@ -31,26 +31,65 @@ pub struct RunReport {
     pub lost_link_returns: u64,
 }
 
+/// The `hello` a coordinator gets for a run of `params` on `seed`.
+pub fn hello(seed: u64, params: &Params) -> Hello {
+    hello_for(&scenario::generate(seed, params).scenario, seed)
+}
+
+fn hello_for(scenario: &Scenario, seed: u64) -> Hello {
+    Hello {
+        protocol_version: PROTOCOL_VERSION.into(),
+        simulator: software_info(),
+        run_id: format!("{}-{seed}", scenario.scenario_id),
+        seed,
+        scenario: scenario.clone(),
+    }
+}
+
+/// How a session that got past the handshake ended. Its log is complete,
+/// ending with `run_end`, whatever happened.
+#[derive(Debug)]
+pub struct Outcome {
+    pub report: RunReport,
+    /// What the coordinator did wrong, when the run ended `coordinator_error`
+    /// because it failed, timed out or broke the protocol mid-run.
+    pub error: Option<BenchError>,
+}
+
+/// Run one session. A coordinator that fails mid-run is an error here, after
+/// the log has been closed; [`run_session_outcome`] reports such runs instead.
 pub fn run_session<L: CoordinatorLink + ?Sized, W: Write>(
     link: &mut L,
     seed: u64,
     params: &Params,
     log: &mut EventLog<W>,
 ) -> Result<RunReport, BenchError> {
+    let outcome = run_session_outcome(link, seed, params, log)?;
+    match outcome.error {
+        Some(e) => Err(e),
+        None => Ok(outcome.report),
+    }
+}
+
+/// Run one session and report how it ended, even when the coordinator failed
+/// mid-run. Errs only when the session never started (the coordinator could
+/// not be launched, did not welcome, or speaks another protocol version) or
+/// the log could not be written.
+pub fn run_session_outcome<L: CoordinatorLink + ?Sized, W: Write>(
+    link: &mut L,
+    seed: u64,
+    params: &Params,
+    log: &mut EventLog<W>,
+) -> Result<Outcome, BenchError> {
     let generated = scenario::generate(seed, params);
     let true_site = generated
         .terrain
         .to_site_map("arcadia-pad-site", "Arcadia Planitia landing pad site");
     let scenario = generated.scenario.clone();
-    let run_id = format!("{}-{seed}", scenario.scenario_id);
+    let hello = hello_for(&scenario, seed);
+    let run_id = hello.run_id.clone();
 
-    let welcome = link.start(Hello {
-        protocol_version: PROTOCOL_VERSION.into(),
-        simulator: software_info(),
-        run_id: run_id.clone(),
-        seed,
-        scenario: scenario.clone(),
-    })?;
+    let welcome = link.start(hello)?;
     if !is_compatible(&welcome.protocol_version, PROTOCOL_VERSION) {
         let message = format!(
             "coordinator speaks {}, arcadiabench speaks {PROTOCOL_VERSION}",
@@ -113,7 +152,10 @@ pub fn run_session<L: CoordinatorLink + ?Sized, W: Write>(
     report.metrics = metrics.clone();
     report.lost_link_returns = sim.lost_link_returns();
     log.record(sim.now(), LogEntry::RunEnd { reason, metrics })?;
-    result.map(|_| report)
+    Ok(Outcome {
+        report,
+        error: result.err(),
+    })
 }
 
 fn drive<L: CoordinatorLink + ?Sized, W: Write>(
