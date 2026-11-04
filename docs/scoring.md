@@ -133,7 +133,7 @@ resilience = mean of resilience(preset) over the presets where it is known
 ```
 
 - **The stress variants** are the outline's three adversities. `solar_only` and `nuclear_heavy` are alternative power architectures, with nuclear-heavy the outline's "easy" mode, so they are scored but are not stresses.
-- **Every preset is stressed.** The dust storm and the blackout begin within the first 0.03 sol, so they cover most of even a Large crew's build, which takes under 0.1 sol ([`simulator.md`](simulator.md) §1, stress timing). Before week 9 they began up to 0.1 and 1.0 sols in, and a fast Medium or Large crew could finish before the stress arrived, which inflated its resilience.
+- **Every preset is stressed.** The dust storm and the blackout begin within the first 0.03 sol, so they cover most of even a Large crew's build, which takes under 0.1 sol ([`simulator.md`](simulator.md) §1, stress timing). With later onsets a fast Medium or Large crew could finish before the stress arrived, which would inflate its resilience.
 - **Retention is capped at 1.** A coordinator gains nothing from a stress variant that happens to go better than nominal; on a handful of seeds that is noise.
 - **Unknown cases.** A retention is null when that variant was not scored or the nominal headline is 0. A preset's resilience is null unless all three retentions are known.
 - **Scale-free.** Because speed is scale-free (§1), a run slowed to half its pace keeps half its score on every preset, so retentions are comparable across presets.

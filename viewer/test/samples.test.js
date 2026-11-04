@@ -9,6 +9,7 @@ import { parseLog, openBytes } from '../src/parse.js';
 import { ModelBuilder } from '../src/model.js';
 import { scorecard } from '../src/scorecard.js';
 import { padStage } from '../src/site.js';
+import { sweep } from './sweep.js';
 
 const SAMPLES = new URL('../samples/', import.meta.url);
 
@@ -17,26 +18,6 @@ async function load(name) {
   const b = new ModelBuilder();
   const result = await parseLog(openBytes(bytes, name), { onRecord: (r, l) => b.add(r, l) });
   return { m: b.finish(), result };
-}
-
-/** Query everything the viewer draws at many times across the run. */
-function sweep(m, steps = 300) {
-  for (let k = 0; k <= steps; k++) {
-    const t = m.t0 + ((m.tEnd - m.t0) * k) / steps;
-    for (let i = 0; i < m.robots.length; i++) {
-      const r = m.robotAt(i, t);
-      assert.ok(Number.isFinite(r.x) && Number.isFinite(r.y), `${r.id} at ${t}`);
-      assert.ok(r.x >= 0 && r.y >= 0 && r.x < m.site.width && r.y < m.site.height);
-    }
-    const pad = m.padAt(t);
-    assert.ok(pad.verified <= pad.total && pad.inSpec <= pad.total);
-    m.powerAt(t);
-    m.weatherAt(t);
-    m.commsAt(t);
-    m.inFlight(t);
-    m.activeRelays(t);
-    m.feedIndexAt(t);
-  }
 }
 
 const near = (r, x, y, tol = 1e-6) => Math.abs(r.x - x) <= tol && Math.abs(r.y - y) <= tol;

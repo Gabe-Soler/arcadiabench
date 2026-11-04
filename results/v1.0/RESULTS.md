@@ -1,10 +1,10 @@
 # ArcadiaBench v1.0 results
 
-The first benchmark results: ArcadiaOS and the three baseline coordinators that ship with ArcadiaBench, on every preset and variant of the catalog, over seeds 1–50. That is 18 scenarios × 50 seeds × 4 coordinators, 3,600 runs in all. Every run completed the pad.
+The benchmark results of ArcadiaBench 1.0: ArcadiaOS 1.0 and the three baseline coordinators that ship with ArcadiaBench, on every preset and variant of the catalog, over seeds 1–50. That is 18 scenarios × 50 seeds × 4 coordinators, 3,600 runs in all. Every run completed the pad.
 
-> **ArcadiaOS finishes the pad 15% faster than greedy, with 0 fewer Earth interventions.**
+> **ArcadiaOS finishes the pad 15% faster than greedy, and neither needs Earth on the nominal build.**
 >
-> On the nominal build, averaged over the three presets. Neither coordinator asks Earth for anything on the nominal build; see [the headline sentence](#the-headline-sentence).
+> That is the outline's headline, "X% faster than greedy, with Y fewer Earth interventions", computed on the nominal build and averaged over the three presets: X = 15% and Y = 0, because neither coordinator asks Earth for anything there. See [the headline sentence](#the-headline-sentence).
 
 Contents: [headline](#headline) · [every scenario](#every-scenario) · [resilience](#resilience) · [what the results show](#what-the-results-show) · [the coordinators](#the-coordinators) · [full scorecards](#full-scorecards) · [reproduce](#reproduce) · [files](#files)
 
@@ -70,7 +70,7 @@ Headline by scenario; the best in each row is in bold. ArcadiaOS has the best he
 
 ## Resilience
 
-Resilience is a coordinator's headline under each stress variant over its own nominal headline, capped at 1, averaged over `dust_storm`, `conjunction` and `cascading_faults`, then over the presets ([`docs/scoring.md`](../../docs/scoring.md) §4). Week 9 timed the dust storm and the blackout to begin within the first 0.03 sol, so they cover every preset's build ([`docs/simulator.md`](../../docs/simulator.md) §1).
+Resilience is a coordinator's headline under each stress variant over its own nominal headline, capped at 1, averaged over `dust_storm`, `conjunction` and `cascading_faults`, then over the presets ([`docs/scoring.md`](../../docs/scoring.md) §4). The dust storm and the blackout begin within the first 0.03 sol, so they cover every preset's build ([`docs/simulator.md`](../../docs/simulator.md) §1).
 
 | Coordinator | Small | Medium | Large | Suite |
 |---|---|---|---|---|
@@ -115,7 +115,7 @@ Retention of each stress variant:
 
 ## The coordinators
 
-- **ArcadiaOS** ([repository](https://github.com/Gabe-Soler/arcadiaos), branch `week9-baselines`): capacity planning by linear program, a sequential auction for dispatch, predictive maintenance, energy-aware charging, the authority layer and coverage-aware planning. Its `docs/architecture.md` describes it.
+- **ArcadiaOS 1.0** ([repository](https://github.com/Gabe-Soler/arcadiaos)): capacity planning by linear program, a sequential auction for dispatch, predictive maintenance, energy-aware charging, the authority layer and coverage-aware planning. Its `docs/architecture.md` describes it.
 - **The baselines** ([`src/baselines/`](../../src/baselines/), binaries `baseline-random`, `baseline-greedy` and `baseline-fcfs`) are honest protocol clients: they use only `arcadia_protocol`, and `tests/baselines.rs` checks this. They share a task decomposition (each pad cell through survey, dig, fill if low, grade, compact, sinter and verify; dig spoil cast onto low cells, then the berm, then stockpiles; borrow pits for the berm), an execution loop, and the safety behaviours: charge below 20% of the battery, field repair or tow-and-service for faults, retry after `out_of_coverage`, a `notify` for every level-2 command and nothing at level 3 or 4. They differ only in allocation:
   - **random:** ready tasks in priority order; each goes to a capable free robot drawn from a generator seeded with the run's seed.
   - **greedy:** ready tasks in priority order; each goes to the capable free robot with the lowest estimated cost, travel time plus work time.
@@ -125,7 +125,7 @@ Retention of each stress variant:
 
 ### ArcadiaOS tuning
 
-Week 9 changed one thing in ArcadiaOS's allocation. Its capacity plan splits each capability's work across the robots that can do it, and the split is a vertex of a linear program, so among identical compactor-sinterers it gave all the compaction to one of them. The other sinterers chased that robot's moving front: on Large seed 1 they drove 3.8 cells on average before each sinter. Now a robot may take the pad step just before one of its roles without the help penalty, so a sinterer compacts the next cell and sinters it close by (1.4 cells on the same seed). Against this simulator, on seeds 1–20, Large's nominal headline rose from 0.651 to 0.706 and Medium's from 0.736 to 0.750; Small, with one compactor-sinterer, was unchanged. No run failed before or after: ArcadiaOS finished every seed of every scenario.
+Benchmarking against the baselines led to one change in ArcadiaOS's allocation before these results were taken. Its capacity plan splits each capability's work across the robots that can do it, and the split is a vertex of a linear program, so among identical compactor-sinterers it gave all the compaction to one of them. The other sinterers chased that robot's moving front: on Large seed 1 they drove 3.8 cells on average before each sinter. Now a robot may take the pad step just before one of its roles without the help penalty, so a sinterer compacts the next cell and sinters it close by (1.4 cells on the same seed). Against this simulator, on seeds 1–20, Large's nominal headline rose from 0.651 to 0.706 and Medium's from 0.736 to 0.750; Small, with one compactor-sinterer, was unchanged. No run failed before or after: ArcadiaOS finished every seed of every scenario.
 
 ## Full scorecards
 
@@ -339,39 +339,43 @@ Reference build time 0.056 sols. Conditions per run: storm 0.0 h, blackout 0.0 h
 
 The results come from:
 
-| Software | Version | Commit |
+| Software | Version | Release |
 |---|---|---|
-| ArcadiaBench (`arcadiabench`, the baselines) | 0.1.0 | the commit that adds this file |
-| ArcadiaOS (`arcadiaos`) | 0.1.0 | `511574e054d49c83eeda3813a528dcc83864d4f0` (branch `week9-baselines`) |
-| arcadia-protocol | 0.2.0 | tag `v0.2.0` |
+| ArcadiaBench (`arcadiabench` and the baselines) | 1.0.0 | tag `v1.0.0` |
+| ArcadiaOS (`arcadiaos`) | 1.0.0 | tag `v1.0.0` |
+| arcadia-protocol | 1.0.0 | tag `v1.0.0` |
 | Rust | rustc 1.99.1, release builds | |
 
-They were run on macOS 26.5 on Apple silicon (arm64), 14 CPUs. Every run is deterministic, and what a batch writes does not depend on `--jobs`, so any machine reproduces these files byte for byte.
+They were run on macOS 26.5.2 on an Apple M4 Pro (arm64, 14 CPUs). Every run is deterministic, and what a batch writes does not depend on `--jobs`, so any machine reproduces these files byte for byte.
 
-From the root of ArcadiaBench, with ArcadiaOS checked out beside it:
+From the root of ArcadiaBench, with ArcadiaOS checked out beside it, build both and run [`scripts/results.sh`](../../scripts/results.sh):
 
 ```sh
 cargo build --release
 (cd ../arcadiaos && cargo build --release)
-B=./target/release
-RUNS=$(mktemp -d)
+scripts/results.sh
+```
+
+With its runs in a temporary directory `$RUNS`, the script does this:
+
+```sh
 for c in arcadiaos baseline-greedy baseline-random baseline-fcfs; do
-  if [ "$c" = arcadiaos ]; then coord=../arcadiaos/target/release/arcadiaos; else coord=$B/$c; fi
-  $B/arcadiabench suite --seeds 1-50 --out "$RUNS/$c" -- "$coord"
+  if [ "$c" = arcadiaos ]; then coord=$ARCADIAOS; else coord=target/release/$c; fi
+  target/release/arcadiabench suite --seeds 1-50 --out "$RUNS/$c" -- "$coord"
   mkdir -p results/v1.0/scorecards/$c
   for d in "$RUNS/$c"/*/; do
     cp "$d/scorecard.json" "results/v1.0/scorecards/$c/$(basename "$d").json"
   done
 done
-$B/arcadiabench score --json "$RUNS"/*/*/metrics.jsonl > results/v1.0/results.json
+target/release/arcadiabench score --json "$RUNS"/*/*/metrics.jsonl > results/v1.0/results.json
 ```
 
-Each `suite` does 900 runs, one per CPU at a time by default (`--jobs`); on the machine above each took under half a minute. Keep `--jobs` at or below the number of CPUs, because the per-decision timeout is wall-clock. `score` reads the run records each scenario's `metrics.jsonl` holds and rebuilds every scorecard and the resilience of every coordinator, identical to what the suites wrote. The demo replays in [`replays/`](replays/) come from the commands in [`docs/demos.md`](../../docs/demos.md).
+`ARCADIAOS` names the ArcadiaOS binary and defaults to `../arcadiaos/target/release/arcadiaos`. Pass the script a directory to write the files there instead of `results/v1.0`, for example to compare a fresh run with these. Each `suite` does 900 runs, one per CPU at a time by default (`--jobs`); on the machine above each took under half a minute. Keep `--jobs` at or below the number of CPUs, because the per-decision timeout is wall-clock. `score` reads the run records each scenario's `metrics.jsonl` holds and rebuilds every scorecard and the resilience of every coordinator, identical to what the suites wrote. The demo replays in [`replays/`](replays/) come from [`scripts/demos.sh`](../../scripts/demos.sh), and [`docs/demos.md`](../../docs/demos.md) shows its commands.
 
 ## Files
 
 - [`results.json`](results.json): every scorecard and each coordinator's resilience, as a report (`schemas/scorecard.schema.json#/$defs/Report`).
 - [`scorecards/<coordinator>/<preset>-<variant>.json`](scorecards/): one scorecard per coordinator and scenario (the schema's root).
-- [`replays/`](replays/): ArcadiaOS's four demo runs as gzipped event logs (protocol v0.2.0 `event_log.schema.json`), for the replay viewer. [`docs/demos.md`](../../docs/demos.md) describes them.
+- [`replays/`](replays/): ArcadiaOS's four demo runs as gzipped event logs (protocol 1.0.0 `event_log.schema.json`), for the replay viewer. [`docs/demos.md`](../../docs/demos.md) describes them.
 
 No other raw logs are kept. `tests/results.rs` checks that these files match their schemas, that the scorecards agree with `results.json`, and that the replays are valid logs within the size limit.

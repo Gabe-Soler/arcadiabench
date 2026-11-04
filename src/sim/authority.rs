@@ -2,7 +2,7 @@
 //! through, Earth's answers to approval requests, and the level-2 notify
 //! rule behind `policy_violations`.
 //!
-//! This module only keeps the books. The simulator asks [`Authority::check`]
+//! This module only keeps the books. The simulator asks `Authority::check`
 //! before accepting a command (check 4 of semantics §4.1), registers each
 //! approval request and notify the coordinator sends, and records each answer
 //! when it arrives at the site.

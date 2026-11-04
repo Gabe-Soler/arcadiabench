@@ -4,11 +4,11 @@
   "variant": "nominal",
   "coordinator": {
     "name": "arcadiaos",
-    "version": "0.1.0"
+    "version": "1.0.0"
   },
   "simulator": {
     "name": "arcadiabench",
-    "version": "0.1.0"
+    "version": "1.0.0"
   },
   "seeds": [
     1,

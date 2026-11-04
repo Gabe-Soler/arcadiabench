@@ -6,6 +6,7 @@ import io
 import json
 import subprocess
 import sys
+from importlib.metadata import version
 from pathlib import Path
 
 import pytest
@@ -15,8 +16,10 @@ from arcadiabench import Coordinator, CoordinatorError
 
 
 def test_the_package_describes_itself():
-    assert arcadiabench.PROTOCOL_VERSION == "0.2.0"
+    assert arcadiabench.PROTOCOL_VERSION == "1.0.0"
     assert arcadiabench.__version__.count(".") == 2
+    # The package's version (python/Cargo.toml) is the simulator's (Cargo.toml).
+    assert version("arcadiabench") == arcadiabench.__version__
     assert arcadiabench.PRESETS == ["small", "medium", "large"]
     assert arcadiabench.VARIANTS[0] == "nominal" and "dust_storm" in arcadiabench.VARIANTS
     assert set(arcadiabench.STRESS_VARIANTS) == {"dust_storm", "conjunction", "cascading_faults"}
@@ -53,7 +56,7 @@ def test_an_in_process_coordinator_builds_the_pad(builder_module, tmp_path):
     log = tmp_path / "run.jsonl.gz"
     result = arcadiabench.run(builder_module.Builder(), seed=1, log_path=log)
     assert result["run_id"] == "landing-pad-small-nominal-1"
-    assert result["coordinator"] == {"name": "python-builder", "version": "0.1.0"}
+    assert result["coordinator"] == {"name": "python-builder", "version": "1.0.0"}
     assert result["reason"] == "goals_complete" and result["error"] is None
     m = result["metrics"]
     assert m["completed"] and m["quality"]["cells_in_spec"] == m["quality"]["cells_total"] == 400
@@ -95,7 +98,7 @@ def test_serve_runs_under_the_real_command_line(builder_argv, tmp_path):
     # From a neutral directory: `-m` puts the working directory first on the path.
     done = subprocess.run(cmd, capture_output=True, text=True, timeout=300, cwd=tmp_path)
     assert done.returncode == 0, done.stderr
-    assert "python-builder 0.1.0 [small/dust_storm]: GoalsComplete" in done.stdout
+    assert "python-builder 1.0.0 [small/dust_storm]: GoalsComplete" in done.stdout
     record = arcadiabench.score(log)["scorecards"][0]
     assert record["scenario_id"] == "landing-pad-small-dust_storm"
     assert record["completion"]["completed"] == 1

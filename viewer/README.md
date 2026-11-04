@@ -6,11 +6,12 @@ It is plain HTML, CSS and ES modules drawn on Canvas 2D. There is no build step,
 
 ## Use
 
-Serve the repository (or just this folder) with any static server and open the page:
+Serve the repository with any static server, from its root, and open the page:
 
 ```sh
 python3 -m http.server 8000
 # then open http://localhost:8000/viewer/
+# or a demo replay: http://localhost:8000/viewer/?log=../results/v1.0/replays/landing-pad-large-nominal-1.jsonl.gz
 ```
 
 Then load a log in any of three ways:
@@ -21,7 +22,10 @@ Then load a log in any of three ways:
 
 Logs can be `.jsonl` or gzip-compressed `.jsonl.gz`. Compression is detected from the file's contents, not its name, so a server that decompresses `.gz` files on the fly works too. Opening the page straight from `file://` does not work, because browsers block ES modules there. The page says so if it happens.
 
-Four sample logs ship in [`samples/`](samples/README.md): three ArcadiaOS and null-coordinator runs on protocol 0.2, and one protocol 0.1 run.
+There are logs to try in two places:
+
+- The benchmark's four demo replays, ArcadiaOS 1.0 runs on protocol 1.0, are in [`results/v1.0/replays/`](../results/v1.0/replays/); [`docs/demos.md`](../docs/demos.md) describes them and the moments worth a look.
+- Four sample logs ship in [`samples/`](samples/README.md), so older logs stay covered: three ArcadiaOS and null-coordinator runs on protocol 0.2, and one protocol 0.1 run.
 
 ### URL parameters
 
@@ -71,6 +75,7 @@ Truth records exist only at decision points, so a hauler can drive to the stockp
 |---|---|
 | 0.1 | Full. Power and weather come from `power` and `weather` events, and comms from `comms` events. |
 | 0.2 | Full, adding `truth.site` (preferred for power, weather and link), `run_end.metrics`, robot `faults` and `telemetry_t`, the `lost` status, `scenario.power` and `scenario.base_station`, and the `service` command. |
+| 1.0 | Full. Protocol 1.0 has 0.2's messages unchanged, so everything above applies. |
 | Newer | Loads with a notice. Unknown record kinds, event types, command types, statuses, surface states and fields are ignored or shown generically. |
 
 Bad lines are skipped and reported with their line numbers. A log whose first record is not `run_start` is rejected with an explanation.
@@ -106,7 +111,7 @@ With Node 24 and no dependencies, from the repository root:
 node --test viewer/test/
 ```
 
-The tests cover parsing (including gzip, chunk boundaries and bad input), the motion model, pad progress and its stage, the model on inline logs (protocol 0.1, the final instant, a 20-robot crew), the scorecard, the feed's Earth messages, label layout for 20 robots, the hand-made 0.2 fixture in `test/fixtures/` (faults, a lost robot, a link outage, late events, `truth.site` and metrics), and all four samples. CI runs them on every push and pull request (`.github/workflows/viewer.yml`).
+The tests cover parsing (including gzip, chunk boundaries and bad input), the motion model, pad progress and its stage, the model on inline logs (protocol 0.1, the final instant, a 20-robot crew, and the version notice, which protocol 1.0 does not get), the scorecard, the feed's Earth messages, label layout for 20 robots, the hand-made 0.2 fixture in `test/fixtures/` (faults, a lost robot, a link outage, late events, `truth.site` and metrics), all four samples, and every demo replay in `results/v1.0/replays/`, each replayed from start to end. CI runs them on every push and pull request (`.github/workflows/viewer.yml`).
 
 ## Deploy
 

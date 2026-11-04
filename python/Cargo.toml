@@ -1,6 +1,6 @@
 [package]
 name = "arcadiabench-python"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 description = "Python bindings for ArcadiaBench (the native module of the arcadiabench package)."
 license = "MIT"
@@ -17,7 +17,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 arcadiabench = { path = ".." }
-arcadia-protocol = { git = "https://github.com/Gabe-Soler/arcadia-protocol", tag = "v0.2.0" }
+arcadia-protocol = { git = "https://github.com/Gabe-Soler/arcadia-protocol", tag = "v1.0.0" }
 # abi3: one wheel for CPython 3.9 and later.
 pyo3 = { version = "0.30.1", features = ["abi3-py39"] }
 serde = "1.0.229"
