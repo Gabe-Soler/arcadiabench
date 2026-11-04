@@ -4,12 +4,15 @@
 //! and executed one step at a time. Energy for a timed step is drawn when it
 //! starts; if the battery cannot cover it the command fails with
 //! `insufficient_energy`. Area commands work cell by cell, so partial work
-//! survives cancellation and failure.
+//! survives cancellation and failure. A step cut short (cancel, a disabling
+//! fault, getting stuck) returns the unused part of its energy.
 //!
 //! The landing-pad "task graph" lives here as per-cell prerequisites:
 //! natural → cleared (dig) → graded → compacted → stabilized (sinter).
 
-use super::robot::{Activity, Running, Step, Travel};
+use super::faults::Exposure;
+use super::hazards::Exposed;
+use super::robot::{Activity, Running, Step, Travel, status_name};
 use super::terrain::{clamp_into, distance_cells, rect_cell_count, rect_cells, serpentine};
 use super::time::{SimMs, ms, secs};
 use super::{Ev, Sim};
@@ -17,9 +20,9 @@ use arcadia_protocol::*;
 use std::collections::VecDeque;
 use std::f64::consts::PI;
 
-type Rejection = (RejectReason, String);
+pub(crate) type Rejection = (RejectReason, String);
 
-enum StepStart {
+pub(crate) enum StepStart {
     /// A timed step is under way.
     Scheduled,
     /// Waiting on something open-ended (charging, queueing, holding).
@@ -29,7 +32,22 @@ enum StepStart {
     Failed(FailReason, String),
 }
 
-fn reject(reason: RejectReason, detail: impl Into<String>) -> Result<(), Rejection> {
+/// A timed step, worked out before it starts.
+pub(crate) struct Timed {
+    pub duration_s: f64,
+    pub energy_wh: f64,
+    /// Step-specific quantity fixed at start (e.g. kg to load).
+    pub amount: f64,
+    pub status: RobotStatus,
+    /// What the step exposes the robot to, if anything.
+    pub exposed: Option<Exposed>,
+    /// Wear exposure of the whole step.
+    pub wear: Exposure,
+    /// Another robot the step engages for its duration.
+    pub engage: Option<usize>,
+}
+
+pub(crate) fn reject<T>(reason: RejectReason, detail: impl Into<String>) -> Result<T, Rejection> {
     Err((reason, detail.into()))
 }
 
@@ -58,13 +76,26 @@ impl Sim {
         if let Action::Cancel { target_command } = &cmd.action {
             return self.cancel(r, cmd, target_command);
         }
-        if self.robots[r].status == RobotStatus::Offline {
-            return self.emit_rejected(cmd, RejectReason::RobotDisabled, "battery depleted".into());
+        let status = self.robots[r].reported_status();
+        if matches!(
+            status,
+            RobotStatus::Failed
+                | RobotStatus::Stuck
+                | RobotStatus::Offline
+                | RobotStatus::BeingTowed
+                | RobotStatus::Lost
+        ) && !self.disabled_exception(r, &cmd.action)
+        {
+            return self.emit_rejected(
+                cmd,
+                RejectReason::RobotDisabled,
+                format!("{} is {}", cmd.robot_id, status_name(status)),
+            );
         }
         if self.robots[r].busy() {
             let detail = match self.robots[r].running_command() {
                 Some(c) => format!("running {c}"),
-                None => "serving as a mobile charger".into(),
+                None => "engaged by another robot".into(),
             };
             return self.emit_rejected(cmd, RejectReason::Busy, detail);
         }
@@ -82,9 +113,8 @@ impl Sim {
             },
             false,
         );
-        let now = self.now;
+        self.settle_drain(r);
         let robot = &mut self.robots[r];
-        robot.settle_drain(now);
         robot.drain_since = None;
         robot.activity = Some(Activity {
             command: cmd.clone(),
@@ -96,6 +126,7 @@ impl Sim {
     }
 
     fn emit_rejected(&mut self, cmd: &Command, reason: RejectReason, detail: String) {
+        self.tally.commands_rejected += 1;
         self.emit(
             EventKind::CommandRejected {
                 command_id: cmd.command_id.clone(),
@@ -206,15 +237,23 @@ impl Sim {
                 self.cell_ok(*from)?;
                 self.cell_ok(*to)
             }
-            Action::Repair { target_robot } | Action::Cannibalize { target_robot, .. } => {
+            Action::Repair { target_robot } => {
                 self.require(r, Cap::Repair)?;
-                self.disabled_target(target_robot)
+                self.validate_repair(r, target_robot)
             }
             Action::Tow { target_robot, to } => {
                 self.require(r, Cap::Haul)?;
                 self.cell_ok(*to)?;
-                self.disabled_target(target_robot)
+                self.validate_tow(r, target_robot)
             }
+            Action::Cannibalize {
+                target_robot,
+                beneficiary_robot,
+            } => {
+                self.require(r, Cap::Repair)?;
+                self.validate_cannibalize(r, target_robot, beneficiary_robot.as_deref())
+            }
+            Action::Service { depot } => self.validate_service(depot),
             Action::Charge { source, .. } => {
                 if self.station_ix.contains_key(source) {
                     return Ok(());
@@ -251,17 +290,6 @@ impl Sim {
         match rect_cells(area).find_map(|c| self.prerequisite(&step(c))) {
             Some(why) => reject(RejectReason::InvalidTarget, why),
             None => Ok(()),
-        }
-    }
-
-    /// Faults arrive in week 5; until then no robot is ever disabled.
-    fn disabled_target(&self, target: &str) -> Result<(), Rejection> {
-        match self.robot_ix.get(target) {
-            None => reject(RejectReason::InvalidTarget, format!("no robot {target}")),
-            Some(_) => reject(
-                RejectReason::InvalidTarget,
-                format!("{target} is not disabled"),
-            ),
         }
     }
 
@@ -316,21 +344,50 @@ impl Sim {
                     ])
                 } else {
                     let c = self.robot_ix[source];
-                    VecDeque::from([
-                        Step::TravelToRobot(c),
-                        Step::ChargeMobile {
-                            charger: c,
-                            until_wh: *until_wh,
-                        },
-                    ])
+                    let charge = Step::ChargeMobile {
+                        charger: c,
+                        until_wh: *until_wh,
+                    };
+                    // An offline robot is already at its source and cannot drive.
+                    if self.robots[r].offline {
+                        VecDeque::from([charge])
+                    } else {
+                        VecDeque::from([Step::TravelToRobot(c), charge])
+                    }
                 }
             }
             Action::Relay { position } => VecDeque::from([Step::Travel(*position), Step::Hold]),
             Action::Wait { duration_s } => VecDeque::from([Step::Wait(ms(*duration_s))]),
-            Action::Repair { .. }
-            | Action::Tow { .. }
-            | Action::Cannibalize { .. }
-            | Action::Cancel { .. } => VecDeque::new(),
+            Action::Repair { target_robot } => {
+                let target = self.robot_ix[target_robot];
+                VecDeque::from([Step::TravelToRobot(target), Step::Repair { target }])
+            }
+            Action::Tow { target_robot, to } => {
+                let target = self.robot_ix[target_robot];
+                VecDeque::from([Step::TravelToRobot(target), Step::Tow { target, to: *to }])
+            }
+            Action::Cannibalize {
+                target_robot,
+                beneficiary_robot,
+            } => {
+                let target = self.robot_ix[target_robot];
+                let beneficiary = beneficiary_robot.as_ref().map_or(r, |b| self.robot_ix[b]);
+                let mut steps =
+                    VecDeque::from([Step::TravelToRobot(target), Step::Strip { target }]);
+                if beneficiary != r {
+                    steps.push_back(Step::TravelToRobot(beneficiary));
+                }
+                steps.push_back(Step::Install { beneficiary });
+                steps
+            }
+            Action::Service { depot } => {
+                let d = self.depot_ix[depot];
+                VecDeque::from([
+                    Step::Travel(self.depots[d].spec.position),
+                    Step::Service { depot: d },
+                ])
+            }
+            Action::Cancel { .. } => VecDeque::new(),
         }
     }
 
@@ -361,14 +418,17 @@ impl Sim {
         })
     }
 
-    /// Expected duration of a planned command, without noise.
+    /// Expected duration of a planned command, from the advertised spec:
+    /// no noise, wear, faults, queueing or grid throttling.
     fn estimate_s(&self, r: usize, steps: &VecDeque<Step>) -> f64 {
         let robot = &self.robots[r];
+        let p = &self.params;
         let mut pos = robot.pos;
         let mut payload = robot.payload_kg;
         let mut total = 0.0;
         let drive =
             |a, b| distance_cells(a, b) * self.terrain.cell_size_m / robot.spec.max_speed_m_s;
+        let repair_rate = self.rate(r, CapabilityName::Repair).0.max(1e-9);
         for step in steps {
             total += match step {
                 Step::Travel(to) => {
@@ -408,10 +468,20 @@ impl Sim {
                     need.max(0.0) / rate.max(1e-9)
                 }
                 Step::Hold => 0.0,
+                Step::Repair { target } => {
+                    (self.visible_repair_units(*target) / repair_rate).max(p.min_work_s)
+                }
+                Step::Tow { target, to } => {
+                    let from = self.robots[*target].position_at(self.now);
+                    pos = *to;
+                    distance_cells(from, *to) * self.terrain.cell_size_m
+                        / (robot.spec.max_speed_m_s * p.tow_speed_factor)
+                }
+                Step::Strip { .. } => (p.strip_units / repair_rate).max(p.min_work_s),
+                Step::Install { .. } => (p.install_units / repair_rate).max(p.min_work_s),
+                Step::Service { .. } => p.service_s,
                 work => match self.work_units(work) {
-                    Some((cap, units)) => {
-                        (units / self.rate(r, cap).0.max(1e-9)).max(self.params.min_work_s)
-                    }
+                    Some((cap, units)) => (units / self.rate(r, cap).0.max(1e-9)).max(p.min_work_s),
                     None => 0.0,
                 },
             };
@@ -449,83 +519,21 @@ impl Sim {
             Step::TravelToRobot(c) => Step::Travel(self.robots[c].position_at(self.now)),
             s => s,
         };
-        let idle_w = self.robots[r].spec.idle_power_w;
-        let (duration_s, energy_wh, amount, status) = match &step {
-            Step::Travel(to) => {
-                let from = self.robots[r].pos;
-                if from == *to {
-                    return StepStart::Skip;
-                }
-                let dist_m = distance_cells(from, *to) * self.terrain.cell_size_m;
-                let spec = &self.robots[r].spec;
-                let d = dist_m / spec.max_speed_m_s
-                    * self
-                        .rng_work
-                        .lognormal_mean1(self.params.travel_duration_sigma);
-                let e = dist_m * spec.drive_energy_wh_per_m + d * idle_w / 3600.0;
-                (d, e, 0.0, RobotStatus::Moving)
-            }
-            Step::Load { at: cell, kg } => {
-                let robot = &self.robots[r];
-                let room = robot.haul_capacity_kg() - robot.payload_kg;
-                let amount = (kg - robot.payload_kg)
-                    .min(room)
-                    .min(self.terrain.available_mass_kg(*cell))
-                    .max(0.0);
-                if amount <= 0.0 {
-                    if robot.payload_kg > 0.0 {
-                        return StepStart::Skip;
-                    }
-                    return StepStart::Failed(
-                        FailReason::Blocked,
-                        format!("nothing to load at {}", at(*cell)),
-                    );
-                }
-                let (rate, e_unit) = self.rate(r, CapabilityName::Haul);
-                let d = amount / rate
-                    * self
-                        .rng_work
-                        .lognormal_mean1(self.params.work_duration_sigma);
-                (
-                    d,
-                    amount * e_unit + d * idle_w / 3600.0,
-                    amount,
-                    RobotStatus::Working,
-                )
-            }
-            Step::Dump(_) => {
-                let payload = self.robots[r].payload_kg;
-                if payload <= 0.0 {
-                    return StepStart::Skip;
-                }
-                let (rate, e_unit) = self.rate(r, CapabilityName::Haul);
-                let d = payload / rate
-                    * self
-                        .rng_work
-                        .lognormal_mean1(self.params.work_duration_sigma);
-                (
-                    d,
-                    payload * e_unit + d * idle_w / 3600.0,
-                    payload,
-                    RobotStatus::Working,
-                )
-            }
-            Step::Wait(d) => {
-                let d = secs(*d);
-                (d, d * idle_w / 3600.0, 0.0, RobotStatus::Idle)
-            }
+        let timed = match &step {
             Step::Hold => {
                 let now = self.now;
                 let robot = &mut self.robots[r];
                 robot.status = RobotStatus::Working;
                 robot.drain_since = Some(now);
-                self.set_running(r, step, None, 0.0, 0.0);
+                self.set_running(r, step, None, 0.0, 0.0, Exposure::default());
                 self.schedule_depletion(r);
+                self.start_exposure(r, Exposed::Hold, None, None);
                 return StepStart::Waiting;
             }
             Step::ChargeStation { station, until_wh } => {
                 let (station, until_wh) = (*station, *until_wh);
-                self.set_running(r, step, None, 0.0, 0.0);
+                self.set_running(r, step, None, 0.0, 0.0, Exposure::default());
+                self.end_exposure(r);
                 let st = &self.stations[station];
                 if st.occupants.len() < st.spec.slots as usize {
                     self.start_station_session(r, station, until_wh);
@@ -535,7 +543,9 @@ impl Sim {
                     let now = self.now;
                     let robot = &mut self.robots[r];
                     robot.status = RobotStatus::Charging;
-                    robot.drain_since = Some(now);
+                    if !robot.offline {
+                        robot.drain_since = Some(now);
+                    }
                     self.schedule_depletion(r);
                 }
                 return StepStart::Waiting;
@@ -543,81 +553,242 @@ impl Sim {
             Step::ChargeMobile { charger, until_wh } => {
                 let (c, until_wh) = (*charger, *until_wh);
                 let ch = &self.robots[c];
-                if ch.busy() || ch.status == RobotStatus::Offline {
+                if ch.busy() || ch.reported_status() != RobotStatus::Idle {
                     return StepStart::Failed(
                         FailReason::Blocked,
                         format!("{} is not available", ch.spec.robot_id),
                     );
                 }
-                if distance_cells(ch.pos, self.robots[r].pos) > 1.5 {
+                if distance_cells(ch.pos, self.robots[r].pos) > super::REACH_CELLS {
                     return StepStart::Failed(
                         FailReason::TargetLost,
                         format!("{} moved away", ch.spec.robot_id),
                     );
                 }
-                self.set_running(r, step, None, 0.0, 0.0);
+                self.set_running(r, step, None, 0.0, 0.0, Exposure::default());
+                self.end_exposure(r);
                 self.start_mobile_session(r, c, until_wh);
                 return StepStart::Waiting;
             }
+            Step::Service { depot } => return self.begin_service(r, *depot),
+            Step::Repair { target } => self.begin_repair(r, *target),
+            Step::Tow { target, to } => self.begin_tow(r, *target, *to),
+            Step::Strip { target } => self.begin_strip(r, *target),
+            Step::Install { beneficiary } => self.begin_install(r, *beneficiary),
             Step::TravelToRobot(_) => unreachable!("resolved above"),
+            other => self.basic_step(r, other),
+        };
+        match timed {
+            Ok(timed) => self.run_timed(r, step, timed),
+            Err(start) => start,
+        }
+    }
+
+    /// Drives, loading and dumping, waits and per-cell work, with the
+    /// robot's wear and fault penalties applied.
+    fn basic_step(&mut self, r: usize, step: &Step) -> Result<Timed, StepStart> {
+        let dust = self.dust_factor();
+        let storm = self.env.storm_active(self.now);
+        let p = &self.params;
+        let robot = &self.robots[r];
+        let health = &robot.health;
+        let ef = health.energy_factor(p);
+        let idle_w = robot.spec.idle_power_w;
+        let exposure = |d: f64, e: f64, km: f64, work: bool| Exposure {
+            km,
+            work_h: if work { d / 3600.0 } else { 0.0 },
+            dust_h: d / 3600.0 * dust,
+            kwh: e / 1000.0,
+            storm,
+        };
+        match step {
+            Step::Travel(to) => {
+                let from = robot.pos;
+                if from == *to {
+                    return Err(StepStart::Skip);
+                }
+                let dist_m = distance_cells(from, *to) * self.terrain.cell_size_m;
+                let speed = robot.spec.max_speed_m_s * health.speed_factor(p);
+                let drive_wh =
+                    dist_m * robot.spec.drive_energy_wh_per_m * health.drive_energy_factor(p);
+                let d = dist_m / speed
+                    * self
+                        .rng_work
+                        .lognormal_mean1(self.params.travel_duration_sigma);
+                let e = (drive_wh + d * idle_w / 3600.0) * ef;
+                Ok(Timed {
+                    duration_s: d,
+                    energy_wh: e,
+                    amount: 0.0,
+                    status: RobotStatus::Moving,
+                    exposed: Some(Exposed::Drive),
+                    wear: exposure(d, e, dist_m / 1000.0, false),
+                    engage: None,
+                })
+            }
+            Step::Load { at: cell, kg } => {
+                let room = robot.haul_capacity_kg() - robot.payload_kg;
+                let amount = (kg - robot.payload_kg)
+                    .min(room)
+                    .min(self.terrain.available_mass_kg(*cell))
+                    .max(0.0);
+                if amount <= 0.0 {
+                    if robot.payload_kg > 0.0 {
+                        return Err(StepStart::Skip);
+                    }
+                    return Err(StepStart::Failed(
+                        FailReason::Blocked,
+                        format!("nothing to load at {}", at(*cell)),
+                    ));
+                }
+                let (rate, e_unit) = self.rate(r, CapabilityName::Haul);
+                let (rate_f, work_ef) = (health.work_rate_factor(p), health.work_energy_factor(p));
+                let d = amount / (rate * rate_f)
+                    * self
+                        .rng_work
+                        .lognormal_mean1(self.params.work_duration_sigma);
+                let e = (amount * e_unit * work_ef + d * idle_w / 3600.0) * ef;
+                Ok(Timed {
+                    duration_s: d,
+                    energy_wh: e,
+                    amount,
+                    status: RobotStatus::Working,
+                    exposed: Some(Exposed::Work),
+                    wear: exposure(d, e, 0.0, true),
+                    engage: None,
+                })
+            }
+            Step::Dump(_) => {
+                let payload = robot.payload_kg;
+                if payload <= 0.0 {
+                    return Err(StepStart::Skip);
+                }
+                let (rate, e_unit) = self.rate(r, CapabilityName::Haul);
+                let (rate_f, work_ef) = (health.work_rate_factor(p), health.work_energy_factor(p));
+                let d = payload / (rate * rate_f)
+                    * self
+                        .rng_work
+                        .lognormal_mean1(self.params.work_duration_sigma);
+                let e = (payload * e_unit * work_ef + d * idle_w / 3600.0) * ef;
+                Ok(Timed {
+                    duration_s: d,
+                    energy_wh: e,
+                    amount: payload,
+                    status: RobotStatus::Working,
+                    exposed: Some(Exposed::Work),
+                    wear: exposure(d, e, 0.0, true),
+                    engage: None,
+                })
+            }
+            Step::Wait(d) => {
+                let d = secs(*d);
+                let e = d * idle_w / 3600.0 * ef;
+                Ok(Timed {
+                    duration_s: d,
+                    energy_wh: e,
+                    amount: 0.0,
+                    status: RobotStatus::Idle,
+                    exposed: None,
+                    wear: Exposure {
+                        kwh: e / 1000.0,
+                        ..Exposure::default()
+                    },
+                    engage: None,
+                })
+            }
             work => {
                 if let Some(why) = self.prerequisite(work) {
-                    return StepStart::Failed(FailReason::Blocked, why);
+                    return Err(StepStart::Failed(FailReason::Blocked, why));
                 }
                 let (cap, units) = self.work_units(work).expect("work step");
                 let (rate, e_unit) = self.rate(r, cap);
-                let d = (units / rate
+                let scan = cap == CapabilityName::Scan;
+                let (rate_f, work_ef) = if scan {
+                    (health.scan_rate_factor(p), 1.0)
+                } else {
+                    (health.work_rate_factor(p), health.work_energy_factor(p))
+                };
+                let d = (units / (rate * rate_f)
                     * self
                         .rng_work
                         .lognormal_mean1(self.params.work_duration_sigma))
                 .max(self.params.min_work_s);
-                (
-                    d,
-                    units * e_unit + d * idle_w / 3600.0,
-                    units,
-                    RobotStatus::Working,
-                )
+                let e = (units * e_unit * work_ef + d * idle_w / 3600.0) * ef;
+                Ok(Timed {
+                    duration_s: d,
+                    energy_wh: e,
+                    amount: units,
+                    status: RobotStatus::Working,
+                    exposed: Some(if scan { Exposed::Scan } else { Exposed::Work }),
+                    wear: exposure(d, e, 0.0, !scan),
+                    engage: None,
+                })
             }
-        };
+        }
+    }
 
+    /// Start a timed step: draw its energy, schedule its end, and expose the
+    /// robot to failures for its duration.
+    fn run_timed(&mut self, r: usize, step: Step, t: Timed) -> StepStart {
         let now = self.now;
         let robot = &mut self.robots[r];
-        if robot.battery_wh < energy_wh {
+        if robot.battery_wh < t.energy_wh {
             robot.battery_wh = 0.0;
             return StepStart::Failed(
                 FailReason::InsufficientEnergy,
-                format!("needed {energy_wh:.0} Wh for the next step"),
+                format!("needed {:.0} Wh for the next step", t.energy_wh),
             );
         }
-        robot.battery_wh -= energy_wh;
-        robot.status = status;
-        let end = now + ms(duration_s).max(1);
-        if let Step::Travel(to) = step {
+        robot.battery_wh -= t.energy_wh;
+        robot.status = t.status;
+        let end = now + ms(t.duration_s).max(1);
+        let from = robot.pos;
+        let mut path = None;
+        if let Step::Travel(to) | Step::Tow { to, .. } = step {
             robot.travel = Some(Travel {
-                from: robot.pos,
+                from,
                 to,
                 start: now,
                 end,
             });
+            path = Some((from, to));
         }
         if let Some(a) = robot.activity.as_mut() {
-            a.energy_used_wh += energy_wh;
+            a.energy_used_wh += t.energy_wh;
         }
-        self.set_running(r, step, Some(end), energy_wh, amount);
+        if let Step::Tow { target, to } = step {
+            let towed = &mut self.robots[target];
+            towed.travel = Some(Travel {
+                from: towed.pos,
+                to,
+                start: now,
+                end,
+            });
+            towed.towed = true;
+        }
+        if let Some(e) = t.engage {
+            self.robots[e].engaged_by = Some(r);
+        }
+        self.set_running(r, step, Some(end), t.energy_wh, t.amount, t.wear);
         self.schedule(r, end, |robot, generation| Ev::StepDone {
             robot,
             generation,
         });
+        match t.exposed {
+            Some(kind) => self.start_exposure(r, kind, Some(end), path),
+            None => self.end_exposure(r),
+        }
         StepStart::Scheduled
     }
 
-    fn set_running(
+    pub(crate) fn set_running(
         &mut self,
         r: usize,
         step: Step,
         end: Option<SimMs>,
         energy_wh: f64,
         amount: f64,
+        exposure: Exposure,
     ) {
         let start = self.now;
         if let Some(a) = self.robots[r].activity.as_mut() {
@@ -627,6 +798,7 @@ impl Sim {
                 end,
                 energy_wh,
                 amount,
+                exposure,
             });
         }
     }
@@ -639,6 +811,8 @@ impl Sim {
         else {
             return;
         };
+        self.end_exposure(r);
+        self.robots[r].health.grow(&self.params, &running.exposure);
         match running.step {
             Step::Travel(to) => {
                 let robot = &mut self.robots[r];
@@ -679,6 +853,11 @@ impl Sim {
                 let kg = std::mem::take(&mut self.robots[r].payload_kg);
                 self.dump(cell, kg);
             }
+            Step::Repair { target } => self.finish_repair(r, target),
+            Step::Tow { target, to } => self.finish_tow(r, target, to),
+            Step::Strip { target } => self.finish_strip(r, target),
+            Step::Install { beneficiary } => self.finish_install(r, beneficiary),
+            Step::Service { depot } => self.finish_service(r, depot),
             Step::Wait(_) | Step::Hold | Step::ChargeStation { .. } | Step::ChargeMobile { .. } => {
             }
             Step::TravelToRobot(_) => unreachable!("resolved when started"),
@@ -694,7 +873,7 @@ impl Sim {
         };
         robot.status = RobotStatus::Idle;
         robot.travel = None;
-        robot.drain_since = Some(now);
+        robot.drain_since = if robot.offline { None } else { Some(now) };
         self.emit(
             EventKind::CommandCompleted {
                 command_id: activity.command.command_id,
@@ -706,23 +885,68 @@ impl Sim {
         self.schedule_depletion(r);
     }
 
-    pub(crate) fn fail_command(&mut self, r: usize, reason: FailReason, detail: Option<String>) {
-        self.leave_charging(r);
+    /// Stop the robot's running step now: return the unused part of its
+    /// energy, grow wear for the part done, stop moving (with any robot it
+    /// tows), release robots it engages, and leave any depot queue or bay.
+    fn interrupt_step(&mut self, r: usize) {
+        self.end_exposure(r);
         let now = self.now;
-        let robot = &mut self.robots[r];
-        let Some(activity) = robot.activity.take() else {
+        let Some(running) = self.robots[r]
+            .activity
+            .as_mut()
+            .and_then(|a| a.running.take())
+        else {
             return;
         };
+        let (done, refund) = match running.end {
+            Some(end) => {
+                let span = end.saturating_sub(running.start).max(1) as f64;
+                let left = end.saturating_sub(now) as f64 / span;
+                ((1.0 - left).clamp(0.0, 1.0), running.energy_wh * left)
+            }
+            None => (1.0, 0.0),
+        };
+        let robot = &mut self.robots[r];
+        robot.battery_wh += refund;
+        if let Some(a) = robot.activity.as_mut() {
+            a.energy_used_wh -= refund;
+        }
         if robot.travel.is_some() {
             robot.pos = robot.position_at(now);
             robot.travel = None;
         }
-        robot.settle_drain(now);
+        robot
+            .health
+            .grow(&self.params, &running.exposure.scaled(done));
+        match running.step {
+            Step::Tow { target, .. } => {
+                let towed = &mut self.robots[target];
+                towed.pos = towed.position_at(now);
+                towed.travel = None;
+                towed.towed = false;
+                self.release(target, r);
+            }
+            Step::Repair { target } | Step::Strip { target } => self.release(target, r),
+            Step::Install { beneficiary } => self.release(beneficiary, r),
+            Step::Service { depot } => self.leave_depot(r, depot),
+            _ => {}
+        }
+    }
+
+    pub(crate) fn fail_command(&mut self, r: usize, reason: FailReason, detail: Option<String>) {
+        self.leave_charging(r);
+        self.interrupt_step(r);
+        let Some(activity) = self.robots[r].activity.take() else {
+            return;
+        };
+        self.settle_drain(r);
+        let now = self.now;
+        let robot = &mut self.robots[r];
+        robot.status = RobotStatus::Idle;
         if robot.battery_wh <= 0.0 {
-            robot.status = RobotStatus::Offline;
+            robot.offline = true;
             robot.drain_since = None;
         } else {
-            robot.status = RobotStatus::Idle;
             robot.drain_since = Some(now);
         }
         self.emit(
@@ -746,22 +970,6 @@ impl Sim {
                 format!("{target} is not running on {}", cmd.robot_id),
             );
         }
-        // Refund the unused part of a timed step in progress; its work is abandoned.
-        let now = self.now;
-        let robot = &mut self.robots[r];
-        if let Some(a) = robot.activity.as_mut()
-            && let Some(Running {
-                start,
-                end: Some(end),
-                energy_wh,
-                ..
-            }) = a.running
-        {
-            let left = (end.saturating_sub(now)) as f64 / (end - start).max(1) as f64;
-            let refund = energy_wh * left;
-            robot.battery_wh += refund;
-            a.energy_used_wh -= refund;
-        }
         self.emit(
             EventKind::CommandAccepted {
                 command_id: cmd.command_id.clone(),
@@ -770,6 +978,7 @@ impl Sim {
             },
             false,
         );
+        // The unused part of the step in progress is refunded; its work is abandoned.
         self.fail_command(
             r,
             FailReason::Cancelled,

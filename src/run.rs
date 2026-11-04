@@ -13,9 +13,10 @@ pub fn run_process<W: Write>(
     program: &str,
     args: &[String],
     seed: u64,
+    params: &Params,
     decision_timeout: Duration,
     log: &mut EventLog<W>,
 ) -> Result<RunReport, BenchError> {
     let mut link = CoordinatorProcess::spawn(program, args, decision_timeout)?;
-    run_session(&mut link, seed, &Params::default(), log)
+    run_session(&mut link, seed, params, log)
 }

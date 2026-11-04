@@ -8,7 +8,7 @@
 
 use super::terrain::{Terrain, rect_cells};
 use super::time::SimMs;
-use arcadia_protocol::{GridCoord, GridRect, LandingPadSpec, Surface};
+use arcadia_protocol::{GridCoord, GridRect, LandingPadSpec, QualityMetrics, Surface};
 
 #[derive(Debug, Clone)]
 pub struct Mission {
@@ -129,6 +129,45 @@ impl Mission {
             && self.slopes_ok(terrain)
             && self.berm_ok(terrain)
     }
+
+    /// The pad against its spec, from ground truth (semantics §11).
+    pub fn quality(&self, terrain: &Terrain) -> QualityMetrics {
+        let target = self.pad.target_elevation_m;
+        let cells: Vec<GridCoord> = rect_cells(&self.pad.area).collect();
+        let errors: Vec<f64> = cells
+            .iter()
+            .map(|&c| terrain.get(c).elevation_m - target)
+            .collect();
+        let n = cells.len().max(1) as f64;
+        let max_slope_deg = cells
+            .iter()
+            .flat_map(|&c| {
+                [
+                    GridCoord { x: c.x + 1, y: c.y },
+                    GridCoord { x: c.x, y: c.y + 1 },
+                ]
+                .into_iter()
+                .filter(|&nb| self.in_pad(nb))
+                .map(move |nb| (c, nb))
+            })
+            .map(|(a, b)| {
+                let rise = (terrain.get(b).elevation_m - terrain.get(a).elevation_m).abs();
+                libm::atan(rise / terrain.cell_size_m).to_degrees()
+            })
+            .fold(0.0, f64::max);
+        QualityMetrics {
+            cells_total: cells.len() as u64,
+            cells_in_spec: cells
+                .iter()
+                .filter(|&&c| self.cell_done(terrain, c))
+                .count() as u64,
+            rms_error_m: (errors.iter().map(|e| e * e).sum::<f64>() / n).sqrt(),
+            max_abs_error_m: errors.iter().fold(0.0, |m, e| m.max(e.abs())),
+            max_slope_deg,
+            berm_complete: self.berm_ok(terrain),
+            verified: self.verified.iter().all(|&v| v),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -182,6 +221,28 @@ mod tests {
         assert!(!m.complete(&terrain));
         m.on_scan(&m.pad.area.clone(), 100);
         assert!(m.complete(&terrain));
+    }
+
+    #[test]
+    fn quality_reports_the_pad_against_its_spec() {
+        let (mut terrain, mut m) = setup();
+        let q = m.quality(&terrain);
+        assert_eq!(q.cells_total, 9);
+        assert_eq!(q.cells_in_spec, 0);
+        assert!(!q.verified && !q.berm_complete);
+        finish_pad(&mut terrain, &m);
+        m.on_scan(&m.pad.area.clone(), 0);
+        let q = m.quality(&terrain);
+        assert_eq!(q.cells_in_spec, 9);
+        assert_eq!(q.rms_error_m, 0.0);
+        assert_eq!(q.max_slope_deg, 0.0);
+        assert!(q.verified && q.berm_complete);
+        terrain.get_mut(GridCoord { x: 3, y: 3 }).elevation_m = -4101.9;
+        let q = m.quality(&terrain);
+        assert_eq!(q.cells_in_spec, 8);
+        assert!((q.max_abs_error_m - 0.1).abs() < 1e-9);
+        assert!((q.rms_error_m - (0.01f64 / 9.0).sqrt()).abs() < 1e-9);
+        assert!((q.max_slope_deg - libm::atan(0.1).to_degrees()).abs() < 1e-6);
     }
 
     #[test]
