@@ -17,7 +17,8 @@ import {
 import { CATEGORIES } from '../feed.js';
 import { SURFACES, padStage } from '../site.js';
 import { scorecard, scorecardHeadline } from '../scorecard.js';
-import { SURFACE_RGB, SURFACE_LABELS, STATUS_COLORS, STATUS_LABELS, statusColor, batteryColor, rgb } from '../render/palette.js';
+import { SURFACE_RGB, SURFACE_LABELS, STATUS_COLORS, STATUS_LABELS, UNKNOWN_STATUS_COLOR, statusColor, batteryColor, rgb } from '../render/palette.js';
+import { theme } from '../render/theme.js';
 import { drawGlyph, drawStation, drawDepot, drawBaseStation } from '../render/glyphs.js';
 
 const $ = (id) => document.getElementById(id);
@@ -133,7 +134,7 @@ export class Panels {
         ctx.arc(7, 7, 6, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = '#0b1118';
-        ctx.font = '800 9px system-ui';
+        ctx.font = `500 9px ${theme.font}`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('!', 7, 7.5);
@@ -161,12 +162,16 @@ export class Panels {
         ctx.fillStyle = '#7dd3fc';
         drawGlyph(ctx, 'repair', 7, 7, 4.2);
       } else if (k === 'pad') {
+        ctx.fillStyle = rgb(SURFACE_RGB.natural);
+        ctx.beginPath();
+        ctx.roundRect(0.5, 0.5, 13, 13, 3);
+        ctx.fill();
         ctx.setLineDash([3, 2]);
         ctx.strokeStyle = '#eef5ff';
         ctx.lineWidth = 1.5;
-        ctx.strokeRect(1.5, 1.5, 11, 11);
+        ctx.strokeRect(2.5, 2.5, 9, 9);
         ctx.strokeStyle = '#ffc45c';
-        ctx.strokeRect(4.5, 4.5, 5, 5);
+        ctx.strokeRect(5, 5, 4, 4);
       }
     }
   }
@@ -241,7 +246,7 @@ export class Panels {
     const clock = frame.clock;
     setHtml(
       $('weather-state'),
-      w.storm ? '<span class="pill storm">DUST STORM</span>' : w.tau == null ? '<span class="muted">No reports</span>' : '<span class="pill clear">CLEAR</span>',
+      w.storm ? '<span class="pill storm">Dust storm</span>' : w.tau == null ? '<span class="muted">No reports</span>' : '<span class="pill clear">Clear</span>',
     );
     setText($('tau'), w.tau != null ? fmtNumber(w.tau, 2) : '–');
     $('tau-fill').style.width = `${Math.min(100, ((w.tau ?? 0) / 4.5) * 100)}%`;
@@ -261,7 +266,7 @@ export class Panels {
     const m = this.model;
     setHtml(
       $('link-state'),
-      !c.known ? '<span class="muted">No reports</span>' : c.link === 'down' ? '<span class="pill down">DOWN</span>' : '<span class="pill up">UP</span>',
+      !c.known ? '<span class="muted">No reports</span>' : c.link === 'down' ? '<span class="pill down">Down</span>' : '<span class="pill up">Up</span>',
     );
     setText($('delay'), c.delay != null ? fmtDuration(c.delay) : '–');
     setText($('link-cause'), c.cause ? humanize(c.cause) : '–');
@@ -309,7 +314,7 @@ export class Panels {
       const it = m.feed.items[i];
       if (!this.filters.has(it.cat)) continue;
       if (only && it.robot !== only) continue;
-      const robot = it.robot ? `<span class="rb" style="color:${this.robotColor(it.robot, t)}">${esc(it.robot)}</span>` : '';
+      const robot = it.robot ? `<span class="rb"><i class="status-dot" style="background:${this.robotColor(it.robot, t)}"></i>${esc(it.robot)}</span>` : '';
       const id = it.cat === 'command' && it.id ? `<span class="id">${esc(it.id)}</span>` : '';
       const note = it.note ? ` <span class="note">${esc(it.note)}</span>` : '';
       const late = it.late ? ` <span class="late">(reported ${fmtDuration(it.late, sol)} late)</span>` : '';
@@ -323,9 +328,9 @@ export class Panels {
 
   robotColor(id, t) {
     const i = this.model.robotIndex.get(id);
-    if (i == null) return '#dbe4ee';
+    if (i == null) return UNKNOWN_STATUS_COLOR;
     const st = this.model.robotAt(i, t);
-    return st ? statusColor(st.status) : '#dbe4ee';
+    return st ? statusColor(st.status) : UNKNOWN_STATUS_COLOR;
   }
 
   updateFleet(t, frame) {
@@ -335,7 +340,7 @@ export class Panels {
         if (!r) return '';
         const frac = r.batteryFrac;
         const cmd = r.command ? `${r.command.id} ${describeCommand(r.command.cmd)}` : '';
-        const badges = (r.faults.length ? ` <span title="${r.faults.length} fault(s)" style="color:${r.faults.some((f) => f.severity === 'disabled') ? '#f25c5c' : '#f5b942'}">⚠</span>` : '') + (r.inCoverage ? '' : ' <span title="out of coverage" style="color:#8b9bb0">⌀</span>');
+        const badges = (r.faults.length ? ` <span title="${r.faults.length} fault(s)" class="${r.faults.some((f) => f.severity === 'disabled') ? 'tone-bad' : 'tone-warn'}">⚠</span>` : '') + (r.inCoverage ? '' : ' <span title="out of coverage" class="muted">⌀</span>');
         return `<tr data-i="${i}" class="${frame.selected === i ? 'sel' : ''}"><td><span class="status-dot" style="background:${statusColor(r.status)}"></span> <b>${esc(r.id)}</b>${badges}</td><td>${esc(humanize(r.status))}</td><td class="bat"><span class="minibar"><i style="width:${((frac ?? 0) * 100).toFixed(0)}%;background:${batteryColor(frac)}"></i></span>${frac != null ? fmtPct(frac) : '–'}</td><td class="cmd" title="${esc(cmd)}">${esc(cmd || '–')}</td></tr>`;
       })
       .join('');
@@ -357,7 +362,7 @@ export class Panels {
     const spec = sel.spec;
     const cmd = sel.command;
     const faults = sel.faults.length
-      ? `<ul class="faults">${sel.faults.map((f) => `<li>${esc(humanize(f.component))} <b style="color:${f.severity === 'disabled' ? '#f25c5c' : '#f5b942'}">${esc(f.severity)}</b> (${esc(humanize(f.cause))}${f.field_repairable === false ? ', depot only' : ''}) since ${esc(solClock(f.since_t, m.info.solLength).text)}</li>`).join('')}</ul>`
+      ? `<ul class="faults">${sel.faults.map((f) => `<li>${esc(humanize(f.component))} <b class="${f.severity === 'disabled' ? 'tone-bad' : 'tone-warn'}">${esc(f.severity)}</b> (${esc(humanize(f.cause))}${f.field_repairable === false ? ', depot only' : ''}) since ${esc(solClock(f.since_t, m.info.solLength).text)}</li>`).join('')}</ul>`
       : 'none';
     // telemetry_t trails its own snapshot only when contact was lost.
     const stale = sel.telemetryT != null && sel.sampleT - sel.telemetryT > 1;

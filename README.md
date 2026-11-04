@@ -192,7 +192,7 @@ python3 -m http.server 8000
 # then open http://localhost:8000/viewer/?log=../results/v1.0/replays/landing-pad-large-nominal-1.jsonl.gz
 ```
 
-Any log saved with `--log`, or with `--save-logs` in a batch, opens the same way, or from the page's **Open log…** button. The **Viewer Pages** workflow publishes the viewer and the results to GitHub Pages.
+Any log saved with `--log`, or with `--save-logs` in a batch, opens the same way, or from the page's **Open log** button. The **Viewer Pages** workflow publishes the viewer and the results to GitHub Pages.
 
 ## Python
 

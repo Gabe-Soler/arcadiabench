@@ -2,6 +2,7 @@
 // markers and the playhead. The static part is drawn once per resize.
 
 import { SUNRISE, SUNSET, solClock, fmtDuration } from '../format.js';
+import { theme } from './theme.js';
 
 const PAD_X = 10;
 const ROW_MARK = [4, 16];
@@ -9,7 +10,10 @@ const ROW_BAND = [19, 31];
 const ROW_DAY = [33, 41];
 const ROW_TICK = 44;
 
-const MARKER_COLORS = { fault: '#f5b942', disabled: '#f25c5c', failure: '#fb923c', lost: '#e8eef5', end: '#4ade80' };
+function markerColor(mk) {
+  if (mk.type === 'fault') return mk.sev === 'disabled' ? theme.err : theme.warn;
+  return { failure: theme.failure, lost: theme.ink, end: theme.ok }[mk.type] ?? theme.grey;
+}
 
 export class Timeline {
   constructor(canvas, { onSeek, onHover } = {}) {
@@ -87,9 +91,8 @@ export class Timeline {
     const m = this.model;
     const sol = m.info.solLength;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    // The page paints the background (style.css), so the strip sits on the card.
     ctx.clearRect(0, 0, this.w, this.h);
-    ctx.fillStyle = '#0d131a';
-    ctx.fillRect(PAD_X, ROW_MARK[0], this.w - 2 * PAD_X, ROW_TICK - ROW_MARK[0]);
 
     // Day and night.
     const firstSol = Math.floor(this.t0 / sol);
@@ -100,9 +103,9 @@ export class Timeline {
       const day1 = this.xAt(s * sol + SUNSET * sol);
       const n0 = this.xAt(s * sol);
       const n1 = this.xAt((s + 1) * sol);
-      ctx.fillStyle = '#141d2c';
+      ctx.fillStyle = theme.night;
       ctx.fillRect(Math.max(PAD_X, n0), ROW_DAY[0], Math.min(this.w - PAD_X, n1) - Math.max(PAD_X, n0), ROW_DAY[1] - ROW_DAY[0]);
-      ctx.fillStyle = '#806a2e';
+      ctx.fillStyle = theme.day;
       const a = Math.max(PAD_X, day0);
       const b = Math.min(this.w - PAD_X, day1);
       if (b > a) ctx.fillRect(a, ROW_DAY[0], b - a, ROW_DAY[1] - ROW_DAY[0]);
@@ -116,21 +119,21 @@ export class Timeline {
         ctx.fillStyle = color;
         ctx.fillRect(a, ROW_BAND[0], Math.max(2, b - a), ROW_BAND[1] - ROW_BAND[0]);
         if (b - a > 60) {
-          ctx.fillStyle = 'rgba(255,255,255,0.85)';
-          ctx.font = '600 9.5px system-ui, sans-serif';
+          ctx.fillStyle = '#fff';
+          ctx.font = `500 9.5px ${theme.font}`;
           ctx.textBaseline = 'middle';
           ctx.textAlign = 'left';
           ctx.fillText(label(it), a + 4, (ROW_BAND[0] + ROW_BAND[1]) / 2 + 0.5);
         }
       }
     };
-    band(m.weather.storms.items, 'rgba(217, 137, 61, 0.75)', (s) => `dust storm τ ${s.peakTau.toFixed(1)}`);
-    band(m.comms.down.items, 'rgba(200, 52, 74, 0.85)', (d) => `link down${d.cause ? ` (${d.cause})` : ''}`);
+    band(m.weather.storms.items, theme.bandStorm, (s) => `dust storm τ ${s.peakTau.toFixed(1)}`);
+    band(m.comms.down.items, theme.bandLink, (d) => `link down${d.cause ? ` (${d.cause})` : ''}`);
 
     // Markers.
     for (const mk of m.markers) {
       const x = Math.round(this.xAt(mk.t)) + 0.5;
-      const color = mk.type === 'fault' ? MARKER_COLORS[mk.sev === 'disabled' ? 'disabled' : 'fault'] : MARKER_COLORS[mk.type] ?? '#ccc';
+      const color = markerColor(mk);
       ctx.strokeStyle = color;
       ctx.fillStyle = color;
       ctx.lineWidth = 1.5;
@@ -169,28 +172,36 @@ export class Timeline {
     // Sol ticks and labels, thinned to fit.
     const pxPerSol = (this.w - 2 * PAD_X) / Math.max(1e-9, (this.t1 - this.t0) / sol);
     const every = [1, 2, 5, 10, 20, 50, 100].find((k) => k * pxPerSol >= 46) ?? 100;
-    ctx.fillStyle = '#7f90a6';
-    ctx.strokeStyle = '#3a4b60';
-    ctx.font = '10px ui-monospace, Menlo, monospace';
+    ctx.fillStyle = theme.grey;
+    ctx.strokeStyle = theme.tick;
+    ctx.font = `10px ${theme.font}`;
     ctx.textBaseline = 'top';
     ctx.textAlign = 'center';
     ctx.lineWidth = 1;
+    // A label is skipped where it would overlap one already drawn.
+    const taken = [];
+    const label = (text, x) => {
+      const cx = Math.min(this.w - 24, Math.max(24, x));
+      const half = ctx.measureText(text).width / 2 + 4;
+      if (taken.some(([a, b]) => cx - half < b && cx + half > a)) return;
+      taken.push([cx - half, cx + half]);
+      ctx.fillText(text, cx, ROW_TICK + 3);
+    };
     for (let s = Math.ceil(this.t0 / sol); s <= Math.floor(this.t1 / sol); s++) {
       const x = Math.round(this.xAt(s * sol)) + 0.5;
       ctx.beginPath();
       ctx.moveTo(x, ROW_DAY[0]);
       ctx.lineTo(x, ROW_TICK + 2);
       ctx.stroke();
-      if (s % every === 0) ctx.fillText(`Sol ${s}`, Math.min(this.w - 24, Math.max(24, x)), ROW_TICK + 3);
+      if (s % every === 0) label(`Sol ${s}`, x);
     }
     if (nSols <= 3) {
       // Short runs: label hours too.
       const hour = sol / 24;
+      ctx.fillStyle = theme.faint;
       for (let k = Math.ceil(this.t0 / hour); k * hour <= this.t1; k++) {
         if (k % 24 === 0 || k % 6 !== 0) continue;
-        const x = this.xAt(k * hour);
-        ctx.fillStyle = '#56667b';
-        ctx.fillText(`${String(k % 24).padStart(2, '0')}:00`, x, ROW_TICK + 3);
+        label(`${String(k % 24).padStart(2, '0')}:00`, this.xAt(k * hour));
       }
     }
   }
@@ -215,23 +226,23 @@ export class Timeline {
     ctx.drawImage(this.layer, 0, 0);
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     const x = this.xAt(t);
-    ctx.fillStyle = 'rgba(86, 184, 255, 0.10)';
+    ctx.fillStyle = theme.elapsed;
     ctx.fillRect(PAD_X, ROW_MARK[0], Math.max(0, x - PAD_X), ROW_DAY[1] - ROW_MARK[0]);
     if (this.hoverX != null && !this.dragging) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+      ctx.strokeStyle = theme.hover;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(Math.round(this.hoverX) + 0.5, ROW_MARK[0]);
       ctx.lineTo(Math.round(this.hoverX) + 0.5, ROW_DAY[1]);
       ctx.stroke();
     }
-    ctx.strokeStyle = '#ffffff';
+    ctx.strokeStyle = theme.ink;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(x, ROW_MARK[0] - 2);
     ctx.lineTo(x, ROW_DAY[1] + 2);
     ctx.stroke();
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = theme.ink;
     ctx.beginPath();
     ctx.moveTo(x - 5, ROW_MARK[0] - 4);
     ctx.lineTo(x + 5, ROW_MARK[0] - 4);

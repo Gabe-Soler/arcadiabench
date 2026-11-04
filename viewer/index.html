@@ -2,21 +2,41 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0e0e0c">
 <title>ArcadiaBench replay viewer</title>
 <meta name="description" content="Top-down replays of ArcadiaBench runs from their event logs.">
 <link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Loaded without blocking, so the viewer starts offline too (on system fonts). -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&amp;family=Manrope:wght@300;400;500&amp;display=swap" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-start" viewBox="0 0 16 16"><rect x="3" y="3.5" width="1.8" height="9" rx=".9" fill="currentColor"/><path d="M13 4.1v7.8a.6.6 0 0 1-.92.5L6.3 8.5a.6.6 0 0 1 0-1l5.78-3.9a.6.6 0 0 1 .92.5Z" fill="currentColor"/></symbol>
+  <symbol id="i-end" viewBox="0 0 16 16"><rect x="11.2" y="3.5" width="1.8" height="9" rx=".9" fill="currentColor"/><path d="M3 4.1v7.8a.6.6 0 0 0 .92.5L9.7 8.5a.6.6 0 0 0 0-1L3.92 3.6a.6.6 0 0 0-.92.5Z" fill="currentColor"/></symbol>
+  <symbol id="i-back" viewBox="0 0 16 16"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-fwd" viewBox="0 0 16 16"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-play" viewBox="0 0 16 16"><path d="M5 3.2v9.6a.6.6 0 0 0 .92.5l7.56-4.8a.6.6 0 0 0 0-1L5.92 2.7a.6.6 0 0 0-.92.5Z" fill="currentColor"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 16 16"><rect x="4" y="3" width="2.6" height="10" rx="1" fill="currentColor"/><rect x="9.4" y="3" width="2.6" height="10" rx="1" fill="currentColor"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3.5v9M3.5 8h9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 16 16"><path d="M3.5 8h9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-fit" viewBox="0 0 16 16"><path d="M3 6.2V3h3.2M9.8 3H13v3.2M13 9.8V13H9.8M6.2 13H3V9.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-mark" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5" fill="currentColor"/><circle cx="8.6" cy="9.4" r="2.3" style="fill:var(--gs-bg)"/><circle cx="14.6" cy="15.2" r="1.4" style="fill:var(--gs-bg)"/></symbol>
+</svg>
+
 <header class="topbar">
-  <div class="brand"><span class="brand-mark" aria-hidden="true"></span>ArcadiaBench <span class="brand-sub">replay</span></div>
+  <div class="brand"><svg aria-hidden="true"><use href="#i-mark"/></svg>ArcadiaBench <span class="brand-sub">replay</span></div>
   <div class="runinfo" id="runinfo"></div>
   <div class="actions">
-    <button type="button" class="btn" id="open-btn" title="Open a .jsonl or .jsonl.gz event log">Open log…</button>
     <input type="file" id="file-input" accept=".jsonl,.gz,.json,.txt,application/gzip,application/x-ndjson" hidden>
     <button type="button" class="btn" id="copy-link" title="Copy a link to this moment" disabled>Copy link</button>
     <button type="button" class="btn icon" id="help-btn" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">?</button>
+    <button type="button" class="btn primary" id="open-btn" title="Open a .jsonl or .jsonl.gz event log">Open log</button>
   </div>
 </header>
 
@@ -29,9 +49,9 @@
     </div>
     <div class="banner warn-banner" id="warn-banner" hidden></div>
     <div class="map-tools">
-      <button type="button" class="btn icon" id="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
-      <button type="button" class="btn icon" id="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
-      <button type="button" class="btn icon" id="zoom-fit" title="Fit the site" aria-label="Fit the site">⤢</button>
+      <button type="button" class="btn icon" id="zoom-in" title="Zoom in" aria-label="Zoom in"><svg aria-hidden="true"><use href="#i-plus"/></svg></button>
+      <button type="button" class="btn icon" id="zoom-out" title="Zoom out" aria-label="Zoom out"><svg aria-hidden="true"><use href="#i-minus"/></svg></button>
+      <button type="button" class="btn icon" id="zoom-fit" title="Fit the site" aria-label="Fit the site"><svg aria-hidden="true"><use href="#i-fit"/></svg></button>
     </div>
     <div class="legend" id="legend"></div>
     <div class="tooltip" id="tooltip" hidden></div>
@@ -105,11 +125,11 @@
 
 <footer class="timebar">
   <div class="transport">
-    <button type="button" class="btn icon" id="to-start" title="Start (Home)" aria-label="Start">⏮</button>
-    <button type="button" class="btn icon" id="step-back" title="Previous decision point (←)" aria-label="Previous decision point">⏴</button>
-    <button type="button" class="btn icon play" id="play" title="Play or pause (Space)" aria-label="Play">▶</button>
-    <button type="button" class="btn icon" id="step-fwd" title="Next decision point (→)" aria-label="Next decision point">⏵</button>
-    <button type="button" class="btn icon" id="to-end" title="End (End)" aria-label="End">⏭</button>
+    <button type="button" class="btn icon" id="to-start" title="Start (Home)" aria-label="Start"><svg aria-hidden="true"><use href="#i-start"/></svg></button>
+    <button type="button" class="btn icon" id="step-back" title="Previous decision point (←)" aria-label="Previous decision point"><svg aria-hidden="true"><use href="#i-back"/></svg></button>
+    <button type="button" class="btn icon primary play" id="play" title="Play or pause (Space)" aria-label="Play"><svg aria-hidden="true"><use href="#i-play"/></svg></button>
+    <button type="button" class="btn icon" id="step-fwd" title="Next decision point (→)" aria-label="Next decision point"><svg aria-hidden="true"><use href="#i-fwd"/></svg></button>
+    <button type="button" class="btn icon" id="to-end" title="End (End)" aria-label="End"><svg aria-hidden="true"><use href="#i-end"/></svg></button>
   </div>
   <div class="speeds" id="speeds" role="group" aria-label="Playback speed"></div>
   <div class="clock">
@@ -122,34 +142,65 @@
   </div>
 </footer>
 
-<div class="overlay" id="welcome">
-  <div class="welcome-card">
-    <h1><span class="brand-mark" aria-hidden="true"></span>ArcadiaBench replay</h1>
-    <p>Top-down replays of ArcadiaBench runs: robots at work, the landing pad taking shape, site power through dust storms, and the Earth link through blackouts.</p>
-    <div class="drop" id="drop-zone">
-      <strong>Drop an event log here</strong>
-      <span>.jsonl or .jsonl.gz, as written by <code>arcadiabench run --log FILE</code></span>
-      <button type="button" class="btn primary" id="welcome-open">Choose a file…</button>
-    </div>
-    <div class="samples">
-      <span>Samples:</span>
-      <a href="?log=samples/arcadiaos-conjunction-seed13.jsonl.gz&amp;t=68300">ArcadiaOS, conjunction, seed 13: a robot fails during the blackout and is towed for service</a>
-      <a href="?log=samples/arcadiaos-cascading-faults-seed2.jsonl.gz&amp;t=15100">ArcadiaOS, cascading faults, seed 2: tow, depot service and field repairs</a>
-      <a href="?log=samples/null-conjunction-seed7.jsonl.gz">Null coordinator, conjunction, seed 7: a 14-sol blackout while the fleet runs down</a>
-      <a href="?log=samples/builder-seed34.jsonl.gz">Scripted builder, seed 34 (protocol 0.1): the pad built through a dust storm</a>
+<div class="overlay welcome" id="welcome">
+  <nav class="welcome-nav"><div class="wrap">
+    <div class="brand"><svg aria-hidden="true"><use href="#i-mark"/></svg>ArcadiaBench <span class="brand-sub">replay</span></div>
+    <a class="btn" href="https://github.com/Gabe-Soler/arcadiabench">GitHub</a>
+  </div></nav>
+
+  <header class="hero"><div class="wrap">
+    <h1 class="h1">Watch a crew build the pad.</h1>
+    <p class="hero-sub">Top-down replays of ArcadiaBench event logs: robots at work, the landing pad taking shape, site power through dust storms, and the Earth link through blackouts. Nothing is uploaded.</p>
+    <div class="btnrow">
+      <button type="button" class="btn primary" id="welcome-open">Choose a log file</button>
+      <a class="btn" href="?log=samples/arcadiaos-conjunction-seed13.jsonl.gz&amp;t=68300">Open a sample</a>
     </div>
     <div class="load-progress" id="load-progress" hidden>
       <div class="bar"><div id="load-bar"></div></div>
       <div id="load-text">Loading…</div>
     </div>
     <div class="error" id="load-error" hidden></div>
-    <p class="fine">Add <code>?log=URL</code> to the address to open a log directly, and <code>&amp;t=SECONDS</code> to start at a moment.</p>
-  </div>
+    <div class="drop" id="drop-zone">
+      <div class="drop-title">Drop an event log here.</div>
+      <div class="drop-meta">.jsonl or .jsonl.gz, as written by <code>arcadiabench run --log FILE</code></div>
+    </div>
+  </div></header>
+
+  <section class="sec" id="samples"><div class="wrap">
+    <div class="headrow"><h2 class="h2">Samples.</h2><span class="tag">4 replays · one click each</span></div>
+    <div class="grid2">
+      <a class="sample" href="?log=samples/arcadiaos-conjunction-seed13.jsonl.gz&amp;t=68300">
+        <div class="sample-meta">ArcadiaOS · conjunction · seed 13</div>
+        <div class="sample-title">Towed through the blackout</div>
+        <div class="sample-text">A robot fails while Earth is out of reach and is towed for service.</div>
+      </a>
+      <a class="sample" href="?log=samples/arcadiaos-cascading-faults-seed2.jsonl.gz&amp;t=15100">
+        <div class="sample-meta">ArcadiaOS · cascading faults · seed 2</div>
+        <div class="sample-title">One fault after another</div>
+        <div class="sample-text">A tow, depot service and field repairs.</div>
+      </a>
+      <a class="sample" href="?log=samples/null-conjunction-seed7.jsonl.gz">
+        <div class="sample-meta">Null coordinator · conjunction · seed 7</div>
+        <div class="sample-title">Fourteen sols without Earth</div>
+        <div class="sample-text">A blackout while the fleet, given no orders, runs down.</div>
+      </a>
+      <a class="sample" href="?log=samples/builder-seed34.jsonl.gz">
+        <div class="sample-meta">Scripted builder · seed 34</div>
+        <div class="sample-title">Built through a dust storm</div>
+        <div class="sample-text">An early log, written with protocol 0.1.</div>
+      </a>
+    </div>
+  </div></section>
+
+  <footer class="foot"><div class="wrap"><div class="foot-inner">
+    <div>Add <code>?log=URL</code> to the address to open a log directly, and <code>&amp;t=SECONDS</code> to start at a moment.</div>
+    <div>ArcadiaBench · replay viewer</div>
+  </div></div></footer>
 </div>
 
 <div class="overlay help" id="help" hidden>
-  <div class="welcome-card">
-    <h1>Keyboard and mouse</h1>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="help-title">
+    <h2 id="help-title">Keyboard and mouse</h2>
     <table class="keys">
       <tr><td><kbd>Space</kbd></td><td>Play or pause</td></tr>
       <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Previous or next decision point</td></tr>
@@ -161,11 +212,11 @@
       <tr><td>Click a robot</td><td>Details in the Fleet tab</td></tr>
       <tr><td>Wheel, drag</td><td>Zoom and pan the map</td></tr>
     </table>
-    <button type="button" class="btn primary" id="help-close">Close</button>
+    <div class="actions"><button type="button" class="btn primary" id="help-close">Close</button></div>
   </div>
 </div>
 
-<div class="drag-veil" id="drag-veil" hidden><div>Drop the log to open it</div></div>
+<div class="drag-veil" id="drag-veil" hidden><div>Drop the log to open it.</div></div>
 <div class="fatal" id="fatal" hidden></div>
 <div class="toast" id="toast" hidden></div>
 

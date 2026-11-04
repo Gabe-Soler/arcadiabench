@@ -10,6 +10,7 @@ import { PowerChart } from './render/chart.js';
 import { Panels } from './ui/panels.js';
 import { solClock, fmtNumber, fmtDuration, fmtPct, fmtMass, describeCommand, humanize, parseTimeParam } from './format.js';
 import { statusColor } from './render/palette.js';
+import { watchTheme } from './render/theme.js';
 
 window.__viewerBooted = true;
 
@@ -200,7 +201,7 @@ function buildSpeeds(model) {
   for (const [v, label] of options) {
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'btn';
+    b.className = 'seg';
     b.textContent = label;
     b.title = `${label} of mission time per second`;
     b.dataset.speed = String(v);
@@ -232,7 +233,7 @@ function setPlaying(on) {
   if (on && state.t >= m.tEnd) state.t = m.t0;
   state.playing = on;
   const b = $('play');
-  b.textContent = on ? '⏸' : '▶';
+  b.innerHTML = `<svg aria-hidden="true"><use href="#i-${on ? 'pause' : 'play'}"/></svg>`;
   b.setAttribute('aria-label', on ? 'Pause' : 'Play');
   state.lastNow = performance.now();
   if (!on) scheduleUrlUpdate();
@@ -268,13 +269,13 @@ function shareUrl() {
 function resize() {
   if (!state.model) return;
   const legend = $('legend');
-  state.map.insets = { left: legend.offsetWidth ? legend.offsetWidth + 14 : 0, right: 44 };
+  state.map.insets = { left: legend.offsetWidth ? legend.offsetWidth + 28 : 0, right: 64 };
   state.map.resize();
   // When the map cannot keep clear of the legend, fold the legend away (once).
   if (state.map.insetIgnored && !state.legendFolded) {
     state.legendFolded = true;
     legend.classList.add('collapsed');
-    state.map.insets = { left: legend.offsetWidth + 14, right: 44 };
+    state.map.insets = { left: legend.offsetWidth + 28, right: 64 };
     state.map.fit();
   }
   timeline.resize();
@@ -331,6 +332,11 @@ function render(forcePanels = false) {
   state.frame = f;
   state.terrain.update(t);
   state.map.draw(f);
+  const scaleW = Math.ceil(state.map.scaleWidth ?? 0);
+  if (scaleW !== state.scaleW) {
+    state.scaleW = scaleW;
+    $('map-pane').style.setProperty('--scale-w', `${scaleW}px`);
+  }
   timeline.draw(t);
   state.chart.draw(t);
 
@@ -343,7 +349,7 @@ function render(forcePanels = false) {
   if (f.comms.link === 'down') {
     banner.hidden = false;
     const back = f.comms.restore ?? (f.comms.until <= m.tEnd ? f.comms.until : null);
-    banner.innerHTML = `EARTH LINK DOWN<small>${esc(humanize(f.comms.cause ?? 'unknown cause'))}${back != null ? ` · back in ${esc(fmtDuration(back - t, m.info.solLength))}` : ''}</small>`;
+    banner.innerHTML = `Earth link down<small>${esc(humanize(f.comms.cause ?? 'unknown cause'))}${back != null ? ` · back in ${esc(fmtDuration(back - t, m.info.solLength))}` : ''}</small>`;
   } else {
     banner.hidden = true;
   }
@@ -352,7 +358,7 @@ function render(forcePanels = false) {
     storm.hidden = false;
     const pw = m.powerAt(t);
     const solar = pw && Number(m.info.power?.solar_peak_w) > 0 ? ` · solar ${fmtPct(pw.solar / m.info.power.solar_peak_w)} of peak` : '';
-    storm.innerHTML = `DUST STORM<small>optical depth ${esc(fmtNumber(f.weather.tau ?? f.weather.storm.peakTau, 2))}${solar}</small>`;
+    storm.innerHTML = `Dust storm<small>optical depth ${esc(fmtNumber(f.weather.tau ?? f.weather.storm.peakTau, 2))}${solar}</small>`;
   } else {
     storm.hidden = true;
   }
@@ -398,8 +404,8 @@ function updateTooltip() {
     return;
   }
   const cmd = r.command ? `<br><span class="muted">${esc(r.command.id)}</span> ${esc(describeCommand(r.command.cmd))}` : '';
-  const faults = r.faults.length ? `<br><span style="color:#f5b942">${r.faults.length} fault${r.faults.length > 1 ? 's' : ''}: ${esc(r.faults.map((x) => `${humanize(x.component)} ${x.severity}`).join(', '))}</span>` : '';
-  tip.innerHTML = `<b style="color:${statusColor(r.status)}">${esc(r.id)}</b> <span class="muted">${esc(r.spec.model ?? '')}</span> · ${esc(humanize(r.status))}<br>battery ${r.batteryFrac != null ? fmtPct(r.batteryFrac) : '–'}${r.spec.haulKg ? ` · payload ${fmtMass(r.payload)}` : ''}${r.inCoverage ? '' : ' · <span style="color:#ff9aa8">out of coverage</span>'}${cmd}${faults}`;
+  const faults = r.faults.length ? `<br><span class="tone-warn">${r.faults.length} fault${r.faults.length > 1 ? 's' : ''}: ${esc(r.faults.map((x) => `${humanize(x.component)} ${x.severity}`).join(', '))}</span>` : '';
+  tip.innerHTML = `<span class="status-dot" style="background:${statusColor(r.status)}"></span><b>${esc(r.id)}</b> <span class="muted">${esc(r.spec.model ?? '')}</span> · ${esc(humanize(r.status))}<br>battery ${r.batteryFrac != null ? fmtPct(r.batteryFrac) : '–'}${r.spec.haulKg ? ` · payload ${fmtMass(r.payload)}` : ''}${r.inCoverage ? '' : ' · <span class="tone-bad">out of coverage</span>'}${cmd}${faults}`;
   tip.hidden = false;
   const pane = $('map-pane').getBoundingClientRect();
   const [x, y] = state.hoverPos;
@@ -622,6 +628,21 @@ const timeline = new Timeline($('timeline'), {
   },
 });
 const panels = new Panels({ onSeek: (t) => seek(t), onSelect: (i, fromMap) => select(i, fromMap) });
+
+/**
+ * Redraw the canvases' cached layers: the timeline's and the chart's after a
+ * font loads, and the terrain's too after a colour scheme change.
+ */
+function redrawLayers({ terrain = false } = {}) {
+  if (!state.model) return;
+  if (terrain) state.terrain.invalidate();
+  timeline.drawStatic();
+  state.chart.drawStatic();
+  state.dirty = true;
+}
+
+watchTheme(() => redrawLayers({ terrain: true }));
+document.fonts?.addEventListener?.('loadingdone', () => redrawLayers());
 
 wireMap();
 wireControls();

@@ -4,6 +4,7 @@
 import { drawGlyph, drawStation, drawDepot, drawBaseStation } from './glyphs.js';
 import { statusColor, batteryColor } from './palette.js';
 import { nightFactor } from '../format.js';
+import { theme } from './theme.js';
 import { spread, placeLabels } from '../layout.js';
 
 const MARGIN = 26;
@@ -116,7 +117,7 @@ export class MapView {
     const ctx = this.ctx;
     const { width, height } = this.site;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    ctx.fillStyle = '#070a0e';
+    ctx.fillStyle = theme.card;
     ctx.fillRect(0, 0, this.w, this.h);
 
     const [x0, y0] = this.toScreen(0, height);
@@ -124,7 +125,7 @@ export class MapView {
     const sh = height * this.scale;
     ctx.imageSmoothingEnabled = this.terrain.px < this.scale * this.dpr * 0.75;
     ctx.drawImage(this.terrain.canvas, x0, y0, sw, sh);
-    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.strokeStyle = theme.mapFrame;
     ctx.lineWidth = 1;
     ctx.strokeRect(x0 - 0.5, y0 - 0.5, sw + 1, sh + 1);
 
@@ -161,8 +162,8 @@ export class MapView {
       ctx.lineTo(right, Math.round(sy) + 0.5);
     }
     ctx.stroke();
-    ctx.fillStyle = 'rgba(200,215,230,0.45)';
-    ctx.font = '10px ui-monospace, Menlo, monospace';
+    ctx.fillStyle = theme.grey;
+    ctx.font = `10px ${theme.font}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     for (let x = 0; x <= width; x += step) {
@@ -195,7 +196,7 @@ export class MapView {
     ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
     ctx.setLineDash([]);
     ctx.shadowBlur = 0;
-    ctx.font = '600 11px system-ui, sans-serif';
+    ctx.font = `500 11px ${theme.font}`;
     ctx.textBaseline = 'bottom';
     ctx.textAlign = 'left';
     const label = `PAD ${pad.goalId ?? ''}`.trim();
@@ -215,7 +216,7 @@ export class MapView {
       const xs = berm.cells.map((c) => c.x);
       const ys = berm.cells.map((c) => c.y);
       const [lx, ly] = this.toScreen(Math.min(...xs), Math.max(...ys) + 1);
-      ctx.font = '600 10px system-ui, sans-serif';
+      ctx.font = `500 10px ${theme.font}`;
       this.labelText(ctx, `BERM ${berm.height_m} m`, lx, ly - 3, '#ffd28a');
     }
     ctx.restore();
@@ -248,6 +249,10 @@ export class MapView {
       ctx.setLineDash([]);
     };
     ctx.save();
+    const [x0, y0] = this.toScreen(0, this.site.height);
+    ctx.beginPath();
+    ctx.rect(x0, y0, this.site.width * this.scale, this.site.height * this.scale);
+    ctx.clip();
     if (bs) circle(bs.x, bs.y, bs.rangeM, 'rgba(86, 184, 255, A)');
     for (const r of f.relays ?? []) circle(r.x, r.y, r.rangeM, 'rgba(120, 230, 170, A)');
     ctx.restore();
@@ -256,7 +261,7 @@ export class MapView {
   drawFixtures(ctx) {
     const size = Math.max(12, Math.min(22, this.scale * 1.15));
     ctx.save();
-    ctx.font = '600 10px system-ui, sans-serif';
+    ctx.font = `500 10px ${theme.font}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     for (const s of this.model.stations) {
@@ -382,7 +387,7 @@ export class MapView {
   /** Robot labels, drawn after every robot so none is hidden (see layout.placeLabels). */
   drawLabels(ctx, placed, R, selected, hover) {
     ctx.save();
-    ctx.font = '600 11px system-ui, sans-serif';
+    ctx.font = `500 11px ${theme.font}`;
     const items = placed.map((p) => ({
       sx: p.sx,
       sy: p.sy,
@@ -493,7 +498,7 @@ export class MapView {
       ctx.strokeStyle = '#0b1118';
       ctx.stroke();
       ctx.fillStyle = '#0b1118';
-      ctx.font = `800 ${Math.round(br * 1.45)}px system-ui, sans-serif`;
+      ctx.font = `500 ${Math.round(br * 1.45)}px ${theme.font}`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(faults.length > 1 ? String(faults.length) : '!', bxp, byp + 0.5);
@@ -539,34 +544,44 @@ export class MapView {
     ctx.restore();
   }
 
+  /** Scale bar and north arrow: a pill in the top-left corner, above the legend's column. */
   drawScale(ctx) {
     const cs = this.site.cellSize;
     const metresPerPx = cs / this.scale;
-    const target = 110 * metresPerPx;
+    const target = 56 * metresPerPx;
     const nice = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000].find((v) => v >= target) ?? 1000;
     const len = nice / metresPerPx;
-    const x = 16;
-    const y = 36;
+    const north = 'N ↑';
     ctx.save();
-    ctx.fillStyle = 'rgba(10, 14, 19, 0.78)';
+    ctx.font = `500 11px ${theme.font}`;
+    const width = len + ctx.measureText(north).width + 44;
+    /** Read by the page, which keeps its banners clear of the pill. */
+    this.scaleWidth = width;
+    const h = 32;
+    const left = 16;
+    const top = 16;
+    const x = left + 14;
+    const y = top + 21;
+    ctx.fillStyle = theme.raised;
     ctx.beginPath();
-    ctx.roundRect(x - 8, 8, len + 54, 38, 6);
+    ctx.roundRect(left, top, width, h, h / 2);
     ctx.fill();
-    ctx.strokeStyle = '#dbe4ee';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = theme.ink;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(x, y - 4);
+    ctx.moveTo(x, y - 3);
     ctx.lineTo(x, y);
     ctx.lineTo(x + len, y);
-    ctx.lineTo(x + len, y - 4);
+    ctx.lineTo(x + len, y - 3);
     ctx.stroke();
-    ctx.font = '11px ui-monospace, Menlo, monospace';
+    ctx.fillStyle = theme.ink;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(north, x + len + 12, top + h / 2 + 0.5);
+    ctx.font = `10px ${theme.font}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
-    this.labelText(ctx, `${nice} m`, x + len / 2, y - 4, '#dbe4ee');
-    ctx.textAlign = 'left';
-    ctx.font = '600 12px system-ui, sans-serif';
-    this.labelText(ctx, 'N ↑', x + len + 12, y + 1, '#dbe4ee');
+    ctx.fillText(`${nice} m`, x + len / 2, y - 4);
     ctx.restore();
   }
 }

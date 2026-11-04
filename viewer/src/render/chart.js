@@ -3,6 +3,7 @@
 // playhead. The static part is drawn once per resize.
 
 import { SUNRISE, SUNSET } from '../format.js';
+import { theme } from './theme.js';
 
 const PAD = { l: 2, r: 2, t: 4, b: 3 };
 
@@ -50,9 +51,8 @@ export class PowerChart {
     const bottom = this.h - PAD.b;
     const yFrac = (f) => bottom - f * (bottom - top);
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    // The page paints the background (style.css).
     ctx.clearRect(0, 0, this.w, this.h);
-    ctx.fillStyle = '#0b1016';
-    ctx.fillRect(0, 0, this.w, this.h);
 
     for (let s = Math.floor(this.t0 / sol); s < Math.ceil(this.t1 / sol); s++) {
       for (const [a, b] of [
@@ -62,7 +62,7 @@ export class PowerChart {
         const x0 = Math.max(PAD.l, this.x(a));
         const x1 = Math.min(this.w - PAD.r, this.x(b));
         if (x1 > x0) {
-          ctx.fillStyle = 'rgba(40, 60, 100, 0.22)';
+          ctx.fillStyle = theme.chartNight;
           ctx.fillRect(x0, top, x1 - x0, bottom - top);
         }
       }
@@ -70,10 +70,10 @@ export class PowerChart {
     for (const st of m.weather.storms.items) {
       const x0 = Math.max(PAD.l, this.x(st.start));
       const x1 = Math.min(this.w - PAD.r, this.x(Math.min(st.end, this.t1)));
-      ctx.fillStyle = 'rgba(217, 137, 61, 0.16)';
+      ctx.fillStyle = theme.chartStorm;
       ctx.fillRect(x0, top, Math.max(1, x1 - x0), bottom - top);
     }
-    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+    ctx.strokeStyle = theme.chartGrid;
     ctx.lineWidth = 1;
     for (const f of [0.5, 1]) {
       ctx.beginPath();
@@ -82,8 +82,8 @@ export class PowerChart {
       ctx.stroke();
     }
     if (!p.storage.length) {
-      ctx.fillStyle = '#5d6d82';
-      ctx.font = '11px system-ui, sans-serif';
+      ctx.fillStyle = theme.grey;
+      ctx.font = `12px ${theme.font}`;
       ctx.fillText('No power data in this log', 8, this.h / 2);
       return;
     }
@@ -102,11 +102,11 @@ export class PowerChart {
     for (const [x, y] of storage) ctx.lineTo(x, y);
     ctx.lineTo(storage[storage.length - 1][0], bottom);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(56, 198, 181, 0.22)';
+    ctx.fillStyle = theme.storageFill;
     ctx.fill();
     ctx.beginPath();
     storage.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-    ctx.strokeStyle = '#38c6b5';
+    ctx.strokeStyle = theme.storage;
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
@@ -129,9 +129,9 @@ export class PowerChart {
       ctx.stroke();
       ctx.setLineDash([]);
     };
-    line(p.fission, 'rgba(154, 168, 186, 0.75)', [2, 2]);
-    line(p.solar, '#f7c948');
-    line(p.demand, 'rgba(244, 114, 182, 0.9)');
+    line(p.fission, theme.fission, [2, 2]);
+    line(p.solar, theme.solar);
+    line(p.demand, theme.demand);
     this.peak = peak;
   }
 
@@ -142,7 +142,7 @@ export class PowerChart {
     ctx.drawImage(this.layer, 0, 0);
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     const x = Math.round(this.x(t)) + 0.5;
-    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.strokeStyle = theme.ink;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(x, 0);
