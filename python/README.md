@@ -74,7 +74,7 @@ While it serves, anything the coordinator prints goes to stderr, where it cannot
 | `run(coordinator, seed=0, preset="small", variant="nominal", log_path=None, decision_timeout=10.0)` | The run record: run id, scenario, seed, coordinator, end reason, `reference_sols`, `speed`, `score`, and `metrics` (`run_end.metrics`), plus the report's `end_t`, `progress` and `lost_link_returns`. `log_path` saves the event log, gzipped if it ends in `.gz`. |
 | `bench(coordinator, seeds="1-50", preset="small", variant="nominal", *, jobs=None, out=None, save_logs=False, decision_timeout=10.0)` | `{"scorecard": ..., "runs": [...]}` for a seeded batch. |
 | `suite(coordinator, seeds="1-50", presets=None, variants=None, *, jobs=None, out=None, save_logs=False, decision_timeout=10.0)` | `{"report": ..., "runs": [...]}` across presets × variants (default: all), with resilience. |
-| `score(paths)` | `{"scorecards": [...], "resilience": [...]}` from saved event logs and directories of them. |
+| `score(paths)` | `{"scorecards": [...], "resilience": [...]}` from saved event logs and directories of them, and from a bench's `metrics.jsonl` named as a file. |
 | `scenario(seed=0, preset="small", variant="nominal")` | The `hello` message a coordinator gets for that run. |
 
 Arguments:

@@ -69,13 +69,21 @@ The presets need no randomness of their own. Small is exactly the week-6 scenari
 | Variant | What changes from `nominal` |
 |---|---|
 | `nominal` | Hybrid power and the nominal fault model. |
-| `dust_storm` | A severe regional dust storm early in the run: its front arrives in the first 0.1 sol, opacity peaks 0.1 sol later at tau 3.5–5, and the storm lasts 4–8 sols (§2). |
-| `conjunction` | A 14-sol solar-conjunction blackout of the Earth link starting early in the run, with the one-way delay near its 24-minute maximum (§11). |
+| `dust_storm` | A severe regional dust storm from the start of the run: its front arrives in the first 0.02 sol (half an hour), opacity peaks 0.03 sol later at tau 3.5–5, and the storm lasts 4–8 sols (§2). |
+| `conjunction` | A 14-sol solar-conjunction blackout of the Earth link that starts 0.01–0.03 sols (15–45 minutes) into the run, with the one-way delay near its 24-minute maximum (§11). |
 | `cascading_faults` | Every wear rate and the wear hazard ×4, the random hazard ×5, the storm sensor hazard ×3, the stuck rate ×3, and only 40% of disabling faults field repairable. |
 | `solar_only` | No fission; 30 kW solar peak; 150 kWh storage (§6). |
 | `nuclear_heavy` | 15 kW fission; 5 kW solar peak; 50 kWh storage (§6). |
 
 Unplanned link outages (§11) happen in every variant. `dust_storm`, `conjunction` and `cascading_faults` are the stress variants that resilience is measured against ([`docs/scoring.md`](scoring.md)). `solar_only` and `nuclear_heavy` are alternative power architectures.
+
+**Stress timing.** A stress variant must stress every preset, and the presets' builds differ tenfold in length: a Small crew needs most of a sol, a Large one under 0.1 sol. So the dust storm and the blackout begin within the first 0.03 sol, on a time drawn from their usual streams:
+
+- **A seeded start inside the run, not a run that begins mid-stress.** Semantics §8.1 has the blackout start on a seeded sol inside the run. Starting it a little after `t = 0` keeps that: the run opens with the link up, so a coordinator can send its opening report, and then the link goes down with a `comms` event, a decision point carrying `expected_restore_t`, which is part of what the variant tests and what a replay shows. The storm front likewise arrives as a `weather` event during the run.
+- **Early enough for the fastest build.** ArcadiaOS finishes Large in 0.077–0.089 sols (seeds 1–50). A blackout starting by 0.03 sol covers at least 60% of that build and essentially all of every Small and Medium build. The storm front arrives by 0.02 sol and peaks at most 0.03 sol later, so even a Large build spends three quarters of its time in the storm and meets it at full strength before the end.
+- **Same draws, new range.** Only the ranges the draws map onto changed, so every seed still gets the same storm length and peak, and the same unplanned outages outside the blackout.
+
+`t = 0` is local midnight and sunrise is at sol phase 0.25, so Medium and Large builds happen entirely in the dark: there the storm brings sensor faults and wear, not lost sunlight.
 
 `Params { faults_enabled: false, .. }` turns off wear growth and every random failure process: the core physics without faults. Scripted incidents still happen. `scripted` holds incidents forced at fixed times, for tests and demo scenarios: a fault on a given component, or getting stuck. It is empty in every built-in variant.
 
@@ -100,8 +108,8 @@ Storms come from the `weather` stream, at most one at a time. Each sol with no s
 
 | Parameter | Value | Rationale |
 |---|---|---|
-| `dust_storm_start_sols` | 0.0–0.1 sols | Within 2.5 hours of the start, so the storm overlaps every preset's build: a Large crew can finish in about 0.15 sols. |
-| `dust_storm_rise_sols` | 0.1 sols | A storm front blows in over hours, not days. |
+| `dust_storm_start_sols` | 0.0–0.02 sols | Within half an hour of the start, so the storm covers every preset's build: a Large crew can finish in under 0.1 sol (§1, stress timing). |
+| `dust_storm_rise_sols` | 0.03 sols | A front blows in over the better part of an hour, so even the fastest build meets the storm near its peak. |
 | `dust_storm_sols` | 4–8 sols | Longer than most seasonal storms. |
 | `dust_storm_peak_tau` | 3.5–5 | Severe: solar transmittance falls to 7–17% of clear sky. |
 
@@ -286,7 +294,7 @@ Semantics §8.1–§8.2 fix the structure; the code is in [`src/sim/link.rs`](..
 | `synodic_period_sols` | 759.07 | 779.94 Earth days. |
 | `start_delay_s` | 720 s | "About 12 minutes" for the nominal epoch. |
 | `conjunction_sols` | 14 | Conjunction moratoria last about two weeks. |
-| `conjunction_start_sols` | 0.2–1.0 (uniform) | Early, so the blackout overlaps the build of every coordinator and preset. A real conjunction is known months ahead; the scenario starts shortly before one. |
+| `conjunction_start_sols` | 0.01–0.03 (uniform) | 15–45 minutes into the run, so the blackout covers most of even the fastest build (§1, stress timing). A real conjunction is known months ahead; the scenario starts shortly before one. |
 | `outage_per_sol` | 0.15 | Poisson arrivals while the link is up: about nine a 60-sol run, and a one-in-four chance of one in any two sols. |
 | `outage_hours` | 2–8 h (uniform) | Unplanned outages last hours. |
 
@@ -423,7 +431,7 @@ Every scenario in the catalog (§1) shares the site, the goal, the base station 
 
 Every random draw comes from a named stream, seeded from the run seed and the stream name. Adding a process never shifts another's draws, and a stream is never drawn from at a new call site. Terrain, weather, the orbital prior and the scenario are therefore identical for every coordinator on a seed, and the same as in week 2. `tests/regression.rs` checks this byte for byte on seeds 1–5, and checks that the Earth link's `comms` events are the same for every coordinator.
 
-The catalog left the Small preset untouched. On seeds 1–10, `small` + `nominal` gives the same terrain, scenario and whole runs (of a parked fleet, an idle one and the scripted builder) as week 6, byte for byte apart from the scenario's name. On seeds 1–3, so does every other week-6 variant. The larger presets use the same streams, so they see the same site, weather and link as Small on a seed; only the crew and the outpost differ.
+The catalog left the Small preset untouched. On seeds 1–10, `small` + `nominal` gives the same terrain, scenario and whole runs (of a parked fleet, an idle one and the scripted builder) as week 6, byte for byte apart from the scenario's name. On seeds 1–3, so do `cascading_faults`, `solar_only` and `nuclear_heavy`. Week 9 moved the conjunction's blackout to 0.01–0.03 sols in (§1, stress timing): the terrain, the scenario and the `comms` draws are unchanged, but every `conjunction` run's link events moved with it, so `tests/regression.rs` pins its Small runs as week 9 left them. The larger presets use the same streams, so they see the same site, weather and link as Small on a seed; only the crew and the outpost differ.
 
 | Stream | Draws |
 |---|---|
@@ -480,14 +488,14 @@ These figures come from the scripted builder in `tests/support/builder.rs` on se
 | `nominal` | 1.76–1.97 | 0–2 | 0–1 stuck events a run, up to 2.1 robot-hours lost |
 | faults off | 1.57–1.78 | 0 | The core physics |
 | `cascading_faults` | 2.06–2.28 | 1–4 | About five times the nominal fault rate |
-| `conjunction` | 1.76–1.97 | 0–2 | The blackout starts 0.3–0.9 sols in, so most of the build happens during it; the builder needs nothing from Earth |
-| `dust_storm` | 1.86–2.29 | 0–4 | Storm sensor faults and faster wear; the first day's sun is mostly lost |
+| `conjunction` | 1.76–1.97 | 0–2 | The blackout starts 0.01–0.03 sols in, so all of the build happens during it; the builder needs nothing from Earth |
+| `dust_storm` | 1.86–1.98 on seeds 1–3 and 5 | 0–2 | Storm sensor faults and faster wear; the first day's sun is mostly lost. On seed 4 three disabling faults early in the storm make the builder redo part of a compaction row, and the re-compacted cells settle twice: the pad ends a hair over the 2° slope limit, and the naive builder never checks slopes, so it runs to the time limit |
 | Medium and Large, `nominal` | 1.75–1.97 | 0–2 | The builder only uses `sc-1`, `ex-1`, `hl-1` and `cp-1`, which every preset has |
 
 Over 2 sols the builder never strains the grid, so its `solar_only` and `nuclear_heavy` runs come out identical to `nominal`. The power variants matter for longer runs, bigger crews and storms.
 
 A crew of four working continuously, with no repairs, sees four to six incidents in its first 3 sols.
 
-Scorecards for these runs, and how to read them, are in [`docs/scoring.md`](scoring.md). The builder's speed is about 0.25 on Small: it works one robot at a time.
+Scorecards for these runs, and how to read them, are in [`docs/scoring.md`](scoring.md). The builder's speed is about 0.25 on Small: it works one robot at a time. The baseline coordinators and ArcadiaOS use the whole crew; each of them finishes every seed of every scenario, and [`results/v1.0/RESULTS.md`](../results/v1.0/RESULTS.md) has their scorecards.
 
 Wear-driven faults are rare in short runs and dominate longer ones as wear builds up. Random faults set the floor.

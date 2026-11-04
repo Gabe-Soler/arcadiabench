@@ -13,6 +13,12 @@
 //! seeds 1-10, `small` + `nominal` gives the same terrain, scenario (crew,
 //! stations, depots, power, base station, policy, prior) and whole runs,
 //! byte for byte, apart from the scenario's new name.
+//!
+//! Week 9 moved the stress variants' onsets so that they overlap every
+//! preset's build. Of the variants fingerprinted here only `conjunction`
+//! changed (its blackout now starts 0.01-0.03 sols in), so its runs are
+//! pinned as week 9 left them; `dust_storm`, new in week 7, has no week-6
+//! runs to keep.
 
 mod support;
 
@@ -183,9 +189,10 @@ fn week6_scenario(scenario: &str) -> String {
 /// true_site, scenario, then the rest of the log after `run_start` for a
 /// parker run, an idle run and a scripted-builder run). The whole-run
 /// hashes pin every outcome; a later change that deliberately alters the
-/// outcomes of Small runs must update them and say so.
+/// outcomes of Small runs must update them and say so. The `conjunction`
+/// rows moved to [`WEEK9`] when week 9 moved its blackout.
 #[allow(clippy::type_complexity)]
-const WEEK6: [(&str, u64, u64, u64, u64, u64, u64); 22] = [
+const WEEK6: [(&str, u64, u64, u64, u64, u64, u64); 19] = [
     (
         "nominal",
         1,
@@ -357,32 +364,42 @@ const WEEK6: [(&str, u64, u64, u64, u64, u64, u64); 22] = [
         0x9471951a2b98ca34,
         0x20d041b4ac6f6618,
     ),
+];
+
+/// The `conjunction` variant on Small, as week 9 left it, in the same form
+/// as [`WEEK6`]. Week 9 moved the blackout's start from 0.2–1.0 sols into
+/// the run to 0.01–0.03 sols, so that it overlaps every preset's build; the
+/// terrain and the scenario are unchanged, and so are the draws from the
+/// `comms` stream, but every run's link events and outcomes moved with the
+/// blackout.
+#[allow(clippy::type_complexity)]
+const WEEK9: [(&str, u64, u64, u64, u64, u64, u64); 3] = [
     (
         "conjunction",
         1,
         0xe1580bf28fcba2e5,
         0xacfd5b2623089397,
-        0x98f1c9072e885efa,
-        0x15815f9aa26aad93,
-        0x0573721525b762f7,
+        0x451bb53705442365,
+        0x3bf9e687e63cc19e,
+        0x9b35f4f94b29aff8,
     ),
     (
         "conjunction",
         2,
         0xfbdc4eb8a339bb5a,
         0x3ea091df5f37cfff,
-        0x241f322fcd2aca84,
-        0x8a734404685ff3ce,
-        0xd3c3c7541702673e,
+        0x6f871a2c5319ead6,
+        0x2032fa336160071b,
+        0xeb49e5b3f02926b6,
     ),
     (
         "conjunction",
         3,
         0x425737f8e58e723c,
         0x196f3a7c7d429cdf,
-        0xee9eff83e9395ed0,
-        0xf182aa320f26af66,
-        0x8f05a75ba0465f5f,
+        0x0b4151fa259a0a74,
+        0x3bfcf8a59c8d3092,
+        0x316785e8d4bd7ff9,
     ),
 ];
 
@@ -396,9 +413,11 @@ fn week6_fingerprints(text: &str) -> (u64, u64, u64) {
     (fnv1a(site), fnv1a(&scenario), fnv1a(rest))
 }
 
-fn check_week6(variant: &str) {
+/// Check a variant's Small runs against a table of fingerprints.
+fn check_runs(table: &[(&str, u64, u64, u64, u64, u64, u64)], variant: &str) {
     let v: Variant = variant.parse().unwrap();
-    for &(name, seed, site, scenario, parker_run, idle_run, builder_run) in &WEEK6 {
+    let mut checked = 0;
+    for &(name, seed, site, scenario, parker_run, idle_run, builder_run) in table {
         if name != variant {
             continue;
         }
@@ -421,7 +440,9 @@ fn check_week6(variant: &str) {
             assert_eq!(sc, scenario, "{variant} seed {seed} ({agent}): scenario");
             assert_eq!(rest, run, "{variant} seed {seed}: {agent} run");
         }
+        checked += 1;
     }
+    assert!(checked > 0, "no fingerprints for {variant}");
 }
 
 #[test]
@@ -430,19 +451,19 @@ fn small_nominal_keeps_its_week_6_worlds_and_runs() {
         Params::default(),
         Params::scenario(Preset::Small, Variant::Nominal)
     );
-    check_week6("nominal");
+    check_runs(&WEEK6, "nominal");
 }
 
 #[test]
 fn the_other_week_6_variants_keep_their_small_runs() {
-    for variant in [
-        "cascading_faults",
-        "solar_only",
-        "nuclear_heavy",
-        "conjunction",
-    ] {
-        check_week6(variant);
+    for variant in ["cascading_faults", "solar_only", "nuclear_heavy"] {
+        check_runs(&WEEK6, variant);
     }
+}
+
+#[test]
+fn the_conjunction_keeps_its_week_9_small_runs() {
+    check_runs(&WEEK9, "conjunction");
 }
 
 fn strip_agent<A>((report, text, _): (RunReport, String, A)) -> (RunReport, String) {

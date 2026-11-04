@@ -216,9 +216,10 @@ def suite(
 def score(paths: Union[PathLike, Iterable[PathLike]]) -> Dict[str, Any]:
     """Scorecards and resilience from saved event logs.
 
-    ``paths`` are log files (``.jsonl`` or ``.jsonl.gz``) and directories,
-    searched for logs. Returns ``{"scorecards": [...], "resilience": [...]}``
-    with one scorecard per coordinator and scenario.
+    ``paths`` are log files (``.jsonl`` or ``.jsonl.gz``), a bench's
+    ``metrics.jsonl`` files, and directories, searched for logs. Returns
+    ``{"scorecards": [...], "resilience": [...]}`` with one scorecard per
+    coordinator and scenario.
     """
     if isinstance(paths, (str, os.PathLike)):
         paths = [paths]
