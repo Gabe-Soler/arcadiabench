@@ -1,12 +1,15 @@
-//! End-to-end: the harness launches real coordinator processes over stdio.
+//! End-to-end: the harness launches real coordinator processes over stdio,
+//! and runs in-process coordinators that speak JSON values under the same
+//! checks.
 
 use arcadia_protocol::validate::validator;
-use arcadia_protocol::{EndReason, LogEntry, LogRecord, PROTOCOL_VERSION};
-use arcadiabench::coordinator::BenchError;
+use arcadia_protocol::{EndReason, ErrorCode, LogEntry, LogRecord, PROTOCOL_VERSION};
+use arcadiabench::coordinator::{BenchError, InProcessJson, JsonAgent};
 use arcadiabench::log::EventLog;
 use arcadiabench::run::run_process;
-use arcadiabench::session::RunReport;
+use arcadiabench::session::{RunReport, run_session_outcome};
 use arcadiabench::sim::params::Params;
+use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
 const NULL: &str = env!("CARGO_BIN_EXE_null-coordinator");
@@ -183,4 +186,121 @@ fn reports_coordinator_that_exits_early() {
 fn reports_missing_coordinator_binary() {
     let (result, _) = run("/nonexistent/coordinator", &[], 0);
     assert!(matches!(result, Err(BenchError::Launch(_))), "{result:?}");
+}
+
+/// A coordinator speaking JSON values, as the Python bindings' agents do.
+struct Json<F> {
+    decide: F,
+    ended: bool,
+}
+
+impl<F: FnMut(&Value) -> Result<Value, String>> JsonAgent for Json<F> {
+    fn welcome(&mut self, hello: Value) -> Result<Value, String> {
+        assert_eq!(hello["type"], "hello");
+        assert_eq!(
+            hello["scenario"]["scenario_id"],
+            "landing-pad-small-nominal"
+        );
+        // No `type` and no `protocol_version`: both are filled in.
+        Ok(json!({ "coordinator": { "name": "json", "version": "0" } }))
+    }
+    fn decide(&mut self, obs: Value) -> Result<Value, String> {
+        assert_eq!(obs["type"], "observation");
+        (self.decide)(&obs)
+    }
+    fn end(&mut self, end: Value) -> Result<(), String> {
+        assert_eq!(end["type"], "end");
+        self.ended = true;
+        Ok(())
+    }
+}
+
+fn json_run<F: FnMut(&Value) -> Result<Value, String>>(
+    decide: F,
+    timeout: Option<Duration>,
+) -> (arcadiabench::session::Outcome, Vec<LogRecord>, bool) {
+    let mut link = InProcessJson::new(
+        Json {
+            decide,
+            ended: false,
+        },
+        timeout,
+    )
+    .unwrap();
+    let mut log = EventLog::new(Vec::new());
+    let outcome = run_session_outcome(&mut link, 1, &Params::default(), &mut log).unwrap();
+    (outcome, records(&log.into_inner()), link.agent.ended)
+}
+
+fn empty(obs: &Value) -> Value {
+    json!({ "seq": obs["seq"], "commands": [], "to_earth": [] })
+}
+
+#[test]
+fn in_process_json_agents_get_the_same_checks() {
+    // Leaving out `type` is fine; such a null agent runs to the end.
+    let (outcome, recs, ended) = json_run(|o| Ok(empty(o)), None);
+    assert!(outcome.error.is_none(), "{:?}", outcome.error);
+    assert_eq!(outcome.report.end_reason, EndReason::FleetLost);
+    assert_eq!(outcome.report.coordinator.name, "json");
+    assert!(ended);
+    assert!(matches!(
+        recs.last().unwrap().entry,
+        LogEntry::RunEnd { .. }
+    ));
+
+    // A schema-invalid decision, a failing agent, a reply of the wrong
+    // type and a slow reply each end the run as a coordinator error, with
+    // the log closed.
+    let teleport = |o: &Value| {
+        Ok(
+            json!({ "seq": o["seq"], "commands": [{ "type": "teleport", "command_id": "c", "robot_id": "ex-1" }], "to_earth": [] }),
+        )
+    };
+    let (outcome, recs, _) = json_run(teleport, None);
+    assert!(
+        matches!(outcome.error, Some(BenchError::Protocol(_))),
+        "{:?}",
+        outcome.error
+    );
+    assert_eq!(outcome.report.end_reason, EndReason::CoordinatorError);
+    assert!(matches!(
+        recs.last().unwrap().entry,
+        LogEntry::RunEnd {
+            reason: EndReason::CoordinatorError,
+            ..
+        }
+    ));
+
+    let (outcome, _, _) = json_run(|_| Err("boom".into()), None);
+    match outcome.error {
+        Some(BenchError::Coordinator(e)) => {
+            assert_eq!((e.code, e.message.as_str()), (ErrorCode::Internal, "boom"))
+        }
+        other => panic!("{other:?}"),
+    }
+
+    let welcome_again = |_: &Value| {
+        Ok(
+            json!({ "type": "welcome", "protocol_version": PROTOCOL_VERSION, "coordinator": { "name": "x", "version": "0" } }),
+        )
+    };
+    let (outcome, _, _) = json_run(welcome_again, None);
+    match outcome.error {
+        Some(BenchError::Protocol(m)) => {
+            assert!(m.contains("expected decision, got welcome"), "{m}")
+        }
+        other => panic!("{other:?}"),
+    }
+
+    let slow = |o: &Value| {
+        std::thread::sleep(Duration::from_millis(30));
+        Ok(empty(o))
+    };
+    let (outcome, _, _) = json_run(slow, Some(Duration::from_millis(5)));
+    assert!(
+        matches!(outcome.error, Some(BenchError::Timeout(_))),
+        "{:?}",
+        outcome.error
+    );
 }

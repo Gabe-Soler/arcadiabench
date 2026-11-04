@@ -8,6 +8,11 @@
 //! The Earth link added in week 6 is part of the world too: its schedule
 //! comes from the seed alone, so every coordinator sees the same `comms`
 //! events.
+//!
+//! Week 7's scenario catalog leaves the Small preset as week 6 left it: on
+//! seeds 1-10, `small` + `nominal` gives the same terrain, scenario (crew,
+//! stations, depots, power, base station, policy, prior) and whole runs,
+//! byte for byte, apart from the scenario's new name.
 
 mod support;
 
@@ -15,7 +20,7 @@ use arcadia_protocol::*;
 use arcadiabench::coordinator::{Agent, InProcess};
 use arcadiabench::log::EventLog;
 use arcadiabench::session::{RunReport, run_session};
-use arcadiabench::sim::params::Params;
+use arcadiabench::sim::params::{Params, Preset, Variant};
 
 /// (seed, true_site text, scenario text, weather event texts, number of weather events).
 const WEEK2: [(u64, u64, u64, u64, usize); 5] = [
@@ -141,8 +146,8 @@ fn seeds_1_to_5_keep_their_week_2_worlds() {
         assert_eq!(fnv1a(site), site_fp, "seed {seed}: terrain");
 
         // The scenario minus what v0.2.0 added: power, base_station and the
-        // `service` level of the default policy.
-        let scenario = between(start, "\"scenario\":", ",\"true_site\":");
+        // `service` level of the default policy; and under its week-2 name.
+        let scenario = week6_scenario(between(start, "\"scenario\":", ",\"true_site\":"));
         let (head, rest) = scenario.split_at(scenario.find(",\"power\":{").unwrap());
         let tail = &rest[rest.find(",\"policy\":{").unwrap()..];
         let week2_shape = format!("{head}{tail}").replacen("\"service\":1,", "", 1);
@@ -162,6 +167,281 @@ fn seeds_1_to_5_keep_their_week_2_worlds() {
             weather_fp,
             "seed {seed}: weather"
         );
+    }
+}
+
+/// A Small scenario's text under the name week 6 gave every variant,
+/// `landing-pad-small`.
+fn week6_scenario(scenario: &str) -> String {
+    let named = between(scenario, "\"scenario_id\":\"", "\"");
+    assert!(named.starts_with("landing-pad-small-"), "{named}");
+    scenario.replacen(named, "landing-pad-small", 1)
+}
+
+/// What week 6 produced on Small (`arcadiabench` 0.1.0 at commit 7c41a92,
+/// protocol 0.2.0), as FNV-1a hashes of raw log text: (variant, seed,
+/// true_site, scenario, then the rest of the log after `run_start` for a
+/// parker run, an idle run and a scripted-builder run). The whole-run
+/// hashes pin every outcome; a later change that deliberately alters the
+/// outcomes of Small runs must update them and say so.
+#[allow(clippy::type_complexity)]
+const WEEK6: [(&str, u64, u64, u64, u64, u64, u64); 22] = [
+    (
+        "nominal",
+        1,
+        0xe1580bf28fcba2e5,
+        0xacfd5b2623089397,
+        0x61f535a29c08fe16,
+        0xbdc34025e220cb9e,
+        0x8526ae763a990fce,
+    ),
+    (
+        "nominal",
+        2,
+        0xfbdc4eb8a339bb5a,
+        0x3ea091df5f37cfff,
+        0x4ff106e0d53f5671,
+        0x0da5e0da9a82cde4,
+        0x3c79d9384b8115d3,
+    ),
+    (
+        "nominal",
+        3,
+        0x425737f8e58e723c,
+        0x196f3a7c7d429cdf,
+        0x642f76cb8c62d6a0,
+        0xd8d29e212679ff32,
+        0x3c4d6fa1521ab43b,
+    ),
+    (
+        "nominal",
+        4,
+        0x65a2c189dad7f274,
+        0xb854e8a20e907eda,
+        0x71bb841a680699bf,
+        0x9f23f01dafd35b38,
+        0x1bc16a8ec68a33f6,
+    ),
+    (
+        "nominal",
+        5,
+        0x1d8d286c0f59efef,
+        0x78184a50b5e7afdb,
+        0xe3886c11409a7e57,
+        0x61fd034e589e83a7,
+        0xf4591de5ae6f7401,
+    ),
+    (
+        "nominal",
+        6,
+        0x9db2b6ca45164cd7,
+        0x4e92a04052ee333f,
+        0xe67cebdcd37951e2,
+        0x8d827c0d1eff6749,
+        0x86d15a58cf8cd041,
+    ),
+    (
+        "nominal",
+        7,
+        0x8b90451475028882,
+        0xa23f38e3e8334412,
+        0x3554c939474a80b7,
+        0x9545174e444fa36a,
+        0xc5e06933980d5c13,
+    ),
+    (
+        "nominal",
+        8,
+        0x9394c24107f06bc8,
+        0xc51910a3fdd94b2f,
+        0xc260d849c78558e9,
+        0x7312bb62cb6c5e31,
+        0xe2bb5e5c7f24c161,
+    ),
+    (
+        "nominal",
+        9,
+        0x392535327b6a1d56,
+        0xe49cb337d070ee6c,
+        0x972fe376162c278e,
+        0x766700b221e4f12b,
+        0x10a326a83f04edb1,
+    ),
+    (
+        "nominal",
+        10,
+        0xa509b9d75511255a,
+        0x0267f73b3bea8dc1,
+        0x2d93baae518cad81,
+        0x391229ec47e41558,
+        0x784dbb60fb675f2a,
+    ),
+    (
+        "cascading_faults",
+        1,
+        0xe1580bf28fcba2e5,
+        0xacfd5b2623089397,
+        0xd122a8b56e200de8,
+        0xbdc34025e220cb9e,
+        0xda06cb1d78f26c49,
+    ),
+    (
+        "cascading_faults",
+        2,
+        0xfbdc4eb8a339bb5a,
+        0x3ea091df5f37cfff,
+        0x9ecb190cb0a9e086,
+        0x0da5e0da9a82cde4,
+        0x735bbbb6f941b5c7,
+    ),
+    (
+        "cascading_faults",
+        3,
+        0x425737f8e58e723c,
+        0x196f3a7c7d429cdf,
+        0x462524229a1279dd,
+        0xd8d29e212679ff32,
+        0x69773a1d141e58df,
+    ),
+    (
+        "solar_only",
+        1,
+        0xe1580bf28fcba2e5,
+        0x70c0b15becfd1c52,
+        0x9ae1c92c2c5615c0,
+        0x8c8045c7a63b54a4,
+        0x93f16a594aa1524a,
+    ),
+    (
+        "solar_only",
+        2,
+        0xfbdc4eb8a339bb5a,
+        0xa33c282146c7f55a,
+        0x8b06b98ce815c03d,
+        0xa442acd00e4195a6,
+        0xa9c949ec11c0bc2e,
+    ),
+    (
+        "solar_only",
+        3,
+        0x425737f8e58e723c,
+        0x573ddf42ceeb327a,
+        0xc7148c69b70fca1c,
+        0x04df801c1b3872a5,
+        0x8a833e0fb479ed68,
+    ),
+    (
+        "nuclear_heavy",
+        1,
+        0xe1580bf28fcba2e5,
+        0xad45a7ed6ad12fb5,
+        0xf137a408a1eca4ef,
+        0xb7e4cbf8e13ce9e6,
+        0x48a371ee97a5ca8b,
+    ),
+    (
+        "nuclear_heavy",
+        2,
+        0xfbdc4eb8a339bb5a,
+        0xa04969ea51c63a0d,
+        0x880796f493c85c81,
+        0xb2693d8e60ee7cb9,
+        0xf47c3250b710ea55,
+    ),
+    (
+        "nuclear_heavy",
+        3,
+        0x425737f8e58e723c,
+        0xb6660a55d2a7c3ad,
+        0x3b21a7d6934d3b6c,
+        0x9471951a2b98ca34,
+        0x20d041b4ac6f6618,
+    ),
+    (
+        "conjunction",
+        1,
+        0xe1580bf28fcba2e5,
+        0xacfd5b2623089397,
+        0x98f1c9072e885efa,
+        0x15815f9aa26aad93,
+        0x0573721525b762f7,
+    ),
+    (
+        "conjunction",
+        2,
+        0xfbdc4eb8a339bb5a,
+        0x3ea091df5f37cfff,
+        0x241f322fcd2aca84,
+        0x8a734404685ff3ce,
+        0xd3c3c7541702673e,
+    ),
+    (
+        "conjunction",
+        3,
+        0x425737f8e58e723c,
+        0x196f3a7c7d429cdf,
+        0xee9eff83e9395ed0,
+        0xf182aa320f26af66,
+        0x8f05a75ba0465f5f,
+    ),
+];
+
+/// (true_site, scenario under its week-6 name, everything after `run_start`) of a raw log.
+fn week6_fingerprints(text: &str) -> (u64, u64, u64) {
+    let (first, rest) = text.split_at(text.find('\n').unwrap() + 1);
+    let first = first.trim_end();
+    let site =
+        &first[first.find("\"true_site\":").unwrap() + "\"true_site\":".len()..first.len() - 1];
+    let scenario = week6_scenario(between(first, "\"scenario\":", ",\"true_site\":"));
+    (fnv1a(site), fnv1a(&scenario), fnv1a(rest))
+}
+
+fn check_week6(variant: &str) {
+    let v: Variant = variant.parse().unwrap();
+    for &(name, seed, site, scenario, parker_run, idle_run, builder_run) in &WEEK6 {
+        if name != variant {
+            continue;
+        }
+        let params = Params::scenario(Preset::Small, v);
+        let parker = Parker {
+            capacity: Vec::new(),
+            next: 0,
+        };
+        let (_, parker_log, _) = support::run_raw(parker, seed, &params);
+        let (_, idle_log, _) = support::run_raw(support::Idle, seed, &params);
+        let (_, builder_log, _) = support::run_raw(support::builder::Builder::new(), seed, &params);
+        let runs = [
+            ("parker", parker_log, parker_run),
+            ("idle", idle_log, idle_run),
+            ("builder", builder_log, builder_run),
+        ];
+        for (agent, log, run) in runs {
+            let (s, sc, rest) = week6_fingerprints(&log);
+            assert_eq!(s, site, "{variant} seed {seed} ({agent}): terrain");
+            assert_eq!(sc, scenario, "{variant} seed {seed} ({agent}): scenario");
+            assert_eq!(rest, run, "{variant} seed {seed}: {agent} run");
+        }
+    }
+}
+
+#[test]
+fn small_nominal_keeps_its_week_6_worlds_and_runs() {
+    assert_eq!(
+        Params::default(),
+        Params::scenario(Preset::Small, Variant::Nominal)
+    );
+    check_week6("nominal");
+}
+
+#[test]
+fn the_other_week_6_variants_keep_their_small_runs() {
+    for variant in [
+        "cascading_faults",
+        "solar_only",
+        "nuclear_heavy",
+        "conjunction",
+    ] {
+        check_week6(variant);
     }
 }
 

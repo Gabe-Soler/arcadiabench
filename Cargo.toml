@@ -6,10 +6,19 @@ description = "An open, seeded benchmark for coordinating robot crews building o
 license = "MIT"
 repository = "https://github.com/Gabe-Soler/ArcadiaBench"
 default-run = "arcadiabench"
+# The Python bindings are a separate crate with its own workspace.
+exclude = ["python/"]
 
 [dependencies]
 # ArcadiaBench meets coordinators only through the shared spec; `validate` lets it
 # reject anything a coordinator sends that does not match the schemas.
 arcadia-protocol = { git = "https://github.com/Gabe-Soler/arcadia-protocol", tag = "v0.2.0", features = ["validate"] }
+# Saved run logs are gzipped; the pure-Rust backend only.
+flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
 libm = "0.2.16"
+serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+
+[dev-dependencies]
+# Validates scorecards against `schemas/scorecard.schema.json` (the version arcadia-protocol uses).
+jsonschema = { version = "0.60.2", default-features = false }

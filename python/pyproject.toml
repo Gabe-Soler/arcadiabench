@@ -1,0 +1,33 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "arcadiabench"
+description = "An open, seeded benchmark for coordinating robot crews building on Mars."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["benchmark", "robotics", "multi-robot", "mars", "simulation", "scheduling"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering",
+    "Typing :: Typed",
+]
+dynamic = ["version"]
+
+[project.urls]
+Repository = "https://github.com/Gabe-Soler/ArcadiaBench"
+
+[project.scripts]
+arcadiabench = "arcadiabench.__main__:main"
+
+[tool.maturin]
+module-name = "arcadiabench._native"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -3,3 +3,12 @@
 .DS_Store
 .env
 *.jsonl
+
+# Python bindings
+.venv/
+target/
+*.so
+*.pyd
+__pycache__/
+.pytest_cache/
+python/dist/

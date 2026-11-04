@@ -10,6 +10,50 @@ use arcadiabench::log::EventLog;
 use arcadiabench::session::{RunReport, run_session};
 use arcadiabench::sim::params::Params;
 
+/// A validator for `def` in `schemas/scorecard.schema.json`, or for its root
+/// (a scorecard) when `def` is empty. The protocol's schemas are registered
+/// for its references, so nothing is fetched.
+pub fn scorecard_validator(def: &str) -> jsonschema::Validator {
+    use arcadia_protocol::schemas::{ALL, BASE_URI};
+    let mut builder = jsonschema::Registry::new();
+    for (name, text) in ALL {
+        let schema: serde_json::Value = serde_json::from_str(text).unwrap();
+        builder = builder.add(format!("{BASE_URI}{name}"), schema).unwrap();
+    }
+    let schema: serde_json::Value = serde_json::from_str(arcadiabench::score::SCHEMA).unwrap();
+    let id = schema["$id"].as_str().unwrap().to_string();
+    builder = builder.add(&id, schema).unwrap();
+    let registry = builder.prepare().unwrap();
+    let target = if def.is_empty() {
+        id
+    } else {
+        format!("{id}#/$defs/{def}")
+    };
+    jsonschema::options()
+        .offline()
+        .with_registry(&registry)
+        .build(&serde_json::json!({ "$ref": target }))
+        .unwrap()
+}
+
+/// A fresh, empty directory for one test's files.
+pub fn scratch_dir(name: &str) -> std::path::PathBuf {
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// The text of a gzipped file.
+pub fn gunzip(path: &std::path::Path) -> String {
+    use std::io::Read;
+    let mut text = String::new();
+    flate2::read::GzDecoder::new(std::fs::File::open(path).unwrap())
+        .read_to_string(&mut text)
+        .unwrap();
+    text
+}
+
 /// Run an in-process agent; returns the report, the raw log and the agent.
 pub fn run_raw<A: Agent>(agent: A, seed: u64, params: &Params) -> (RunReport, String, A) {
     let mut link = InProcess::new(agent).unwrap();

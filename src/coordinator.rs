@@ -1,10 +1,12 @@
 //! How the bench talks to a coordinator.
 //!
 //! [`CoordinatorLink`] is the transport: a subprocess speaking NDJSON over
-//! stdio ([`CoordinatorProcess`]), or an in-process [`Agent`] ([`InProcess`],
-//! used by tests and, from week 7, Python bindings). Either way, everything the
-//! coordinator sends is checked against the JSON Schemas. Protocol rules that
-//! do not depend on the transport (version, seq) live in the session.
+//! stdio ([`CoordinatorProcess`]), an in-process Rust [`Agent`]
+//! ([`InProcess`], used by tests), or an in-process [`JsonAgent`] that
+//! exchanges messages as JSON values ([`InProcessJson`], used by the Python
+//! bindings). Either way, everything the coordinator sends is checked
+//! against the JSON Schemas. Protocol rules that do not depend on the
+//! transport (version, seq) live in the session.
 
 use arcadia_protocol::validate::{Validator, validator};
 use arcadia_protocol::{
@@ -281,6 +283,113 @@ impl<A: Agent> CoordinatorLink for InProcess<A> {
     fn finish(&mut self, end: End) -> Result<(), BenchError> {
         self.agent.end(&end);
         Ok(())
+    }
+
+    fn abort(&mut self, _code: ErrorCode, _message: &str) {}
+}
+
+/// A coordinator run inside the bench that exchanges protocol messages as
+/// JSON values, each with its `type`: the Python bindings run Python
+/// coordinators this way. An `Err` ends the session as a coordinator error.
+pub trait JsonAgent {
+    /// Answer a `hello` with a `welcome`.
+    fn welcome(&mut self, hello: Value) -> Result<Value, String>;
+    /// Answer an `observation` with a `decision`.
+    fn decide(&mut self, observation: Value) -> Result<Value, String>;
+    /// The run is over.
+    fn end(&mut self, end: Value) -> Result<(), String>;
+}
+
+/// The link to a [`JsonAgent`]. Its replies get the same schema check as a
+/// subprocess's. For convenience a reply may leave out its `type`, and a
+/// welcome its `protocol_version` (this crate's is assumed). With a timeout,
+/// a reply that took longer ends the session like a subprocess's would;
+/// the agent itself is never interrupted.
+pub struct InProcessJson<A: JsonAgent> {
+    pub agent: A,
+    validator: Validator,
+    timeout: Option<Duration>,
+}
+
+impl<A: JsonAgent> InProcessJson<A> {
+    pub fn new(agent: A, timeout: Option<Duration>) -> Result<Self, BenchError> {
+        Ok(Self {
+            agent,
+            validator: coordinator_validator()?,
+            timeout,
+        })
+    }
+
+    fn message(msg: &SimToCoordinator) -> Result<Value, BenchError> {
+        serde_json::to_value(msg).map_err(|e| BenchError::Protocol(e.to_string()))
+    }
+
+    /// Call the agent, then check its reply, which should be of type `wanted`.
+    fn ask(
+        &mut self,
+        wanted: &str,
+        call: impl FnOnce(&mut A) -> Result<Value, String>,
+    ) -> Result<CoordinatorToSim, BenchError> {
+        let started = Instant::now();
+        let reply = call(&mut self.agent).map_err(|message| {
+            BenchError::Coordinator(ErrorMessage {
+                code: ErrorCode::Internal,
+                message,
+            })
+        })?;
+        if let Some(limit) = self.timeout
+            && started.elapsed() > limit
+        {
+            return Err(BenchError::Timeout(limit));
+        }
+        let mut raw = reply;
+        if let Value::Object(fields) = &mut raw {
+            fields
+                .entry("type")
+                .or_insert_with(|| Value::String(wanted.into()));
+            if wanted == "welcome" && fields.get("type").and_then(Value::as_str) == Some(wanted) {
+                fields
+                    .entry("protocol_version")
+                    .or_insert_with(|| Value::String(arcadia_protocol::PROTOCOL_VERSION.into()));
+            }
+        }
+        match check(&self.validator, raw) {
+            Ok(CoordinatorToSim::Error(e)) => Err(BenchError::Coordinator(e)),
+            Ok(msg) if kind(&msg) == wanted => Ok(msg),
+            Ok(msg) => Err(BenchError::Protocol(format!(
+                "expected {wanted}, got {}",
+                kind(&msg)
+            ))),
+            Err(message) => Err(BenchError::Protocol(message)),
+        }
+    }
+}
+
+impl<A: JsonAgent> CoordinatorLink for InProcessJson<A> {
+    fn start(&mut self, hello: Hello) -> Result<Welcome, BenchError> {
+        let hello = Self::message(&SimToCoordinator::Hello(Box::new(hello)))?;
+        match self.ask("welcome", |a| a.welcome(hello))? {
+            CoordinatorToSim::Welcome(w) => Ok(w),
+            _ => unreachable!("checked by ask"),
+        }
+    }
+
+    fn decide(&mut self, obs: Observation) -> Result<Decision, BenchError> {
+        let obs = Self::message(&SimToCoordinator::Observation(obs))?;
+        match self.ask("decision", |a| a.decide(obs))? {
+            CoordinatorToSim::Decision(d) => Ok(d),
+            _ => unreachable!("checked by ask"),
+        }
+    }
+
+    fn finish(&mut self, end: End) -> Result<(), BenchError> {
+        let end = Self::message(&SimToCoordinator::End(end))?;
+        self.agent.end(end).map_err(|message| {
+            BenchError::Coordinator(ErrorMessage {
+                code: ErrorCode::Internal,
+                message,
+            })
+        })
     }
 
     fn abort(&mut self, _code: ErrorCode, _message: &str) {}

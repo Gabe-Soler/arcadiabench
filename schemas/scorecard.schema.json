@@ -1,0 +1,274 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Gabe-Soler/ArcadiaBench/main/schemas/scorecard.schema.json",
+  "title": "ArcadiaBench scorecard",
+  "description": "What ArcadiaBench's scoring writes. The root is a scorecard (scorecard.json): one coordinator on one scenario, aggregated over seeds. $defs also describe a run record (a line of metrics.jsonl) and a report (suite.json, and the output of `arcadiabench score --json`). docs/scoring.md defines every number. Run metrics and software info are arcadia-protocol's definitions.",
+  "$ref": "#/$defs/Scorecard",
+  "$defs": {
+    "SoftwareInfo": {
+      "$ref": "https://raw.githubusercontent.com/Gabe-Soler/arcadia-protocol/v0.2.0/schemas/common.schema.json#/$defs/SoftwareInfo"
+    },
+    "RunMetrics": {
+      "$ref": "https://raw.githubusercontent.com/Gabe-Soler/arcadia-protocol/v0.2.0/schemas/event_log.schema.json#/$defs/RunMetrics"
+    },
+    "Id": {
+      "$ref": "https://raw.githubusercontent.com/Gabe-Soler/arcadia-protocol/v0.2.0/schemas/common.schema.json#/$defs/Id"
+    },
+    "Preset": {
+      "description": "A Standard track preset, or null for a scenario outside the catalog.",
+      "enum": ["small", "medium", "large", null]
+    },
+    "Variant": {
+      "description": "A catalog variant, or null for a scenario outside the catalog.",
+      "enum": ["nominal", "dust_storm", "conjunction", "cascading_faults", "solar_only", "nuclear_heavy", null]
+    },
+    "EndReason": {
+      "enum": ["goals_complete", "time_limit", "fleet_lost", "coordinator_error", "simulator_error"]
+    },
+    "Fraction": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "OptionalFraction": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "NonNegative": {
+      "type": "number",
+      "minimum": 0
+    },
+    "OptionalNonNegative": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "Count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ReferenceSols": {
+      "description": "The scenario's reference build time in sols: the pad's area over the crew's total rate of the slowest per-area treatment the pad needs (sintering, for every preset). Null when the crew lacks a treatment, so no run can finish.",
+      "type": ["number", "null"],
+      "exclusiveMinimum": 0
+    },
+    "RunRecord": {
+      "description": "One run, scored: a line of metrics.jsonl.",
+      "type": "object",
+      "properties": {
+        "run_id": { "$ref": "#/$defs/Id" },
+        "scenario_id": { "$ref": "#/$defs/Id" },
+        "preset": { "$ref": "#/$defs/Preset" },
+        "variant": { "$ref": "#/$defs/Variant" },
+        "seed": { "$ref": "#/$defs/Count" },
+        "simulator": { "$ref": "#/$defs/SoftwareInfo" },
+        "coordinator": { "$ref": "#/$defs/SoftwareInfo" },
+        "reason": { "$ref": "#/$defs/EndReason" },
+        "error": {
+          "description": "What the coordinator did wrong, when it failed mid-run. Always null for runs scored from event logs.",
+          "type": ["string", "null"]
+        },
+        "reference_sols": { "$ref": "#/$defs/ReferenceSols" },
+        "speed": {
+          "description": "min(1, reference_sols / metrics.sols) for a completed run; null otherwise.",
+          "type": ["number", "null"],
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "score": {
+          "description": "The run's contribution to the headline: its speed if it completed, else 0.",
+          "$ref": "#/$defs/Fraction"
+        },
+        "metrics": { "$ref": "#/$defs/RunMetrics" }
+      },
+      "required": ["run_id", "scenario_id", "preset", "variant", "seed", "simulator", "coordinator", "reason", "error", "reference_sols", "speed", "score", "metrics"],
+      "additionalProperties": false
+    },
+    "Completion": {
+      "description": "Whether the pad was finished, and how fast. Sols are over completed runs.",
+      "type": "object",
+      "properties": {
+        "runs": { "type": "integer", "minimum": 1 },
+        "completed": { "$ref": "#/$defs/Count" },
+        "success_rate": { "$ref": "#/$defs/Fraction" },
+        "mean_speed": { "$ref": "#/$defs/OptionalFraction" },
+        "mean_sols": { "$ref": "#/$defs/OptionalNonNegative" },
+        "median_sols": { "$ref": "#/$defs/OptionalNonNegative" },
+        "min_sols": { "$ref": "#/$defs/OptionalNonNegative" },
+        "max_sols": { "$ref": "#/$defs/OptionalNonNegative" },
+        "end_reasons": { "$ref": "#/$defs/EndReasons" }
+      },
+      "required": ["runs", "completed", "success_rate", "mean_speed", "mean_sols", "median_sols", "min_sols", "max_sols", "end_reasons"],
+      "additionalProperties": false
+    },
+    "EndReasons": {
+      "description": "How many runs ended each way.",
+      "type": "object",
+      "properties": {
+        "goals_complete": { "$ref": "#/$defs/Count" },
+        "time_limit": { "$ref": "#/$defs/Count" },
+        "fleet_lost": { "$ref": "#/$defs/Count" },
+        "coordinator_error": { "$ref": "#/$defs/Count" },
+        "simulator_error": { "$ref": "#/$defs/Count" }
+      },
+      "required": ["goals_complete", "time_limit", "fleet_lost", "coordinator_error", "simulator_error"],
+      "additionalProperties": false
+    },
+    "Quality": {
+      "description": "The pad against its design. Pad progress and the rates are over all runs; errors and slope over completed runs.",
+      "type": "object",
+      "properties": {
+        "mean_cells_in_spec": { "$ref": "#/$defs/Fraction" },
+        "verified_rate": { "$ref": "#/$defs/Fraction" },
+        "berm_complete_rate": { "$ref": "#/$defs/Fraction" },
+        "mean_rms_error_m": { "$ref": "#/$defs/OptionalNonNegative" },
+        "max_abs_error_m": { "$ref": "#/$defs/OptionalNonNegative" },
+        "max_slope_deg": { "$ref": "#/$defs/OptionalNonNegative" }
+      },
+      "required": ["mean_cells_in_spec", "verified_rate", "berm_complete_rate", "mean_rms_error_m", "max_abs_error_m", "max_slope_deg"],
+      "additionalProperties": false
+    },
+    "Energy": {
+      "description": "Energy used and the closest approach to a power deficit, per run unless noted.",
+      "type": "object",
+      "properties": {
+        "energy_per_pad_wh": {
+          "description": "Energy drawn from robot batteries in all runs over the pads completed; null if none was.",
+          "$ref": "#/$defs/OptionalNonNegative"
+        },
+        "mean_robot_energy_wh": { "$ref": "#/$defs/NonNegative" },
+        "mean_grid_energy_wh": { "$ref": "#/$defs/NonNegative" },
+        "min_storage_fraction": {
+          "description": "The lowest site storage of any run, as a fraction of capacity.",
+          "$ref": "#/$defs/Fraction"
+        },
+        "mean_min_storage_fraction": { "$ref": "#/$defs/Fraction" },
+        "mean_deficit_s": { "$ref": "#/$defs/NonNegative" }
+      },
+      "required": ["energy_per_pad_wh", "mean_robot_energy_wh", "mean_grid_energy_wh", "min_storage_fraction", "mean_min_storage_fraction", "mean_deficit_s"],
+      "additionalProperties": false
+    },
+    "Fleet": {
+      "description": "Robot time and robots lost, per run unless noted.",
+      "type": "object",
+      "properties": {
+        "mean_faults": { "$ref": "#/$defs/NonNegative" },
+        "mean_robot_hours_lost": { "$ref": "#/$defs/NonNegative" },
+        "mean_robots_lost": { "$ref": "#/$defs/NonNegative" },
+        "robots_lost": {
+          "description": "Robots lost over all runs.",
+          "$ref": "#/$defs/Count"
+        }
+      },
+      "required": ["mean_faults", "mean_robot_hours_lost", "mean_robots_lost", "robots_lost"],
+      "additionalProperties": false
+    },
+    "Autonomy": {
+      "description": "How much the crew leaned on Earth, per run.",
+      "type": "object",
+      "properties": {
+        "mean_approval_requests": { "$ref": "#/$defs/NonNegative" },
+        "mean_downlink_messages": { "$ref": "#/$defs/NonNegative" },
+        "mean_notifications": { "$ref": "#/$defs/NonNegative" },
+        "mean_status_reports": { "$ref": "#/$defs/NonNegative" },
+        "mean_approval_wait_s": { "$ref": "#/$defs/NonNegative" },
+        "mean_policy_violations": { "$ref": "#/$defs/NonNegative" }
+      },
+      "required": ["mean_approval_requests", "mean_downlink_messages", "mean_notifications", "mean_status_reports", "mean_approval_wait_s", "mean_policy_violations"],
+      "additionalProperties": false
+    },
+    "Conditions": {
+      "description": "The adversity the runs met, per run, s.",
+      "type": "object",
+      "properties": {
+        "mean_storm_s": { "$ref": "#/$defs/NonNegative" },
+        "mean_blackout_s": { "$ref": "#/$defs/NonNegative" },
+        "mean_outage_s": { "$ref": "#/$defs/NonNegative" }
+      },
+      "required": ["mean_storm_s", "mean_blackout_s", "mean_outage_s"],
+      "additionalProperties": false
+    },
+    "Scorecard": {
+      "description": "One coordinator on one scenario, aggregated over seeds.",
+      "type": "object",
+      "properties": {
+        "scenario_id": { "$ref": "#/$defs/Id" },
+        "preset": { "$ref": "#/$defs/Preset" },
+        "variant": { "$ref": "#/$defs/Variant" },
+        "coordinator": { "$ref": "#/$defs/SoftwareInfo" },
+        "simulator": { "$ref": "#/$defs/SoftwareInfo" },
+        "seeds": {
+          "description": "The seeds scored, ascending.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/Count" },
+          "minItems": 1
+        },
+        "reference_sols": { "$ref": "#/$defs/ReferenceSols" },
+        "headline": {
+          "description": "Success rate x mean speed of the completed runs: the mean score of all runs.",
+          "$ref": "#/$defs/Fraction"
+        },
+        "completion": { "$ref": "#/$defs/Completion" },
+        "quality": { "$ref": "#/$defs/Quality" },
+        "energy": { "$ref": "#/$defs/Energy" },
+        "fleet": { "$ref": "#/$defs/Fleet" },
+        "autonomy": { "$ref": "#/$defs/Autonomy" },
+        "conditions": { "$ref": "#/$defs/Conditions" }
+      },
+      "required": ["scenario_id", "preset", "variant", "coordinator", "simulator", "seeds", "reference_sols", "headline", "completion", "quality", "energy", "fleet", "autonomy", "conditions"],
+      "additionalProperties": false
+    },
+    "PresetResilience": {
+      "description": "Resilience on one preset. Each stress variant's value is its headline over the nominal headline, capped at 1; null if that variant was not scored or the nominal headline is 0.",
+      "type": "object",
+      "properties": {
+        "preset": { "enum": ["small", "medium", "large"] },
+        "nominal_headline": { "$ref": "#/$defs/Fraction" },
+        "dust_storm": { "$ref": "#/$defs/OptionalFraction" },
+        "conjunction": { "$ref": "#/$defs/OptionalFraction" },
+        "cascading_faults": { "$ref": "#/$defs/OptionalFraction" },
+        "resilience": {
+          "description": "Mean of the three; null unless all three are known.",
+          "$ref": "#/$defs/OptionalFraction"
+        }
+      },
+      "required": ["preset", "nominal_headline", "dust_storm", "conjunction", "cascading_faults", "resilience"],
+      "additionalProperties": false
+    },
+    "Resilience": {
+      "description": "How much of its nominal headline a coordinator keeps under the stress variants.",
+      "type": "object",
+      "properties": {
+        "coordinator": { "$ref": "#/$defs/SoftwareInfo" },
+        "resilience": {
+          "description": "Mean of the presets' resilience, over the presets where it is known.",
+          "$ref": "#/$defs/OptionalFraction"
+        },
+        "presets": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PresetResilience" },
+          "minItems": 1
+        }
+      },
+      "required": ["coordinator", "resilience", "presets"],
+      "additionalProperties": false
+    },
+    "Report": {
+      "description": "Scorecards for every coordinator and scenario among some runs, and the resilience of every coordinator with nominal scorecards.",
+      "type": "object",
+      "properties": {
+        "scorecards": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Scorecard" },
+          "minItems": 1
+        },
+        "resilience": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Resilience" }
+        }
+      },
+      "required": ["scorecards", "resilience"],
+      "additionalProperties": false
+    }
+  }
+}
