@@ -6,6 +6,10 @@ All notable changes to ArcadiaBench. Versions follow semver.
 
 Version 1.1.0, in development. It speaks arcadia-protocol 1.1.0, which does not work with protocol 1.0: use ArcadiaBench 1.0.1 with a 1.0 coordinator.
 
+### Fixed
+
+- **The coverage leak** (semantics §4.1, §8.5; protocol 1.0's "known limitation"). A `repair`, `tow`, `cannibalize` or mobile `charge` that names a robot out of coverage is now checked against that robot's state at last contact, not its true state. The estimate is worked out from that state too, and the executor drives to the cell the robot was last heard in. So a rejection or an estimate no longer tells a coordinator what it has not seen. On arrival the executor finds the robot as it truly is. This changes which commands are accepted in that one case; no pinned run meets it, and every regression fingerprint still matches.
+
 ### Changed
 
 - **Protocol 1.1.0.** ArcadiaBench speaks arcadia-protocol 1.1.0. What it simulates on the catalog is unchanged: every regression fingerprint taken on 1.0 still matches once the fields 1.1 adds are cut out of the log.

@@ -422,6 +422,7 @@ The pad itself never needs a relay, so coverage costs time without making the mi
 - Until it returns, nothing it does is a decision point: a held event wakes nobody, and neither does its battery running out or it getting stuck with no command.
 - Its snapshot is the telemetry the site last received, with `in_relay_coverage: false` and `telemetry_t` set to when contact was lost. Its noise is drawn once, from the `coverage` stream, when contact is lost.
 - Truth records always show its true state and coverage.
+- **As another robot's target** (semantics §4.1). A `repair`, `tow`, `cannibalize` or mobile `charge` that names it is checked against its state at last contact: its status, faults, command, engagement, wear and cell as they were then. The command's estimate is worked out from that state, and the executor drives to that cell. On arrival the executor finds the robot as it truly is, and the command goes ahead, or fails `target_lost` or `blocked`. So to help a robot that broke down out of coverage, first bring coverage to it, with a relay; otherwise the site still takes it for the working robot it last heard.
 
 **Lost-link return.** An idle robot that has been out of coverage for `lost_link_timeout_s` drives straight toward the base station. It must have no command and not be engaged by another robot. It drives as far as the first covered cell on the way and stops there, or sooner if coverage comes back, for example because a relay starts holding.
 

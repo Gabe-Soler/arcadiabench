@@ -9,6 +9,7 @@
 //! each moving robot, the moment its cell next crosses the edge of coverage
 //! is queued as a check.
 
+use super::repair::Known;
 use super::robot::{Activity, Step, Travel};
 use super::time::{SimMs, ms, secs};
 use super::{Ev, Noise, Sim};
@@ -81,6 +82,9 @@ pub(crate) struct Contact {
     pub lost_at: SimMs,
     /// The robot as the coordinator last heard it, while out of coverage.
     pub snapshot: Option<RobotState>,
+    /// What checks on other robots' commands may know of it meanwhile: its
+    /// state when it lost contact, including what a snapshot does not show.
+    pub seen: Option<Known>,
     /// Events held back until the robot is back in coverage.
     pub held: Vec<Event>,
     /// The pending lost-link timer, if any.
@@ -95,6 +99,7 @@ impl Default for Contact {
             covered: true,
             lost_at: 0,
             snapshot: None,
+            seen: None,
             held: Vec::new(),
             timer: None,
             planned: None,
@@ -185,10 +190,12 @@ impl Sim {
         let mut snapshot = self.live_state(r, Some(&noise));
         snapshot.in_relay_coverage = false;
         snapshot.telemetry_t = secs(self.now);
+        let seen = self.truth_of(r);
         let contact = &mut self.contact[r];
         contact.covered = false;
         contact.lost_at = self.now;
         contact.snapshot = Some(snapshot);
+        contact.seen = Some(seen);
         contact.timer = None;
     }
 
@@ -199,6 +206,7 @@ impl Sim {
         let contact = &mut self.contact[r];
         contact.covered = true;
         contact.snapshot = None;
+        contact.seen = None;
         contact.timer = None;
         let held = std::mem::take(&mut contact.held);
         self.pending.extend(held);
