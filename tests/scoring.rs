@@ -8,7 +8,7 @@ use arcadia_protocol::EndReason;
 use arcadiabench::bench::{self, Options};
 use arcadiabench::coordinator::{BenchError, CoordinatorLink, InProcess};
 use arcadiabench::score::{Report, RunRecord, Scorecard, logs};
-use arcadiabench::sim::params::{Preset, Variant};
+use arcadiabench::sim::params::{Catalog, Preset, Variant};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
@@ -62,6 +62,7 @@ fn what_a_batch_writes_does_not_depend_on_jobs() {
     );
     let a = bench::bench(
         &builder,
+        Catalog::V1_0,
         Preset::Small,
         Variant::Nominal,
         &seeds,
@@ -71,6 +72,7 @@ fn what_a_batch_writes_does_not_depend_on_jobs() {
     .unwrap();
     let b = bench::bench(
         &builder,
+        Catalog::V1_0,
         Preset::Small,
         Variant::Nominal,
         &seeds,
@@ -101,6 +103,7 @@ fn what_a_batch_writes_does_not_depend_on_jobs() {
     let connect = null();
     let a = bench::suite(
         &connect,
+        Catalog::V1_0,
         &presets,
         &variants,
         &[1, 2],
@@ -110,6 +113,7 @@ fn what_a_batch_writes_does_not_depend_on_jobs() {
     .unwrap();
     let b = bench::suite(
         &connect,
+        Catalog::V1_0,
         &presets,
         &variants,
         &[1, 2],
@@ -128,6 +132,7 @@ fn everything_a_batch_writes_matches_the_schema() {
     let out = support::scratch_dir("schema");
     let built = bench::bench(
         &builder,
+        Catalog::V1_0,
         Preset::Small,
         Variant::Nominal,
         &[1, 2, 3],
@@ -156,6 +161,7 @@ fn everything_a_batch_writes_matches_the_schema() {
     let suite_out = support::scratch_dir("schema-suite");
     let suite = bench::suite(
         &null(),
+        Catalog::V1_0,
         &[Preset::Medium],
         &[
             Variant::Nominal,
@@ -225,6 +231,7 @@ fn saved_logs_score_to_the_same_scorecards() {
     let out = support::scratch_dir("rescore");
     let result = bench::bench(
         &builder,
+        Catalog::V1_0,
         Preset::Medium,
         Variant::CascadingFaults,
         &[2, 4, 6],
@@ -365,6 +372,66 @@ fn the_command_line_benches_scores_and_suites() {
     let (code, _, _) = cli(&["run", "--seed", "1", "--", NULL]);
     assert_eq!(code, 0);
 
+    // Another catalog: its own ids, and its own directories in a suite.
+    let log = dir.join("run-1.1.jsonl");
+    let (code, stdout, stderr) = cli(&[
+        "run",
+        "--seed",
+        "3",
+        "--catalog",
+        "1.1",
+        "--preset",
+        "large",
+        "--variant",
+        "solar_only",
+        "--log",
+        log.to_str().unwrap(),
+        "--",
+        NULL,
+    ]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("[1.1 large/solar_only]: "), "{stdout}");
+    let record = &logs::read_logs(&[log]).unwrap()[0];
+    assert_eq!(record.scenario_id, "landing-pad-1.1-large-solar_only");
+    assert_eq!(record.catalog, Some(Catalog::V1_1));
+    let (code, stdout, stderr) = cli(&[
+        "suite",
+        "--catalog",
+        "1.1",
+        "--presets",
+        "small",
+        "--variants",
+        "nominal,conjunction",
+        "--seeds",
+        "5",
+        "--out",
+        suite.to_str().unwrap(),
+        "--",
+        NULL,
+    ]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(
+        stdout.contains("landing-pad-1.1-small-conjunction"),
+        "{stdout}"
+    );
+    for cell in ["small-conjunction", "1.1-small-conjunction"] {
+        assert!(suite.join(cell).join("scorecard.json").is_file(), "{cell}");
+    }
+    let written = fs::read_to_string(suite.join("suite.json")).unwrap();
+    let json: Value = serde_json::from_str(&written).unwrap();
+    if let Err(e) = support::scorecard_validator("Report").validate(&json) {
+        panic!("{e} at {}", e.instance_path());
+    }
+    let report: Report = serde_json::from_value(json).unwrap();
+    assert!(
+        report
+            .scorecards
+            .iter()
+            .all(|s| s.catalog == Some(Catalog::V1_1))
+    );
+    assert!(report.resilience.iter().all(|r| r.catalog == Catalog::V1_1));
+    assert_eq!(cli(&["bench", "--catalog", "2.0", "--", NULL]).0, 2);
+
     // Bad usage, and a coordinator that cannot start.
     assert_eq!(cli(&["bench", "--preset", "huge", "--", NULL]).0, 2);
     assert_eq!(cli(&["score"]).0, 2);
@@ -394,6 +461,7 @@ fn a_batch_can_be_cancelled() {
     let seen = std::sync::atomic::AtomicUsize::new(0);
     let result = bench::bench(
         &null(),
+        Catalog::V1_0,
         Preset::Small,
         Variant::Nominal,
         &[1, 2, 3, 4],

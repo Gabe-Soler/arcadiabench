@@ -7,16 +7,16 @@
 //! is independent, and runs are written and aggregated in seed order. A
 //! batch directory holds `metrics.jsonl` (one [`RunRecord`] per line, in seed
 //! order), `scorecard.json`, and with `save_logs` every run's event log as
-//! `logs/<run_id>.jsonl.gz`. A suite writes one such directory per scenario,
-//! `<preset>-<variant>/`, and `suite.json` with every scorecard and the
-//! coordinator's resilience.
+//! `logs/<run_id>.jsonl.gz`. A suite writes one such directory per scenario
+//! ([`cell_dir`]: `<preset>-<variant>/` on catalog 1.0), and `suite.json`
+//! with every scorecard and the coordinator's resilience.
 
 use crate::coordinator::{BenchError, CoordinatorLink, CoordinatorProcess};
 use crate::log::EventLog;
 use crate::scenario;
 use crate::score::{Report, RunRecord, ScoreError, Scorecard};
 use crate::session::{Outcome, run_session_outcome};
-use crate::sim::params::{Params, Preset, Variant};
+use crate::sim::params::{Catalog, Params, Preset, Variant};
 use crate::software_info;
 use flate2::write::GzEncoder;
 use flate2::{Compression, GzBuilder};
@@ -148,6 +148,7 @@ pub struct Options {
 /// One scenario's runs and their scorecard.
 #[derive(Debug, Clone)]
 pub struct CellResult {
+    pub catalog: Catalog,
     pub preset: Preset,
     pub variant: Variant,
     /// In seed order.
@@ -336,15 +337,20 @@ pub fn to_pretty<T: serde::Serialize>(value: &T) -> String {
     text
 }
 
-/// The directory a suite writes a scenario's results to.
-pub fn cell_dir(out: &Path, preset: Preset, variant: Variant) -> PathBuf {
-    out.join(format!("{preset}-{variant}"))
+/// The directory a suite writes a scenario's results to: the scenario's id
+/// without what every id starts with. That is `<preset>-<variant>` on catalog
+/// 1.0 and `<catalog>-<preset>-<variant>` on a later one, so two catalogs
+/// never share a directory.
+pub fn cell_dir(out: &Path, catalog: Catalog, preset: Preset, variant: Variant) -> PathBuf {
+    let id = scenario::scenario_id(catalog, preset, variant);
+    out.join(id.strip_prefix(scenario::ID_PREFIX).unwrap_or(&id))
 }
 
-/// Run every seed of every scenario, each scenario's results going to
-/// `dir(preset, variant)` when writing.
+/// Run every seed of every scenario of `catalog`, each scenario's results
+/// going to `dir(preset, variant)` when writing.
 fn run_cells(
     connect: &Connect,
+    catalog: Catalog,
     cells: &[(Preset, Variant)],
     seeds: &[u64],
     opts: &Options,
@@ -353,7 +359,7 @@ fn run_cells(
 ) -> Result<Vec<CellResult>, Error> {
     let mut jobs = Vec::new();
     for &(preset, variant) in cells {
-        let params = Params::scenario(preset, variant);
+        let params = Params::scenario(catalog, preset, variant);
         let logs = match &opts.out {
             Some(out) if opts.save_logs => {
                 let logs = dir(out, preset, variant).join("logs");
@@ -363,7 +369,7 @@ fn run_cells(
             _ => None,
         };
         for &seed in seeds {
-            let id = scenario::scenario_id(preset, variant);
+            let id = scenario::scenario_id(catalog, preset, variant);
             jobs.push(Job {
                 params: params.clone(),
                 seed,
@@ -382,6 +388,7 @@ fn run_cells(
             write_cell(&dir(root, preset, variant), &runs, &scorecard)?;
         }
         out.push(CellResult {
+            catalog,
             preset,
             variant,
             runs,
@@ -394,6 +401,7 @@ fn run_cells(
 /// Run a coordinator on one scenario over `seeds`, writing into `opts.out`.
 pub fn bench(
     connect: &Connect,
+    catalog: Catalog,
     preset: Preset,
     variant: Variant,
     seeds: &[u64],
@@ -402,6 +410,7 @@ pub fn bench(
 ) -> Result<CellResult, Error> {
     let mut cells = run_cells(
         connect,
+        catalog,
         &[(preset, variant)],
         seeds,
         opts,
@@ -418,11 +427,12 @@ pub struct SuiteResult {
     pub report: Report,
 }
 
-/// Run a coordinator on every preset × variant over `seeds`, writing each
-/// scenario into `opts.out/<preset>-<variant>/` and the report into
-/// `opts.out/suite.json`.
+/// Run a coordinator on every preset × variant of `catalog` over `seeds`,
+/// writing each scenario into its [`cell_dir`] under `opts.out` and the
+/// report into `opts.out/suite.json`.
 pub fn suite(
     connect: &Connect,
+    catalog: Catalog,
     presets: &[Preset],
     variants: &[Variant],
     seeds: &[u64],
@@ -433,7 +443,8 @@ pub fn suite(
         .iter()
         .flat_map(|&p| variants.iter().map(move |&v| (p, v)))
         .collect();
-    let cells = run_cells(connect, &cells, seeds, opts, cell_dir, progress)?;
+    let dir = |out: &Path, p, v| cell_dir(out, catalog, p, v);
+    let cells = run_cells(connect, catalog, &cells, seeds, opts, dir, progress)?;
     let runs: Vec<RunRecord> = cells.iter().flat_map(|c| c.runs.iter().cloned()).collect();
     let report = Report::from_runs(&runs).map_err(Error::Score)?;
     if let Some(out) = &opts.out {
@@ -458,5 +469,13 @@ mod tests {
         assert!(parse_seeds("0-18446744073709551615").is_err());
         assert_eq!(parse_seeds("1-100000").unwrap().len(), MAX_SEEDS);
         assert!(parse_seeds("1-100000,100001").is_err());
+    }
+
+    #[test]
+    fn catalogs_never_share_a_suite_directory() {
+        let out = Path::new("out");
+        let dir = |c| cell_dir(out, c, Preset::Medium, Variant::DustStorm);
+        assert_eq!(dir(Catalog::V1_0), out.join("medium-dust_storm"));
+        assert_eq!(dir(Catalog::V1_1), out.join("1.1-medium-dust_storm"));
     }
 }

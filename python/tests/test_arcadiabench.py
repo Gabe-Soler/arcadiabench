@@ -20,6 +20,8 @@ def test_the_package_describes_itself():
     assert arcadiabench.__version__.count(".") == 2
     # The package's version (python/Cargo.toml) is the simulator's (Cargo.toml).
     assert version("arcadiabench") == arcadiabench.__version__
+    assert arcadiabench.CATALOGS == ["1.0", "1.1"]
+    assert arcadiabench.DEFAULT_CATALOG in arcadiabench.CATALOGS
     assert arcadiabench.PRESETS == ["small", "medium", "large"]
     assert arcadiabench.VARIANTS[0] == "nominal" and "dust_storm" in arcadiabench.VARIANTS
     assert set(arcadiabench.STRESS_VARIANTS) == {"dust_storm", "conjunction", "cascading_faults"}
@@ -46,6 +48,16 @@ def test_scenario_is_the_hello_of_every_preset_and_variant():
     assert a["scenario"]["site"] == b["scenario"]["site"]
     assert a["scenario"]["power"]["mode"] == "hybrid"
     assert b["scenario"]["power"]["mode"] == "solar_only"
+    # A catalog after 1.0 puts its name in the id.
+    for preset in arcadiabench.PRESETS:
+        hello = arcadiabench.scenario(7, preset, "conjunction", catalog="1.1")
+        assert hello["scenario"]["scenario_id"] == f"landing-pad-1.1-{preset}-conjunction"
+        assert hello["run_id"] == f"landing-pad-1.1-{preset}-conjunction-7"
+    first = arcadiabench.scenario(3, catalog="1.0")
+    assert first["scenario"]["scenario_id"] == "landing-pad-small-nominal"
+    assert arcadiabench.scenario(3, catalog=arcadiabench.DEFAULT_CATALOG) == arcadiabench.scenario(3)
+    with pytest.raises(ValueError, match="unknown catalog"):
+        arcadiabench.scenario(1, catalog="2.0")
     with pytest.raises(ValueError, match="unknown preset"):
         arcadiabench.scenario(1, "huge")
     with pytest.raises(ValueError, match="unknown variant"):
@@ -142,6 +154,8 @@ def test_suite_reports_resilience(builder_argv, tmp_path):
     small = res["presets"][0]
     assert small["preset"] == "small" and small["resilience"] is not None
     assert 0 <= res["resilience"] <= 1
+    assert res["catalog"] == arcadiabench.DEFAULT_CATALOG
+    assert all(c["catalog"] == res["catalog"] for c in report["scorecards"])
     assert json.loads((tmp_path / "suite.json").read_text()) == report
     with pytest.raises(TypeError):
         arcadiabench.suite(Coordinator())

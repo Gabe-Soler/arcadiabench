@@ -94,7 +94,7 @@ Compare headlines between coordinators on the same scenario and seeds. Across pr
 
 | Group | Field | Definition |
 |---|---|---|
-| | `scenario_id`, `preset`, `variant` | The scenario. `preset` and `variant` are null for a scenario outside the catalog. |
+| | `scenario_id`, `catalog`, `preset`, `variant` | The scenario. `catalog`, `preset` and `variant` are null for a scenario outside every catalog. Scorecards written by ArcadiaBench 1.0 have no `catalog`: theirs is catalog 1.0. |
 | | `coordinator`, `simulator` | Name and version of each. |
 | | `seeds` | The seeds scored, ascending. |
 | | `reference_sols`, `headline` | §1 and §2. |
@@ -125,7 +125,7 @@ A run that fails and goes on to the time limit accumulates idle drain and robot-
 
 ## 4. Resilience
 
-Resilience is the outline's "performance under dust storms, blackouts and faults". It compares a coordinator's headline under each stress variant with its own nominal headline, on the same preset and seeds:
+Resilience is the outline's "performance under dust storms, blackouts and faults". It compares a coordinator's headline under each stress variant with its own nominal headline, on the same catalog, preset and seeds:
 
 ```
 retention(v) = min(1, headline(v) / headline(nominal))     v ∈ {dust_storm, conjunction, cascading_faults}
@@ -138,6 +138,7 @@ resilience = mean of resilience(preset) over the presets where it is known
 - **Retention is capped at 1.** A coordinator gains nothing from a stress variant that happens to go better than nominal; on a handful of seeds that is noise.
 - **Unknown cases.** A retention is null when that variant was not scored or the nominal headline is 0. A preset's resilience is null unless all three retentions are known.
 - **Scale-free.** Because speed is scale-free (§1), a run slowed to half its pace keeps half its score on every preset, so retentions are comparable across presets.
+- **One catalog at a time.** A report gives one resilience for each coordinator on each catalog it ran, and names the `catalog`. A variant is a different test in each catalog, so a stress headline is never set against another catalog's nominal one.
 
 `arcadiabench suite` computes resilience for its coordinator. `arcadiabench score` computes it for every coordinator whose logs include a nominal scenario.
 
@@ -150,5 +151,5 @@ resilience = mean of resilience(preset) over the presets where it is known
   - `scorecard.json`: the scorecard (the schema's root).
   - With `--save-logs`, `logs/<run_id>.jsonl.gz`: every event log.
 
-  `arcadiabench suite` writes one such directory per scenario, `<preset>-<variant>/`, plus `suite.json`, a report holding every scorecard and the resilience (`#/$defs/Report`). `arcadiabench score --json` prints the same report, built from event logs.
+  `arcadiabench suite` writes one such directory per scenario, plus `suite.json`. The directory is the scenario's id without `landing-pad-`: `<preset>-<variant>/` on catalog 1.0 and `<catalog>-<preset>-<variant>/` on a later one, so two catalogs never share one. `suite.json` is a report holding every scorecard and the resilience (`#/$defs/Report`). `arcadiabench score --json` prints the same report, built from event logs.
 - **Rescoring.** `arcadiabench score` reads only `run_start`, the opening goal and `run_end` from each log, so scorecards rebuilt from saved logs are identical to the ones the bench wrote. The one exception is the `error` text of runs that failed mid-run, which logs do not record. Named as a file, a bench's `metrics.jsonl` is read as it is, `error` included, so the run records of several benches score together without their logs; that is how `results/v1.0/results.json` is built. A directory is searched for event logs only, so a bench's directory never gives a run twice.

@@ -12,6 +12,11 @@
 # the repository root. The runs are written to a temporary directory and moved
 # into OUT once all four are done. Runs are deterministic and the gzip stream
 # carries no time or name, so the logs come out byte for byte the same.
+#
+# The published replays were written by ArcadiaBench 1.0.0 (tag v1.0.0) with
+# ArcadiaOS 1.0: check that tag out to get them byte for byte. A later
+# ArcadiaBench runs the same catalog 1.0 scenarios, named here explicitly, and
+# its logs carry what its protocol version adds.
 set -euo pipefail
 
 here=$(pwd)
@@ -32,10 +37,10 @@ done
 runs=$(mktemp -d)
 trap 'rm -rf "$runs"' EXIT
 
-"$bench" run --seed 1 --preset large --variant nominal --log "$runs/landing-pad-large-nominal-1.jsonl.gz" -- "$os" </dev/null
-"$bench" run --seed 15 --preset small --variant dust_storm --log "$runs/landing-pad-small-dust_storm-15.jsonl.gz" -- "$os" </dev/null
-"$bench" run --seed 1 --preset medium --variant conjunction --log "$runs/landing-pad-medium-conjunction-1.jsonl.gz" -- "$os" </dev/null
-"$bench" run --seed 13 --preset medium --variant cascading_faults --log "$runs/landing-pad-medium-cascading_faults-13.jsonl.gz" -- "$os" </dev/null
+"$bench" run --catalog 1.0 --seed 1 --preset large --variant nominal --log "$runs/landing-pad-large-nominal-1.jsonl.gz" -- "$os" </dev/null
+"$bench" run --catalog 1.0 --seed 15 --preset small --variant dust_storm --log "$runs/landing-pad-small-dust_storm-15.jsonl.gz" -- "$os" </dev/null
+"$bench" run --catalog 1.0 --seed 1 --preset medium --variant conjunction --log "$runs/landing-pad-medium-conjunction-1.jsonl.gz" -- "$os" </dev/null
+"$bench" run --catalog 1.0 --seed 13 --preset medium --variant cascading_faults --log "$runs/landing-pad-medium-cascading_faults-13.jsonl.gz" -- "$os" </dev/null
 
 mkdir -p "$out"
 mv "$runs"/*.jsonl.gz "$out"/

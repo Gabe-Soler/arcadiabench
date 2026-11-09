@@ -9,14 +9,16 @@
 //!   which is the mean score of its runs. Beside it are completion, quality,
 //!   energy efficiency, fleet health, autonomy and the conditions the runs met.
 //! - **Resilience** ([`Resilience`]) compares a coordinator's headlines under
-//!   the stress variants with its own nominal headline, preset by preset.
+//!   the stress variants with its own nominal headline, preset by preset,
+//!   within one catalog.
 //!
 //! `schemas/scorecard.schema.json` describes the JSON of all three.
 
 pub mod logs;
 mod render;
 
-use crate::sim::params::{Preset, Variant};
+use crate::scenario::parse_scenario_id;
+use crate::sim::params::{Catalog, Preset, Variant};
 use arcadia_protocol::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -32,9 +34,13 @@ pub const SCHEMA: &str = include_str!("../../schemas/scorecard.schema.json");
 pub struct RunRecord {
     pub run_id: String,
     pub scenario_id: String,
-    /// The preset, when the scenario is in the catalog.
+    /// The catalog the scenario is in, if any. Records written before
+    /// ArcadiaBench 1.1 do not say: [`catalog_of`] reads it from the id.
+    #[serde(default)]
+    pub catalog: Option<Catalog>,
+    /// The preset, when the scenario is in a catalog.
     pub preset: Option<Preset>,
-    /// The variant, when the scenario is in the catalog.
+    /// The variant, when the scenario is in a catalog.
     pub variant: Option<Variant>,
     pub seed: u64,
     pub simulator: SoftwareInfo,
@@ -65,7 +71,7 @@ impl RunRecord {
         error: Option<String>,
         metrics: RunMetrics,
     ) -> Self {
-        let (preset, variant) = parse_scenario_id(&scenario.scenario_id).unzip();
+        let named = parse_scenario_id(&scenario.scenario_id);
         let reference = reference_sols(scenario, pad);
         let speed = match (metrics.completed, reference) {
             (true, Some(r)) => Some(speed(metrics.sols, r)),
@@ -74,8 +80,9 @@ impl RunRecord {
         Self {
             run_id: format!("{}-{seed}", scenario.scenario_id),
             scenario_id: scenario.scenario_id.clone(),
-            preset,
-            variant,
+            catalog: named.map(|(c, _, _)| c),
+            preset: named.map(|(_, p, _)| p),
+            variant: named.map(|(_, _, v)| v),
             seed,
             simulator,
             coordinator,
@@ -89,11 +96,11 @@ impl RunRecord {
     }
 }
 
-/// The preset and variant named by a catalog scenario id,
-/// `landing-pad-<preset>-<variant>`.
-pub fn parse_scenario_id(id: &str) -> Option<(Preset, Variant)> {
-    let (preset, variant) = id.strip_prefix("landing-pad-")?.split_once('-')?;
-    Some((preset.parse().ok()?, variant.parse().ok()?))
+/// The catalog of a record or a scorecard: the one it names, or else the one
+/// its scenario id names. Files written before ArcadiaBench 1.1 name none,
+/// and their ids are catalog 1.0's.
+pub fn catalog_of(named: Option<Catalog>, scenario_id: &str) -> Option<Catalog> {
+    named.or_else(|| parse_scenario_id(scenario_id).map(|(c, _, _)| c))
 }
 
 /// The per-area treatments every pad cell needs before the pad is done:
@@ -152,6 +159,10 @@ pub fn speed(sols: f64, reference_sols: f64) -> f64 {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Scorecard {
     pub scenario_id: String,
+    /// The catalog the scenario is in, if any. Scorecards written before
+    /// ArcadiaBench 1.1 do not say ([`catalog_of`]).
+    #[serde(default)]
+    pub catalog: Option<Catalog>,
     pub preset: Option<Preset>,
     pub variant: Option<Variant>,
     pub coordinator: SoftwareInfo,
@@ -387,6 +398,7 @@ impl Scorecard {
 
         Ok(Scorecard {
             scenario_id: first.scenario_id.clone(),
+            catalog: catalog_of(first.catalog, &first.scenario_id),
             preset: first.preset,
             variant: first.variant,
             coordinator: first.coordinator.clone(),
@@ -470,11 +482,15 @@ impl Scorecard {
     }
 }
 
-/// A coordinator's resilience: how much of its nominal headline it keeps
-/// under the stress variants.
+/// A coordinator's resilience on one catalog: how much of its nominal
+/// headline it keeps under the stress variants.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Resilience {
     pub coordinator: SoftwareInfo,
+    /// The catalog compared within. Reports written before ArcadiaBench 1.1
+    /// do not say, and are catalog 1.0's.
+    #[serde(default = "catalog_1_0")]
+    pub catalog: Catalog,
     /// Mean of the presets' resilience, over the presets where it is known.
     pub resilience: Option<f64>,
     pub presets: Vec<PresetResilience>,
@@ -494,14 +510,20 @@ pub struct PresetResilience {
     pub resilience: Option<f64>,
 }
 
+fn catalog_1_0() -> Catalog {
+    Catalog::V1_0
+}
+
 /// Scorecards for every coordinator and scenario among some runs, with the
-/// resilience of every coordinator that has nominal scorecards. This is what
-/// `arcadiabench score` and `arcadiabench suite` produce.
+/// resilience of every coordinator on every catalog where it has nominal
+/// scorecards. This is what `arcadiabench score` and `arcadiabench suite`
+/// produce.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Report {
-    /// Sorted by coordinator, then preset and variant in catalog order.
+    /// Sorted by coordinator, then catalog, then preset and variant in
+    /// catalog order.
     pub scorecards: Vec<Scorecard>,
-    /// Sorted by coordinator.
+    /// Sorted by coordinator, then catalog.
     pub resilience: Vec<Resilience>,
 }
 
@@ -511,10 +533,12 @@ fn coordinator_key(c: &SoftwareInfo) -> CoordinatorKey {
     (c.name.clone(), c.version.clone())
 }
 
-/// Catalog scenarios first, in catalog order, then the rest by id.
-fn scenario_order(s: &Scorecard) -> (u8, Option<Preset>, Option<Variant>, String) {
+/// Catalog scenarios first, catalog by catalog and in catalog order, then
+/// the rest by id.
+fn scenario_order(s: &Scorecard) -> (u8, Option<Catalog>, Option<Preset>, Option<Variant>, String) {
     (
         u8::from(s.preset.is_none() || s.variant.is_none()),
+        catalog_of(s.catalog, &s.scenario_id),
         s.preset,
         s.variant,
         s.scenario_id.clone(),
@@ -555,17 +579,22 @@ impl Report {
     }
 }
 
-/// The resilience of every coordinator with at least one nominal scorecard.
+/// The resilience of every coordinator on every catalog where it has at
+/// least one nominal scorecard. Headlines are only ever compared within a
+/// catalog: the same variant is a different test in each.
 pub fn resilience(scorecards: &[Scorecard]) -> Vec<Resilience> {
-    let mut by_coordinator: BTreeMap<CoordinatorKey, Vec<&Scorecard>> = BTreeMap::new();
+    let mut groups: BTreeMap<(CoordinatorKey, Catalog), Vec<&Scorecard>> = BTreeMap::new();
     for s in scorecards {
-        by_coordinator
-            .entry(coordinator_key(&s.coordinator))
+        let Some(catalog) = catalog_of(s.catalog, &s.scenario_id) else {
+            continue;
+        };
+        groups
+            .entry((coordinator_key(&s.coordinator), catalog))
             .or_default()
             .push(s);
     }
     let mut out = Vec::new();
-    for cards in by_coordinator.values() {
+    for ((_, catalog), cards) in &groups {
         let headline = |p: Preset, v: Variant| {
             cards
                 .iter()
@@ -604,6 +633,7 @@ pub fn resilience(scorecards: &[Scorecard]) -> Vec<Resilience> {
         }
         out.push(Resilience {
             coordinator: cards[0].coordinator.clone(),
+            catalog: *catalog,
             resilience: mean(presets.iter().filter_map(|p| p.resilience)),
             presets,
         });

@@ -30,8 +30,14 @@ All values are placeholders. They are chosen to be physically plausible, to make
 A scenario is a **preset** (the crew and its outpost) combined with a **variant** (what the run throws at the crew). Every preset combines with every variant, and the scenario is named `landing-pad-<preset>-<variant>`.
 
 - **Command line:** `arcadiabench run --preset <name> --variant <name>`. `bench`, `suite` and the Python package take the same names.
-- **Rust:** `Params::scenario(Preset::…, Variant::…)`. `Params::variant(Variant::…)` and the constructors `Params::nominal()`, `Params::dust_storm()`, `Params::conjunction()`, `Params::cascading_faults()`, `Params::solar_only()` and `Params::nuclear_heavy()` give the Small preset.
+- **Rust:** `Params::scenario(Catalog::…, Preset::…, Variant::…)`. `Params::variant(Variant::…)` and the constructors `Params::nominal()`, `Params::dust_storm()`, `Params::conjunction()`, `Params::cascading_faults()`, `Params::solar_only()` and `Params::nuclear_heavy()` give catalog 1.0's Small preset.
 - **Defaults:** `small` and `nominal`.
+
+**Catalogs.** The presets and variants belong to a catalog: a fixed set of robot designs, crews, outposts and parameters. A catalog never changes once it is released, so results on it stay comparable, and a harder one is added beside it.
+
+- **Catalog 1.0** is the one ArcadiaBench 1.0 shipped with, and the default. This document describes it. Its ids are `landing-pad-<preset>-<variant>`, as published.
+- **Catalog 1.1** is being built. Until its own values land it carries catalog 1.0's, under its own ids: `landing-pad-1.1-<preset>-<variant>`. `tests/catalog.rs` checks that its runs are catalog 1.0's byte for byte, apart from the id.
+- **Choosing one:** `--catalog 1.0` or `--catalog 1.1` on `run`, `bench` and `suite`, and `catalog=` in Python.
 
 Every scenario has the same site, the same landing-pad goal and the same base station (§15), and a seed gives the same terrain, weather and Earth link in every preset.
 

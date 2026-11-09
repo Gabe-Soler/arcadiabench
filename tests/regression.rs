@@ -32,7 +32,7 @@ use arcadia_protocol::*;
 use arcadiabench::coordinator::{Agent, InProcess};
 use arcadiabench::log::EventLog;
 use arcadiabench::session::{RunReport, run_session};
-use arcadiabench::sim::params::{Params, Preset, Variant};
+use arcadiabench::sim::params::{Catalog, Params, Preset, Variant};
 use support::fnv1a;
 
 /// (seed, true_site text, scenario text, weather event texts, number of weather events).
@@ -429,7 +429,7 @@ fn check_runs(table: &[(&str, u64, u64, u64, u64, u64, u64)], variant: &str) {
         if name != variant {
             continue;
         }
-        let params = Params::scenario(Preset::Small, v);
+        let params = Params::scenario(Catalog::V1_0, Preset::Small, v);
         let parker = Parker {
             capacity: Vec::new(),
             next: 0,
@@ -457,7 +457,7 @@ fn check_runs(table: &[(&str, u64, u64, u64, u64, u64, u64)], variant: &str) {
 fn small_nominal_keeps_its_week_6_worlds_and_runs() {
     assert_eq!(
         Params::default(),
-        Params::scenario(Preset::Small, Variant::Nominal)
+        Params::scenario(Catalog::V1_0, Preset::Small, Variant::Nominal)
     );
     check_runs(&WEEK6, "nominal");
 }

@@ -27,7 +27,7 @@ Each run prints a one-line summary, and `bench` prints its scorecard. To benchma
 
 ## What it simulates
 
-- **Scenario catalog:** `landing-pad-<preset>-<variant>`. Three Standard track presets: Small (4 robots), Medium (10) and Large (20). Six variants: `nominal`, `dust_storm`, `conjunction`, `cascading_faults`, `solar_only` and `nuclear_heavy`. Every preset combines with every variant (see [Presets and variants](#presets-and-variants)).
+- **Scenario catalog:** `landing-pad-<preset>-<variant>`. Three Standard track presets: Small (4 robots), Medium (10) and Large (20). Six variants: `nominal`, `dust_storm`, `conjunction`, `cascading_faults`, `solar_only` and `nuclear_heavy`. Every preset combines with every variant (see [Presets and variants](#presets-and-variants)). This is catalog 1.0, the default. `--catalog 1.1` selects the harder catalog being built on `main`, which for now carries catalog 1.0's values under its own ids, `landing-pad-1.1-<preset>-<variant>`.
 - **The site:** a seeded 60 × 60 m site (1 m cells) on a gently tilted plain, with variable regolith and a sparse boulder field. The goal is a 20 × 20 m pad with a 12 m blast berm. Crews are defined purely by capabilities and work from charge stations, depots and a comms base station. The coordinator starts with noisy orbital elevation data; scans reveal the ground truth, with sensor noise.
 - **Wear and faults:** every robot carries hidden wear on six components (wheels, drive motor, joints, tool, sensors, battery).
   - Wear grows with distance, work and dust, faster in storms, and makes a robot slower and hungrier.
@@ -121,7 +121,7 @@ arcadiabench suite --seeds 1-50 -- path/to/coordinator
 arcadiabench score results/small-nominal/logs
 ```
 
-- **`bench`** writes `results/<preset>-<variant>/` (or `--out DIR`):
+- **`bench`** writes `results/<preset>-<variant>/` (or `--out DIR`; on a catalog after 1.0 the default is `results/<catalog>-<preset>-<variant>/`):
   - `metrics.jsonl`: one run record per seed.
   - `scorecard.json`.
   - With `--save-logs`, every event log as `logs/<run_id>.jsonl.gz`.

@@ -15,6 +15,10 @@ use std::str::FromStr;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Params {
     // --- the scenario catalog ---
+    /// The catalog these parameters belong to. It picks the robot designs,
+    /// the crews and the outposts (`src/presets.rs`), and is part of the
+    /// scenario's name.
+    pub catalog: Catalog,
     /// The crew and the outpost it works from (a Standard track preset).
     pub preset: Preset,
     /// The catalog variant these parameters were built from. It names the
@@ -25,6 +29,8 @@ pub struct Params {
     /// t = 0 (uniform, from the `start` stream). `(0, 0)` starts every run
     /// at midnight.
     pub start_sols: (f64, f64),
+    /// The time limit, in sols from the start of the run.
+    pub time_limit_sols: f64,
 
     // --- terrain (Arcadia Planitia: smooth, low rock abundance) ---
     /// Mean surface elevation of the site, m (MOLA datum).
@@ -185,6 +191,9 @@ pub struct Params {
     pub trust_incident_free_sols: f64,
     /// Time Earth takes to issue a policy update once it learns what prompts it, s.
     pub policy_reaction_s: f64,
+    /// The scenario policy's `level3.max_wait_s`: the longest a level-3
+    /// request may wait for Earth before its fallback applies, s.
+    pub level3_max_wait_s: f64,
 
     // --- wear: growth (wear is in [0, 1] per component) ---
     /// Master switch for wear growth and every random failure process (wear,
@@ -357,12 +366,17 @@ impl Default for Params {
 }
 
 impl Params {
-    /// The default variant: hybrid power and the nominal fault model.
+    /// Catalog 1.0's default variant on its Small preset: hybrid power and
+    /// the nominal fault model. This, [`Params::default`], [`Params::variant`]
+    /// and the constructors named after a variant are all catalog 1.0;
+    /// [`Params::scenario`] takes the catalog.
     pub fn nominal() -> Self {
         Self {
+            catalog: Catalog::V1_0,
             preset: Preset::Small,
             variant: Variant::Nominal,
             start_sols: (0.0, 0.0),
+            time_limit_sols: 60.0,
 
             base_elevation_m: -4102.0,
             tilt_sigma: 0.004,
@@ -442,6 +456,7 @@ impl Params {
             earth_reserve_low_frac: 0.25,
             trust_incident_free_sols: 2.0,
             policy_reaction_s: 3600.0,
+            level3_max_wait_s: 3600.0,
 
             faults_enabled: true,
             wear_wheels_per_km: 0.08,
@@ -584,7 +599,7 @@ impl Params {
         }
     }
 
-    /// The parameters of a variant, for the Small preset.
+    /// The parameters of a catalog 1.0 variant, for the Small preset.
     pub fn variant(v: Variant) -> Self {
         match v {
             Variant::Nominal => Self::nominal(),
@@ -596,13 +611,72 @@ impl Params {
         }
     }
 
-    /// The parameters of a scenario in the catalog: a preset's crew and
-    /// outpost, under a variant.
-    pub fn scenario(preset: Preset, variant: Variant) -> Self {
+    /// The parameters of a catalog 1.1 variant, for the Small preset. For
+    /// now they are catalog 1.0's, under the catalog's own name.
+    fn variant_1_1(v: Variant) -> Self {
+        Self {
+            catalog: Catalog::V1_1,
+            ..Self::variant(v)
+        }
+    }
+
+    /// The parameters of a scenario: a catalog's variant, with a preset's
+    /// crew and outpost. The preset changes nothing else.
+    pub fn scenario(catalog: Catalog, preset: Preset, variant: Variant) -> Self {
         Self {
             preset,
-            ..Self::variant(variant)
+            ..match catalog {
+                Catalog::V1_0 => Self::variant(variant),
+                Catalog::V1_1 => Self::variant_1_1(variant),
+            }
         }
+    }
+}
+
+/// A version of the scenario catalog: the robot designs, the crews and
+/// outposts of the presets, and the parameters of every variant. A catalog
+/// never changes once it is released, so results on it stay comparable; a
+/// new one is added beside it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum Catalog {
+    /// The catalog ArcadiaBench 1.0 shipped with.
+    #[serde(rename = "1.0")]
+    V1_0,
+    /// The harder catalog of ArcadiaBench 1.1.
+    #[serde(rename = "1.1")]
+    V1_1,
+}
+
+impl Catalog {
+    pub const ALL: [Catalog; 2] = [Catalog::V1_0, Catalog::V1_1];
+    /// The catalog a run is on when none is named, on the command line and
+    /// in Python.
+    pub const DEFAULT: Catalog = Catalog::V1_0;
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Catalog::V1_0 => "1.0",
+            Catalog::V1_1 => "1.1",
+        }
+    }
+}
+
+impl fmt::Display for Catalog {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+impl FromStr for Catalog {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Catalog::ALL
+            .into_iter()
+            .find(|c| c.name() == s)
+            .ok_or_else(|| {
+                let names: Vec<&str> = Catalog::ALL.iter().map(|c| c.name()).collect();
+                format!("unknown catalog '{s}' (expected {})", names.join(", "))
+            })
     }
 }
 
@@ -774,7 +848,7 @@ mod tests {
         for p in Preset::ALL {
             assert_eq!(p.name().parse::<Preset>().unwrap(), p);
             for v in Variant::ALL {
-                let params = Params::scenario(p, v);
+                let params = Params::scenario(Catalog::V1_0, p, v);
                 assert_eq!((params.preset, params.variant), (p, v));
                 assert_eq!(
                     Params {
@@ -783,9 +857,44 @@ mod tests {
                     },
                     Params::variant(v)
                 );
+                // In every catalog, a preset changes the crew and nothing else.
+                for c in Catalog::ALL {
+                    assert_eq!(
+                        Params {
+                            preset: Preset::Small,
+                            ..Params::scenario(c, p, v)
+                        },
+                        Params::scenario(c, Preset::Small, v)
+                    );
+                }
             }
         }
         assert!("huge".parse::<Preset>().is_err());
         assert_eq!(Params::default().preset, Preset::Small);
+    }
+
+    #[test]
+    fn catalogs_parse_and_label_their_scenarios() {
+        for c in Catalog::ALL {
+            assert_eq!(c.name().parse::<Catalog>().unwrap(), c);
+            assert_eq!(serde_json::to_value(c).unwrap(), c.name());
+            for v in Variant::ALL {
+                let params = Params::scenario(c, Preset::Medium, v);
+                assert_eq!(
+                    (params.catalog, params.preset, params.variant),
+                    (c, Preset::Medium, v)
+                );
+            }
+        }
+        assert!("2.0".parse::<Catalog>().is_err());
+        assert!("v1.1".parse::<Catalog>().is_err());
+        // The constructors without a catalog are catalog 1.0's.
+        assert_eq!(Params::default().catalog, Catalog::V1_0);
+        for v in Variant::ALL {
+            assert_eq!(
+                Params::variant(v),
+                Params::scenario(Catalog::V1_0, Preset::Small, v)
+            );
+        }
     }
 }

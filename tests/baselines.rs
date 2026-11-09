@@ -10,7 +10,7 @@ use arcadiabench::coordinator::Agent;
 use arcadiabench::log::EventLog;
 use arcadiabench::run::run_process;
 use arcadiabench::session::RunReport;
-use arcadiabench::sim::params::{Params, Preset, Variant};
+use arcadiabench::sim::params::{Catalog, Params, Preset, Variant};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -139,7 +139,7 @@ fn every_baseline_builds_small_nominal() {
 #[test]
 fn baselines_are_deterministic() {
     for how in Allocation::ALL {
-        let params = Params::scenario(Preset::Medium, Variant::Nominal);
+        let params = Params::scenario(Catalog::V1_0, Preset::Medium, Variant::Nominal);
         let (a, log_a) = run(how, 5, &params);
         let (b, log_b) = run(how, 5, &params);
         assert_eq!(a, b, "{how}");
@@ -151,7 +151,7 @@ fn baselines_are_deterministic() {
 fn the_allocations_differ() {
     // On a crew with several robots of each design the three policies make
     // different choices, so their runs differ.
-    let params = Params::scenario(Preset::Medium, Variant::Nominal);
+    let params = Params::scenario(Catalog::V1_0, Preset::Medium, Variant::Nominal);
     let logs: Vec<String> = Allocation::ALL
         .iter()
         .map(|&how| run(how, 2, &params).1)

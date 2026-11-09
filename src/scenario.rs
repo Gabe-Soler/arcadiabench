@@ -1,13 +1,14 @@
-//! Scenario generation: the landing-pad scenario of the catalog,
+//! Scenario generation: the landing-pad scenario of a catalog,
 //! `landing-pad-<preset>-<variant>`. Every scenario has the same seeded
 //! 60 × 60 m Arcadia Planitia site, a 20 × 20 m pad with a short blast berm,
 //! and a comms base station. The preset ([`crate::presets`]) brings the crew,
 //! the charge stations and the depots; the variant's parameters bring the
-//! power system and the base station's range.
+//! power system and the base station's range. The catalog decides what each
+//! of those is.
 
 use crate::presets;
 use crate::sim::mission::Mission;
-use crate::sim::params::{Params, Preset, Variant};
+use crate::sim::params::{Catalog, Params, Preset, Variant};
 use crate::sim::rng::Rng;
 use crate::sim::terrain::{Terrain, rect_cells};
 use crate::sim::time::{SOL_MS, ms, secs};
@@ -21,7 +22,6 @@ pub const PAD: GridRect = GridRect {
 pub const BERM_Y: u32 = 42;
 pub const BERM_X: (u32, u32) = (24, 35);
 pub const BERM_HEIGHT_M: f64 = 0.5;
-pub const TIME_LIMIT_SOLS: u64 = 60;
 /// The first charge station, `st-1`, in every preset.
 pub const STATION: GridCoord = GridCoord { x: 10, y: 10 };
 /// The first depot, `dp-1`, in every preset.
@@ -34,9 +34,32 @@ pub const DEPOT: GridCoord = GridCoord { x: 8, y: 14 };
 /// preset.
 pub const BASE_STATION: GridCoord = GridCoord { x: 30, y: 8 };
 
-/// The id of a scenario in the catalog: `landing-pad-<preset>-<variant>`.
-pub fn scenario_id(preset: Preset, variant: Variant) -> String {
-    format!("landing-pad-{preset}-{variant}")
+/// What every scenario id starts with.
+pub const ID_PREFIX: &str = "landing-pad-";
+
+/// The id of a scenario: `landing-pad-<preset>-<variant>` in catalog 1.0,
+/// and `landing-pad-<catalog>-<preset>-<variant>` in every later one, so
+/// catalog 1.0's ids stay as published.
+pub fn scenario_id(catalog: Catalog, preset: Preset, variant: Variant) -> String {
+    match catalog {
+        Catalog::V1_0 => format!("{ID_PREFIX}{preset}-{variant}"),
+        Catalog::V1_1 => format!("{ID_PREFIX}{catalog}-{preset}-{variant}"),
+    }
+}
+
+/// The catalog, preset and variant a scenario id names, if it is one of
+/// [`scenario_id`]'s.
+pub fn parse_scenario_id(id: &str) -> Option<(Catalog, Preset, Variant)> {
+    let rest = id.strip_prefix(ID_PREFIX)?;
+    // No preset's name starts like a catalog's, so a later catalog's id
+    // cannot be read as catalog 1.0's.
+    let (catalog, rest) = Catalog::ALL
+        .into_iter()
+        .filter(|&c| c != Catalog::V1_0)
+        .find_map(|c| Some((c, rest.strip_prefix(c.name())?.strip_prefix('-')?)))
+        .unwrap_or((Catalog::V1_0, rest));
+    let (preset, variant) = rest.split_once('-')?;
+    Some((catalog, preset.parse().ok()?, variant.parse().ok()?))
 }
 
 /// Everything a run needs: what the coordinator is told, and the ground truth.
@@ -111,20 +134,21 @@ pub fn generate(seed: u64, p: &Params) -> Generated {
             .collect(),
     };
 
-    let robots = presets::crew(p.preset);
-    let starts = presets::starts(p.preset);
+    let robots = presets::crew(p.catalog, p.preset);
+    let starts = presets::starts(p.catalog, p.preset);
     // When the run starts: a seeded time after the midnight at t = 0. The
     // time limit counts from there. Both are whole milliseconds.
     let (first, last) = p.start_sols;
     let start = ms(Rng::stream(seed, "start").range(first, last) * secs(SOL_MS));
+    let limit = ms(p.time_limit_sols * secs(SOL_MS));
     let scenario = Scenario {
-        scenario_id: scenario_id(p.preset, p.variant),
+        scenario_id: scenario_id(p.catalog, p.preset, p.variant),
         start_t: secs(start),
-        time_limit_t: secs(start + TIME_LIMIT_SOLS * SOL_MS),
+        time_limit_t: secs(start + limit),
         sol_length_s: secs(SOL_MS),
         site: prior,
         robots,
-        stations: presets::stations(p.preset),
+        stations: presets::stations(p.catalog, p.preset),
         depots: presets::depots(p.preset),
         power: PowerSystem {
             mode: p.power_mode,
@@ -137,7 +161,7 @@ pub fn generate(seed: u64, p: &Params) -> Generated {
             position: BASE_STATION,
             range_m: p.base_station_range_m,
         },
-        policy: default_policy(),
+        policy: policy(p),
         constants: Some(constants(p)),
     };
     Generated {
@@ -177,8 +201,14 @@ pub fn constants(p: &Params) -> Constants {
     }
 }
 
-/// Authority levels from the project outline.
+/// Catalog 1.0's authority policy.
 pub fn default_policy() -> Policy {
+    policy(&Params::default())
+}
+
+/// The authority policy a run starts with: the levels from the project
+/// outline, and the parameters' wait for a level-3 answer.
+pub fn policy(p: &Params) -> Policy {
     let levels = [
         ("move_to", 1),
         ("scan", 1),
@@ -208,7 +238,7 @@ pub fn default_policy() -> Policy {
         default_level: AuthorityLevel::NOTIFY,
         levels,
         level3: Level3Rule {
-            max_wait_s: 3600.0,
+            max_wait_s: p.level3_max_wait_s,
             default_fallback: Fallback::Abort,
         },
     }
@@ -281,8 +311,11 @@ mod tests {
     #[test]
     fn the_base_station_covers_the_outpost_and_the_pad_but_not_the_berm() {
         use crate::sim::coverage::within;
-        for preset in Preset::ALL {
-            let p = Params::scenario(preset, Variant::Nominal);
+        let scenarios = Catalog::ALL
+            .into_iter()
+            .flat_map(|c| Preset::ALL.map(|preset| (c, preset)));
+        for (catalog, preset) in scenarios {
+            let p = Params::scenario(catalog, preset, Variant::Nominal);
             let g = generate(1, &p);
             let base = &g.scenario.base_station;
             assert_eq!(base.position, BASE_STATION);
@@ -326,24 +359,68 @@ mod tests {
     fn every_scenario_in_the_catalog_has_its_id_crew_and_world() {
         let small = generate(3, &Params::default());
         assert_eq!(small.scenario.scenario_id, "landing-pad-small-nominal");
-        for preset in Preset::ALL {
-            for variant in Variant::ALL {
-                let p = Params::scenario(preset, variant);
-                let g = generate(3, &p);
-                assert_eq!(
-                    g.scenario.scenario_id,
-                    format!("landing-pad-{}-{}", preset.name(), variant.name())
-                );
-                assert_eq!(g.scenario.robots, presets::crew(preset));
-                assert_eq!(g.starts, presets::starts(preset));
-                assert_eq!(g.scenario.stations, presets::stations(preset));
-                assert_eq!(g.scenario.depots, presets::depots(preset));
-                assert_eq!(g.scenario.power.fission_w, p.fission_w);
-                // The same site and goal everywhere: a seed is one world.
-                assert_eq!(g.terrain, small.terrain);
-                assert_eq!(g.scenario.site, small.scenario.site);
-                assert_eq!(g.goal, small.goal);
+        for catalog in Catalog::ALL {
+            let first = generate(
+                3,
+                &Params::scenario(catalog, Preset::Small, Variant::Nominal),
+            );
+            for preset in Preset::ALL {
+                for variant in Variant::ALL {
+                    let p = Params::scenario(catalog, preset, variant);
+                    let g = generate(3, &p);
+                    let id = &g.scenario.scenario_id;
+                    let (preset_name, variant_name) = (preset.name(), variant.name());
+                    match catalog {
+                        // Catalog 1.0's ids are as they were published.
+                        Catalog::V1_0 => {
+                            assert_eq!(*id, format!("landing-pad-{preset_name}-{variant_name}"))
+                        }
+                        Catalog::V1_1 => {
+                            assert_eq!(*id, format!("landing-pad-1.1-{preset_name}-{variant_name}"))
+                        }
+                    }
+                    assert_eq!(parse_scenario_id(id), Some((catalog, preset, variant)));
+                    assert_eq!(g.scenario.robots, presets::crew(catalog, preset));
+                    assert_eq!(g.starts, presets::starts(catalog, preset));
+                    assert_eq!(g.scenario.stations, presets::stations(catalog, preset));
+                    assert_eq!(g.scenario.depots, presets::depots(preset));
+                    assert_eq!(g.scenario.power.fission_w, p.fission_w);
+                    assert_eq!(g.scenario.policy, policy(&p));
+                    assert_eq!(
+                        g.scenario.time_limit_t - g.scenario.start_t,
+                        p.time_limit_sols * g.scenario.sol_length_s
+                    );
+                    // The same site and goal across a catalog: a seed is one
+                    // world.
+                    assert_eq!(g.terrain, first.terrain);
+                    assert_eq!(g.scenario.site, first.scenario.site);
+                    assert_eq!(g.goal, first.goal);
+                }
             }
+        }
+    }
+
+    #[test]
+    fn scenario_ids_parse_back_or_not_at_all() {
+        use Catalog::*;
+        assert_eq!(
+            parse_scenario_id("landing-pad-medium-cascading_faults"),
+            Some((V1_0, Preset::Medium, Variant::CascadingFaults))
+        );
+        assert_eq!(
+            parse_scenario_id("landing-pad-1.1-large-solar_only"),
+            Some((V1_1, Preset::Large, Variant::SolarOnly))
+        );
+        for id in [
+            "landing-pad-small",
+            "landing-pad-huge-nominal",
+            "landing-pad-1.0-small-nominal",
+            "landing-pad-1.2-small-nominal",
+            "landing-pad-1.1small-nominal",
+            "landing-pad-1.1-small",
+            "pad-small-nominal",
+        ] {
+            assert_eq!(parse_scenario_id(id), None, "{id}");
         }
     }
 }
