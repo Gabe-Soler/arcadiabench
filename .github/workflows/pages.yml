@@ -1,12 +1,19 @@
 name: Viewer Pages
 
-# Publishes the replay viewer to GitHub Pages. Run by hand from the Actions
-# tab; the repository's Pages source must be set to GitHub Actions.
+# Publishes the replay viewer to GitHub Pages: on every push to main that
+# changes what the site serves, and by hand from the Actions tab. The
+# repository's Pages source must be set to GitHub Actions.
 #
 # The site keeps repository paths: viewer/ (without its tests) and results/
 # when present, so a replay under results/ opens with
 #   https://<owner>.github.io/<repo>/viewer/?log=../results/v1.0/replays/<run>.jsonl.gz
 on:
+  push:
+    branches: [main]
+    paths:
+      - "viewer/**"
+      - "results/**"
+      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:

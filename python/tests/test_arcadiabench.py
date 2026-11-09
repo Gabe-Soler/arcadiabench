@@ -117,7 +117,7 @@ def test_bench_scores_a_batch_whatever_the_jobs(builder_argv, tmp_path):
     assert card["completion"]["success_rate"] == 1.0
     assert card["headline"] == pytest.approx(sum(r["score"] for r in a["runs"]) / 3)
     files = sorted(p.relative_to(one) for p in one.rglob("*") if p.is_file())
-    assert [str(f) for f in files[:2]] == ["logs/landing-pad-small-nominal-1.jsonl.gz",
+    assert [f.as_posix() for f in files[:2]] == ["logs/landing-pad-small-nominal-1.jsonl.gz",
                                          "logs/landing-pad-small-nominal-2.jsonl.gz"]
     for f in files:
         assert (one / f).read_bytes() == (many / f).read_bytes(), f

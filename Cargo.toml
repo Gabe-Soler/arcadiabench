@@ -1,13 +1,16 @@
 [package]
 name = "arcadiabench"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 description = "An open, seeded benchmark for coordinating robot crews building on Mars."
 license = "MIT"
 repository = "https://github.com/Gabe-Soler/arcadiabench"
 default-run = "arcadiabench"
-# The Python bindings are a separate crate with its own workspace.
-exclude = ["python/"]
+# What the crate is built from, and so all that the Python package's source
+# distribution takes from this directory: not the results, the viewer, the
+# tests or the Python bindings, which are a separate crate with its own
+# workspace.
+include = ["/src/", "/schemas/", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE"]
 
 [dependencies]
 # ArcadiaBench meets coordinators only through the shared spec; `validate` lets it

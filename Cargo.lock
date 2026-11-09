@@ -49,7 +49,7 @@ dependencies = [
 
 [[package]]
 name = "arcadiabench"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "arcadia-protocol",
  "flate2",

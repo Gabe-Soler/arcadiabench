@@ -1,0 +1,128 @@
+name: Python release
+
+# Builds the arcadiabench wheels and source distribution, then installs each
+# on its own platform and runs the package's tests against it. This happens
+# on every push that changes the package's sources, and by hand from the
+# Actions tab.
+#
+# A pushed tag v<version> also publishes them to PyPI by trusted publishing.
+# The tag must match the version in python/Cargo.toml. PyPI must list this
+# workflow, with the environment `pypi`, as a trusted publisher of the
+# arcadiabench project.
+on:
+  push:
+    branches: ["**"]
+    # Path filters do not apply to tags: every v* tag runs the release.
+    tags: ["v*"]
+    paths:
+      - "src/**"
+      - "schemas/**"
+      - "python/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/release-python.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  wheels:
+    name: Wheel (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64, os: ubuntu-latest, target: x86_64, manylinux: auto }
+          - { name: linux-aarch64, os: ubuntu-24.04-arm, target: aarch64, manylinux: auto }
+          - { name: macos-universal2, os: macos-latest, target: universal2-apple-darwin, manylinux: "" }
+          - { name: windows-x64, os: windows-latest, target: x64, manylinux: "" }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Build the wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: python
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          args: --release --out dist
+      # The `pytest` command, not `python -m pytest`, so the source tree's
+      # `arcadiabench/` (which has no native module) does not shadow the
+      # installed package.
+      - name: Install the wheel and run the tests
+        shell: bash
+        working-directory: python
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest
+          python -m pip install --no-index --find-links dist arcadiabench
+          pytest -v
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheel-${{ matrix.name }}
+          path: python/dist/*.whl
+          if-no-files-found: error
+
+  sdist:
+    name: Source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build the source distribution
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: python
+          command: sdist
+          args: --out dist
+      # Building from the sdist alone proves it carries everything the
+      # package needs.
+      - name: Build and install it from source, and run the tests
+        working-directory: python
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest
+          python -m pip install dist/*.tar.gz
+          pytest -v
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sdist
+          path: python/dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/arcadiabench
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the tag against the package version
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' python/Cargo.toml | head -n 1)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match python/Cargo.toml version $version"
+            exit 1
+          fi
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: List what will be published
+        run: ls -l dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
