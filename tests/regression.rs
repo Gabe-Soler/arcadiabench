@@ -141,7 +141,7 @@ fn seeds_1_to_5_keep_their_week_2_worlds() {
         let mut log = EventLog::new(Vec::new());
         let report = run_session(&mut link, seed, &Params::default(), &mut log).unwrap();
         assert_eq!(report.end_reason, EndReason::TimeLimit, "seed {seed}");
-        let text = String::from_utf8(log.into_inner()).unwrap();
+        let text = support::as_protocol_1_0(&String::from_utf8(log.into_inner()).unwrap());
         let lines: Vec<&str> = text.lines().collect();
 
         let start = lines[0];
@@ -401,8 +401,10 @@ const WEEK9: [(&str, u64, u64, u64, u64, u64, u64); 3] = [
     ),
 ];
 
-/// (true_site, scenario under its week-6 name, everything after `run_start`) of a raw log.
+/// (true_site, scenario under its week-6 name, everything after `run_start`)
+/// of a raw log, without what protocol 1.1 added to it.
 fn week6_fingerprints(text: &str) -> (u64, u64, u64) {
+    let text = &support::as_protocol_1_0(text);
     let (first, rest) = text.split_at(text.find('\n').unwrap() + 1);
     // Versions belong to `run_start` alone, so none reaches a fingerprint.
     for key in [

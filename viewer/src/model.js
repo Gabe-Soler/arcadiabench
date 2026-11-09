@@ -18,7 +18,7 @@ import { DEFAULT_SOL_S, fmtNumber } from './format.js';
 import { LogError } from './parse.js';
 
 /** Protocol MAJOR.MINOR versions this viewer was written against. */
-export const KNOWN_PROTOCOLS = ['0.1', '0.2', '1.0'];
+export const KNOWN_PROTOCOLS = ['0.1', '0.2', '1.0', '1.1'];
 
 /** Statuses in which a robot cannot act. */
 export const DISABLED_STATUSES = new Set(['stuck', 'failed', 'offline', 'being_towed', 'lost']);

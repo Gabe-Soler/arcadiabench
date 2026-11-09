@@ -56,11 +56,12 @@ pub fn bounds(cells: impl IntoIterator<Item = GridCoord>) -> Option<GridRect> {
     Some(r)
 }
 
-/// The shortest a scan or a per-cell work step takes, s. The protocol
-/// leaves it to the simulator; this is ArcadiaBench's documented value.
+/// The shortest a scan or a per-cell work step takes, s, when the scenario
+/// carries no constants (`constants.min_work_duration_s`).
 pub const MIN_WORK_S: f64 = 5.0;
 
-/// Density assumed for boulders, kg/m³ (scans report diameters, not masses).
+/// Density of boulders, kg/m³, when the scenario carries no constants
+/// (`constants.rock_density_kg_m3`). Scans report diameters, not masses.
 pub const ROCK_KG_M3: f64 = 2800.0;
 
 /// What the last scan of a cell reported.
@@ -110,12 +111,20 @@ pub struct World {
     pub seen: BTreeMap<Key, Seen>,
     /// The authority policy in effect.
     pub policy: Policy,
+    /// The shortest a scan or a per-cell work step takes, s.
+    pub min_work_s: f64,
+    /// Density of boulders, kg/m³.
+    pub rock_kg_m3: f64,
 }
 
 impl World {
     pub fn new(hello: &Hello) -> Self {
         let s = &hello.scenario;
+        // A simulator on protocol 1.1 or later always sends its constants.
+        let constants = s.constants.as_ref();
         Self {
+            min_work_s: constants.map_or(MIN_WORK_S, |c| c.min_work_duration_s),
+            rock_kg_m3: constants.map_or(ROCK_KG_M3, |c| c.rock_density_kg_m3),
             t: s.start_t,
             seed: hello.seed,
             robots: s
@@ -288,7 +297,7 @@ impl World {
         let Some(c) = self.cap(r, name) else {
             return (f64::INFINITY, f64::INFINITY);
         };
-        let s = (units / c.rate).max(MIN_WORK_S);
+        let s = (units / c.rate).max(self.min_work_s);
         let idle = self.robots[r].spec.idle_power_w;
         (s, units * c.energy_wh_per_unit + s * idle / 3600.0)
     }

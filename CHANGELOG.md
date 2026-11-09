@@ -2,6 +2,24 @@
 
 All notable changes to ArcadiaBench. Versions follow semver.
 
+## [Unreleased]
+
+Version 1.1.0, in development. It speaks arcadia-protocol 1.1.0, which does not work with protocol 1.0: use ArcadiaBench 1.0.1 with a 1.0 coordinator.
+
+### Changed
+
+- **Protocol 1.1.0.** ArcadiaBench speaks arcadia-protocol 1.1.0. What it simulates on the catalog is unchanged: every regression fingerprint taken on 1.0 still matches once the fields 1.1 adds are cut out of the log.
+  - Every `hello` carries `scenario.constants`: the grade window, the repair and towing costs, the depot's service time, the lost-link timeout and the other constants a coordinator plans with.
+  - A mobile charger's snapshots carry `tank_wh`, the energy left in its tank.
+  - Run metrics carry `coverage` (the commands rejected `out_of_coverage`, and the lost-link returns) and `conditions.between_passes_s`.
+  - The baselines read the minimum work duration and the rock density from the scenario's constants.
+- **Scorecard schema.** `schemas/scorecard.schema.json` refers to the protocol's 1.1.0 schemas, and its `$id` is now `https://raw.githubusercontent.com/Gabe-Soler/arcadiabench/v1.1.0/schemas/scorecard.schema.json`. `end_reasons` gains an optional `other`, for runs that ended for a reason this version does not know. Scorecards written by 1.0 are still valid.
+- **Replay viewer.** Protocol 1.1 logs load without a version notice.
+
+### Added
+
+- **Regression tests.** The baselines' runs on the catalog are fingerprinted, as the test coordinators' already were: 17 runs across the three baselines.
+
 ## [1.0.1] - 2026-11-09
 
 The Python package on PyPI, and the release's renamed repository and restyled viewer.

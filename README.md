@@ -4,7 +4,7 @@ ArcadiaBench: an open, seeded benchmark for coordinating robot crews building on
 
 ArcadiaBench is a fast, headless simulator of a construction site at Arcadia Planitia. Any team can plug in a coordinator and compare results. Coordinators connect through [arcadia-protocol](https://github.com/Gabe-Soler/arcadia-protocol), newline-delimited JSON over stdio, so they can be written in any language. [ArcadiaOS](https://github.com/Gabe-Soler/arcadiaos) is the reference coordinator.
 
-**Version 1.0.1**, speaking arcadia-protocol 1.0.0. A coordinator builds a landing pad end to end while robots wear out, break down and get stuck, on a choice of power systems, with Earth minutes away behind a link that drops out, and authority rules that Earth enforces and updates. Crews come in three sizes, every scenario runs across seeds in parallel, and scorecards rank coordinators by success rate × speed. Three baseline coordinators ship with the benchmark, the [v1.0 results](results/v1.0/RESULTS.md) compare them with ArcadiaOS across the whole catalog, a [replay viewer](viewer/README.md) turns any run into a shareable visual demo, and Python researchers can drive it all through the [`arcadiabench` package](python/README.md).
+**Version 1.1.0, in development on `main`**, speaking arcadia-protocol 1.1.0. The latest release is 1.0.1 (`pip install arcadiabench`, tag `v1.0.1`), which speaks protocol 1.0.0; the two protocol versions do not work together, so use the release with a 1.0 coordinator such as ArcadiaOS 1.0. A coordinator builds a landing pad end to end while robots wear out, break down and get stuck, on a choice of power systems, with Earth minutes away behind a link that drops out, and authority rules that Earth enforces and updates. Crews come in three sizes, every scenario runs across seeds in parallel, and scorecards rank coordinators by success rate × speed. Three baseline coordinators ship with the benchmark, the [v1.0 results](results/v1.0/RESULTS.md) compare them with ArcadiaOS across the whole catalog, a [replay viewer](viewer/README.md) turns any run into a shareable visual demo, and Python researchers can drive it all through the [`arcadiabench` package](python/README.md).
 
 ## Quickstart
 
@@ -226,7 +226,7 @@ print(batch["scorecard"]["headline"])
 - [`docs/scoring.md`](docs/scoring.md): every score, the scorecard and resilience, and why.
 - [`docs/demos.md`](docs/demos.md): the four demo replays.
 - [`viewer/README.md`](viewer/README.md) and [`python/README.md`](python/README.md): the replay viewer and the Python package.
-- [arcadia-protocol](https://github.com/Gabe-Soler/arcadia-protocol/tree/v1.0.0): the message schemas and the normative semantics.
+- [arcadia-protocol](https://github.com/Gabe-Soler/arcadia-protocol/tree/v1.1.0): the message schemas and the normative semantics.
 - [`CHANGELOG.md`](CHANGELOG.md): what each release contains.
 
 ## Develop

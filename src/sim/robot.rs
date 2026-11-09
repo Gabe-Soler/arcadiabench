@@ -20,6 +20,8 @@ pub fn status_name(s: RobotStatus) -> &'static str {
         RobotStatus::BeingTowed => "being_towed",
         RobotStatus::Offline => "offline",
         RobotStatus::Lost => "lost",
+        // For a later minor version's status. The simulator never sets it.
+        RobotStatus::Unknown => "unknown",
     }
 }
 

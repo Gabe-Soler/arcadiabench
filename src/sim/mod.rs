@@ -138,6 +138,8 @@ fn comms_event(r: &link::Report) -> EventKind {
         cause: r.cause,
         one_way_delay_s: r.delay_s,
         expected_restore_t: r.expected_restore.map(secs),
+        // No scenario has a pass schedule yet.
+        window_end_t: None,
     }
 }
 
@@ -659,6 +661,10 @@ impl Sim {
             status: robot.reported_status(),
             battery_wh: battery.clamp(0.0, robot.spec.battery_capacity_wh),
             payload_kg: robot.payload_kg,
+            // Exact, and only a mobile charger has a tank (semantics §3.1).
+            tank_wh: robot
+                .capability(CapabilityName::Charge)
+                .map(|_| robot.tank_wh),
             current_command: robot.running_command().map(String::from),
             health,
             faults: robot.health.active_faults(),

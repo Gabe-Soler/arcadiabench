@@ -142,6 +142,7 @@ fn comms_events_follow_the_link_schedule() {
                 cause,
                 one_way_delay_s,
                 expected_restore_t,
+                window_end_t,
             } = e.kind
             else {
                 unreachable!()
@@ -151,6 +152,8 @@ fn comms_events_follow_the_link_schedule() {
                 (r.link, r.cause, r.delay_s)
             );
             assert_eq!(expected_restore_t, r.expected_restore.map(secs));
+            // Catalog 1.0 has no pass schedule, so no window to close.
+            assert_eq!(window_end_t, None);
             // The site knows when a conjunction ends, never when an outage does.
             assert_eq!(
                 expected_restore_t.is_some(),

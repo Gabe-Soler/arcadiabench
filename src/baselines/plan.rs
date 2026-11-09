@@ -26,7 +26,7 @@
 //! receives cast spoil. The plan keeps a ledger of material in flight, so
 //! two digs never overfill one cell.
 
-use super::world::{Key, ROCK_KG_M3, World, apart, bounds, cell, cells_of, entry, key};
+use super::world::{Key, World, apart, bounds, cell, cells_of, entry, key};
 use arcadia_protocol::*;
 use std::collections::BTreeMap;
 
@@ -657,8 +657,8 @@ impl Plan {
             Work::Dig(c) => {
                 let p = self.cells.get(&key(c))?;
                 let area_m2 = world.cell_m * world.cell_m;
-                let spoil =
-                    (p.elev - target).max(0.0) * p.density * area_m2 + p.boulders_m3 * ROCK_KG_M3;
+                let spoil = (p.elev - target).max(0.0) * p.density * area_m2
+                    + p.boulders_m3 * world.rock_kg_m3;
                 let overflow = (spoil - world.room_kg(r)).max(0.0);
                 let to = self.route(c, overflow);
                 let hold = match to {
@@ -1307,7 +1307,9 @@ fn in_rect(c: GridCoord, a: &GridRect) -> bool {
 /// The stage a pad cell is at, from its scanned surface.
 fn restage(surface: Surface, stabilize: bool) -> Stage {
     match surface {
-        Surface::Natural | Surface::Stockpile | Surface::Berm => Stage::Dig,
+        // A surface from a later protocol version is treated as untouched
+        // ground: digging is legal from any state.
+        Surface::Natural | Surface::Stockpile | Surface::Berm | Surface::Unknown => Stage::Dig,
         Surface::Cleared => Stage::Fill,
         Surface::Graded => Stage::Compact,
         Surface::Compacted if stabilize => Stage::Sinter,

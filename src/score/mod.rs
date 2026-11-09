@@ -196,6 +196,14 @@ pub struct EndReasons {
     pub fleet_lost: u64,
     pub coordinator_error: u64,
     pub simulator_error: u64,
+    /// Runs that ended for a reason this version does not know: logs written
+    /// by a later minor version of the protocol. Left out when zero.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub other: u64,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 /// The finished pad against its design.
@@ -365,6 +373,7 @@ impl Scorecard {
                 EndReason::FleetLost => &mut reasons.fleet_lost,
                 EndReason::CoordinatorError => &mut reasons.coordinator_error,
                 EndReason::SimulatorError => &mut reasons.simulator_error,
+                EndReason::Unknown => &mut reasons.other,
             } += 1;
         }
         let robot_energy: f64 = runs

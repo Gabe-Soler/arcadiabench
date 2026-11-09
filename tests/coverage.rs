@@ -137,6 +137,16 @@ fn a_robot_out_of_coverage_keeps_working_holds_its_events_and_comes_back() {
         back.t
     );
     assert_eq!(report.lost_link_returns, 1);
+    // The run metrics count what coverage cost: the two commands refused
+    // while it was away, and its one return.
+    assert_eq!(
+        report.metrics.coverage,
+        Some(CoverageMetrics {
+            out_of_coverage_rejections: 2,
+            lost_link_returns: 1,
+        })
+    );
+    assert!(report.metrics.commands_rejected >= 2);
 
     // What it held back arrives on its return, with the times it happened, in order.
     let held: Vec<&Event> = back

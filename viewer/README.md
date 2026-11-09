@@ -111,7 +111,7 @@ With Node 24 and no dependencies, from the repository root:
 node --test viewer/test/
 ```
 
-The tests cover parsing (including gzip, chunk boundaries and bad input), the motion model, pad progress and its stage, the model on inline logs (protocol 0.1, the final instant, a 20-robot crew, and the version notice, which protocol 1.0 does not get), the scorecard, the feed's Earth messages, label layout for 20 robots, the hand-made 0.2 fixture in `test/fixtures/` (faults, a lost robot, a link outage, late events, `truth.site` and metrics), all four samples, and every demo replay in `results/v1.0/replays/`, each replayed from start to end. CI runs them on every push and pull request (`.github/workflows/viewer.yml`).
+The tests cover parsing (including gzip, chunk boundaries and bad input), the motion model, pad progress and its stage, the model on inline logs (protocol 0.1, the final instant, a 20-robot crew, and the version notice, which protocols 1.0 and 1.1 do not get), the scorecard, the feed's Earth messages, label layout for 20 robots, the hand-made 0.2 fixture in `test/fixtures/` (faults, a lost robot, a link outage, late events, `truth.site` and metrics), all four samples, and every demo replay in `results/v1.0/replays/`, each replayed from start to end. CI runs them on every push and pull request (`.github/workflows/viewer.yml`).
 
 ## Deploy
 

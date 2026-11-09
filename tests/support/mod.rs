@@ -87,10 +87,47 @@ pub fn fnv1a(s: &str) -> u64 {
     h
 }
 
+/// `text` without every span that starts with `from` and runs to the next
+/// `to`. The `to` itself is cut too when `through` is set, and kept otherwise.
+fn cut_spans(text: &str, from: &str, to: char, through: bool) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(from) {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + from.len()..];
+        let end = after
+            .find(to)
+            .unwrap_or_else(|| panic!("no {to:?} after {from}"));
+        rest = &after[end + usize::from(through)..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// A raw log as protocol 1.0 would have written it: the text with what
+/// protocol 1.1 added cut out. The fingerprints taken on 1.0 hash log text,
+/// so they hold on 1.1 exactly when nothing else changed.
+///
+/// The cuts work on text, like the fingerprints, and rely on where serde
+/// writes each addition:
+/// - `scenario.constants`, a flat object, last in the scenario;
+/// - a robot's `tank_wh`, between `payload_kg` and the fields after it, so a
+///   comma always follows its value;
+/// - `conditions.between_passes_s`, last in its object;
+/// - the run metrics' `coverage`, a flat object, last in the metrics.
+pub fn as_protocol_1_0(text: &str) -> String {
+    let text = cut_spans(text, ",\"constants\":{", '}', true);
+    let text = cut_spans(&text, "\"tank_wh\":", ',', true);
+    let text = cut_spans(&text, ",\"between_passes_s\":", '}', false);
+    cut_spans(&text, ",\"coverage\":{", '}', true)
+}
+
 /// The fingerprint of a whole run: every record of a raw log after
-/// `run_start`. It carries no software or protocol version, so it pins what
-/// happened in the run and nothing else.
+/// `run_start`, as protocol 1.0 would have written it
+/// ([`as_protocol_1_0`]). It carries no software or protocol version, so it
+/// pins what happened in the run and nothing else.
 pub fn run_fingerprint(text: &str) -> u64 {
+    let text = &as_protocol_1_0(text);
     let rest = &text[text.find('\n').expect("a run_start line") + 1..];
     for key in [
         "\"protocol_version\"",

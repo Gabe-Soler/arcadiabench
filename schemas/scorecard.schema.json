@@ -1,18 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/Gabe-Soler/ArcadiaBench/v1.0.0/schemas/scorecard.schema.json",
+  "$id": "https://raw.githubusercontent.com/Gabe-Soler/arcadiabench/v1.1.0/schemas/scorecard.schema.json",
   "title": "ArcadiaBench scorecard",
   "description": "What ArcadiaBench's scoring writes. The root is a scorecard (scorecard.json): one coordinator on one scenario, aggregated over seeds. $defs also describe a run record (a line of metrics.jsonl) and a report (suite.json, and the output of `arcadiabench score --json`). docs/scoring.md defines every number. Run metrics and software info are arcadia-protocol's definitions.",
   "$ref": "#/$defs/Scorecard",
   "$defs": {
     "SoftwareInfo": {
-      "$ref": "https://raw.githubusercontent.com/Gabe-Soler/arcadia-protocol/v1.0.0/schemas/common.schema.json#/$defs/SoftwareInfo"
+      "$ref": "https://raw.githubusercontent.com/Gabe-Soler/arcadia-protocol/v1.1.0/schemas/common.schema.json#/$defs/SoftwareInfo"
     },
     "RunMetrics": {
-      "$ref": "https://raw.githubusercontent.com/Gabe-Soler/arcadia-protocol/v1.0.0/schemas/event_log.schema.json#/$defs/RunMetrics"
+      "$ref": "https://raw.githubusercontent.com/Gabe-Soler/arcadia-protocol/v1.1.0/schemas/event_log.schema.json#/$defs/RunMetrics"
     },
     "Id": {
-      "$ref": "https://raw.githubusercontent.com/Gabe-Soler/arcadia-protocol/v1.0.0/schemas/common.schema.json#/$defs/Id"
+      "$ref": "https://raw.githubusercontent.com/Gabe-Soler/arcadia-protocol/v1.1.0/schemas/common.schema.json#/$defs/Id"
     },
     "Preset": {
       "description": "A Standard track preset, or null for a scenario outside the catalog.",
@@ -109,7 +109,11 @@
         "time_limit": { "$ref": "#/$defs/Count" },
         "fleet_lost": { "$ref": "#/$defs/Count" },
         "coordinator_error": { "$ref": "#/$defs/Count" },
-        "simulator_error": { "$ref": "#/$defs/Count" }
+        "simulator_error": { "$ref": "#/$defs/Count" },
+        "other": {
+          "description": "Runs that ended for a reason this version does not know: logs written by a later minor version of the protocol. Left out when zero.",
+          "$ref": "#/$defs/Count"
+        }
       },
       "required": ["goals_complete", "time_limit", "fleet_lost", "coordinator_error", "simulator_error"],
       "additionalProperties": false

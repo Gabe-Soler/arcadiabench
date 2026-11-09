@@ -140,6 +140,9 @@ impl Sim {
 
     fn emit_rejected(&mut self, cmd: &Command, reason: RejectReason, detail: String) {
         self.tally.commands_rejected += 1;
+        if reason == RejectReason::OutOfCoverage {
+            self.tally.out_of_coverage_rejections += 1;
+        }
         self.emit(
             EventKind::CommandRejected {
                 command_id: cmd.command_id.clone(),
