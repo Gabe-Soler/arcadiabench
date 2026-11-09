@@ -20,6 +20,8 @@ pub fn status_name(s: RobotStatus) -> &'static str {
         RobotStatus::BeingTowed => "being_towed",
         RobotStatus::Offline => "offline",
         RobotStatus::Lost => "lost",
+        // For a later minor version's status. The simulator never sets it.
+        RobotStatus::Unknown => "unknown",
     }
 }
 
@@ -164,7 +166,8 @@ pub struct RobotRt {
 }
 
 impl RobotRt {
-    pub fn new(spec: RobotSpec, pos: GridCoord) -> Self {
+    /// A robot at `pos` with a full battery when the run starts, at `start`.
+    pub fn new(spec: RobotSpec, pos: GridCoord, start: SimMs) -> Self {
         let tank_wh = spec
             .capability(CapabilityName::Charge)
             .and_then(|c| c.capacity)
@@ -181,7 +184,7 @@ impl RobotRt {
             engaged_by: None,
             generation: 0,
             hazard_generation: 0,
-            drain_since: Some(0),
+            drain_since: Some(start),
             health: Health::default(),
             offline: false,
             lost: false,
@@ -285,6 +288,7 @@ mod tests {
                 capabilities: vec![],
             },
             GridCoord { x: 0, y: 0 },
+            0,
         )
     }
 

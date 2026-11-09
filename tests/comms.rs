@@ -18,7 +18,7 @@ fn limit() -> u64 {
 }
 
 fn link_of(seed: u64, p: &Params) -> EarthLink {
-    EarthLink::generate(seed, limit(), p)
+    EarthLink::generate(seed, 0, limit(), p)
 }
 
 /// When a message sent at `t` arrives, as the log should say.
@@ -142,6 +142,7 @@ fn comms_events_follow_the_link_schedule() {
                 cause,
                 one_way_delay_s,
                 expected_restore_t,
+                window_end_t,
             } = e.kind
             else {
                 unreachable!()
@@ -151,6 +152,8 @@ fn comms_events_follow_the_link_schedule() {
                 (r.link, r.cause, r.delay_s)
             );
             assert_eq!(expected_restore_t, r.expected_restore.map(secs));
+            // Catalog 1.0 has no pass schedule, so no window to close.
+            assert_eq!(window_end_t, None);
             // The site knows when a conjunction ends, never when an outage does.
             assert_eq!(
                 expected_restore_t.is_some(),
@@ -642,4 +645,167 @@ fn answer_seen(obs: &Observation, request: &str) -> bool {
         matches!(&e.kind, EventKind::EarthMessage { message, .. }
             if matches!(&message.body, Uplink::Approve { request_id, .. } if request_id == request))
     })
+}
+
+/// A link that runs in pass windows, on a run that starts part-way through
+/// a sol. No catalog scenario does either yet; the parameters turn them on.
+#[test]
+fn a_run_with_pass_windows_starts_mid_sol_and_follows_its_schedule() {
+    let p = Params {
+        start_sols: (0.3, 0.9),
+        pass_windows: true,
+        conjunction: true,
+        conjunction_start_sols: (2.0, 3.0),
+        ..Params::nominal()
+    };
+    let seed = 5;
+    let (report, text, agent) = run_raw(Script::new(chatty()), seed, &p);
+    assert_valid_log(&text);
+    let records: Vec<LogRecord> = text
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+
+    // The run starts when the scenario says, a seeded time into sol 0, and
+    // its time limit counts from there. The log is in time order, so nothing
+    // in it is earlier.
+    let LogEntry::RunStart { scenario, .. } = &records[0].entry else {
+        panic!("no run_start");
+    };
+    let (start, limit) = (ms(scenario.start_t), ms(scenario.time_limit_t));
+    assert!(
+        start > SOL_MS * 3 / 10 && start < SOL_MS * 9 / 10,
+        "{start}"
+    );
+    assert_eq!(limit - start, TIME_LIMIT_SOLS * SOL_MS);
+    assert_eq!(records[0].t, scenario.start_t);
+    let first = &agent.observations[0];
+    assert_eq!(first.t, scenario.start_t);
+    let kinds: Vec<&str> = first
+        .events
+        .iter()
+        .map(|e| match e.kind {
+            EventKind::Comms { .. } => "comms",
+            EventKind::Weather { .. } => "weather",
+            EventKind::Power { .. } => "power",
+            EventKind::EarthMessage { .. } => "earth_message",
+            _ => "other",
+        })
+        .collect();
+    assert_eq!(kinds, ["comms", "weather", "power", "earth_message"]);
+    assert!(first.events.iter().all(|e| e.t == scenario.start_t));
+    // Batteries are full at the start: nothing drained before the run began.
+    for (state, spec) in truth_at(&records, scenario.start_t)
+        .iter()
+        .zip(&scenario.robots)
+    {
+        assert_eq!(
+            state.battery_wh, spec.battery_capacity_wh,
+            "{}",
+            spec.robot_id
+        );
+    }
+    let m = &report.metrics;
+    assert!((m.sols - (report.end_t - scenario.start_t) / SOL_S).abs() < 1e-9);
+
+    // Every `comms` event is the schedule's, with both of its times.
+    let link = EarthLink::generate(seed, start, limit, &p);
+    assert!(link.windows().is_some());
+    let comms: Vec<Event> = records
+        .iter()
+        .filter_map(|r| match &r.entry {
+            LogEntry::Observed { event } if matches!(event.kind, EventKind::Comms { .. }) => {
+                Some(event.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    let expected: Vec<_> = std::iter::once(link.report_at(start))
+        .chain(link.reports().iter().copied())
+        .filter(|r| secs(r.t) < report.end_t)
+        .collect();
+    assert_eq!(comms.len(), expected.len());
+    let mut causes = std::collections::BTreeSet::new();
+    for (e, r) in comms.iter().zip(&expected) {
+        let EventKind::Comms {
+            link: state,
+            cause,
+            one_way_delay_s,
+            expected_restore_t,
+            window_end_t,
+        } = e.kind
+        else {
+            unreachable!()
+        };
+        assert_eq!(
+            (e.t, state, cause, one_way_delay_s),
+            (secs(r.t), r.link, r.cause, r.delay_s)
+        );
+        assert_eq!(expected_restore_t, r.expected_restore.map(secs));
+        assert_eq!(window_end_t, r.window_end.map(secs));
+        // Up: the window's end. Down: the return, unless an outage hides it.
+        match (state, cause) {
+            (Link::Up, _) => assert!(window_end_t.is_some() && expected_restore_t.is_none()),
+            (_, CommsCause::Outage) => assert_eq!((expected_restore_t, window_end_t), (None, None)),
+            _ => assert!(expected_restore_t.is_some() && window_end_t.is_none()),
+        }
+        causes.insert(format!("{cause:?}"));
+    }
+    for cause in ["Nominal", "BetweenPasses", "Conjunction"] {
+        assert!(causes.contains(cause), "{cause} in {causes:?}");
+    }
+    // Truth agrees with the schedule at every decision point.
+    for r in &records {
+        if let LogEntry::Truth { site, .. } = &r.entry {
+            let now = link.report_at(ms(r.t));
+            assert_eq!((site.link, site.one_way_delay_s), (now.link, now.delay_s));
+        }
+    }
+
+    // Messages wait for a pass, both ways.
+    let delivery = |t: f64| {
+        let at = link.arrival(ms(t));
+        (at < limit).then(|| secs(at))
+    };
+    let down = downlinks(&records);
+    for (t, deliver_t, m) in &down {
+        assert_eq!(*deliver_t, delivery(*t), "downlink {} at {t}", m.message_id);
+    }
+    let up = uplinks(&records);
+    assert!(!up.is_empty(), "Earth answered");
+    for (t, deliver_t, m) in &up {
+        assert_eq!(*deliver_t, delivery(*t), "uplink {} at {t}", m.message_id);
+    }
+    let waited: Vec<_> = down
+        .iter()
+        .filter(|(t, _, _)| link.down_at(ms(*t)) == Some(Down::BetweenPasses))
+        .collect();
+    assert!(waited.len() > 10, "{}", waited.len());
+    for (t, deliver_t, _) in waited {
+        // It left when the next window opened, or later if an outage or the blackout was in the way.
+        let leaves = link.transmit_time(ms(*t));
+        assert!(leaves > ms(*t) && link.down_at(leaves).is_none());
+        if let Some(at) = deliver_t {
+            assert!((at - secs(leaves) - link.delay_s(leaves)).abs() < 0.002);
+        }
+    }
+
+    // The run's conditions split the down time by cause, exactly.
+    let end = ms(report.end_t);
+    let c = &m.conditions;
+    assert_eq!(
+        c.blackout_s,
+        secs(link.down_ms(start, end, Down::Conjunction))
+    );
+    assert_eq!(c.outage_s, secs(link.down_ms(start, end, Down::Outage)));
+    assert_eq!(
+        c.between_passes_s,
+        Some(secs(link.down_ms(start, end, Down::BetweenPasses)))
+    );
+    // Passes cover about a tenth of the time, so most of the run is between them.
+    let between = c.between_passes_s.unwrap();
+    assert!(
+        between > 0.5 * (report.end_t - scenario.start_t - c.blackout_s),
+        "{between}"
+    );
 }

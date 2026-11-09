@@ -1,6 +1,6 @@
 //! The Earth link (semantics §8.1–§8.2): the one-way light-time delay, the
-//! seeded schedule of outages and the conjunction blackout, the `comms`
-//! reports, and store-and-forward delivery.
+//! seeded schedule of pass windows, outages and the conjunction blackout,
+//! the `comms` reports, and store-and-forward delivery.
 //!
 //! - **Delay.** Earth and Mars on coplanar circular orbits: by the law of
 //!   cosines, `d(θ)² = a − b·cos θ`, where θ is the heliocentric angle
@@ -10,7 +10,12 @@
 //!   never leave that range.
 //! - **Schedule.** Unplanned outages, and in the conjunction variant a
 //!   blackout around conjunction, are drawn up front from the `comms`
-//!   stream. Every coordinator on a seed faces the same link.
+//!   stream. When the link runs in pass windows, they are drawn from the
+//!   `passes` stream, so turning them on changes no outage. Every
+//!   coordinator on a seed faces the same link.
+//! - **Up or down.** The link is up inside a pass window (or always, with no
+//!   pass schedule) unless the blackout or an outage holds it down. While it
+//!   is down its cause is the first of [`Down`] that holds.
 //! - **Delivery.** A message sent at `t` leaves at the first time at or after
 //!   `t` when the link is up, and arrives `d` (at that time) later.
 
@@ -28,14 +33,28 @@ pub const DRIFT_REPORT_S: f64 = 60.0;
 /// under a second an hour, so a crossing can never be stepped over.
 const DRIFT_SCAN_MS: SimMs = 3_600_000;
 
-/// Why the link is down.
+/// Why the link is down. When several hold at once, the first one here is
+/// the cause (semantics §8.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Down {
     Conjunction,
     Outage,
+    /// The gap between two pass windows.
+    BetweenPasses,
 }
 
-/// A stretch of time with the link down, `[start, end)`.
+impl Down {
+    fn cause(self) -> CommsCause {
+        match self {
+            Down::Conjunction => CommsCause::Conjunction,
+            Down::Outage => CommsCause::Outage,
+            Down::BetweenPasses => CommsCause::BetweenPasses,
+        }
+    }
+}
+
+/// A stretch of time, `[start, end)`, with the link held down by the
+/// blackout or by an unplanned outage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Gap {
     pub start: SimMs,
@@ -50,8 +69,11 @@ pub struct Report {
     pub link: Link,
     pub cause: CommsCause,
     pub delay_s: f64,
-    /// When the link will be back: known for a conjunction, not for an outage.
+    /// While down: when the link is next scheduled to come up. Known for the
+    /// blackout and for a gap between passes, not for an outage.
     pub expected_restore: Option<SimMs>,
+    /// While up in a pass window: when the link is next scheduled to go down.
+    pub window_end: Option<SimMs>,
 }
 
 /// The link schedule of one run.
@@ -63,24 +85,30 @@ pub struct EarthLink {
     theta0: f64,
     /// dθ/dt, rad per ms.
     omega: f64,
-    /// Down stretches, in time order, never overlapping.
+    /// When the run starts.
+    start: SimMs,
+    /// The blackout and the outages, in time order, never overlapping.
     gaps: Vec<Gap>,
-    /// Every `comms` report after the one at t = 0, in time order.
+    /// The pass windows `[start, end)`, in time order with a gap between
+    /// each two; `None` for a continuous link.
+    windows: Option<Vec<(SimMs, SimMs)>>,
+    /// Every `comms` report after the one at the start, in time order.
     reports: Vec<Report>,
 }
 
 impl EarthLink {
-    pub fn generate(seed: u64, time_limit: SimMs, p: &Params) -> Self {
+    /// The link of a run from `start` to `time_limit`.
+    pub fn generate(seed: u64, start: SimMs, time_limit: SimMs, p: &Params) -> Self {
         let mut rng = Rng::stream(seed, "comms");
         let sol_s = secs(SOL_MS);
         // Drawn in every variant, so the outages below are the same in all of them.
         let u_conjunction = rng.uniform();
         let blackout = p.conjunction.then(|| {
             let (lo, hi) = p.conjunction_start_sols;
-            let start = ms((lo + (hi - lo) * u_conjunction) * sol_s);
+            let begin = start + ms((lo + (hi - lo) * u_conjunction) * sol_s);
             Gap {
-                start,
-                end: start + ms(p.conjunction_sols * sol_s).max(1),
+                start: begin,
+                end: begin + ms(p.conjunction_sols * sol_s).max(1),
                 cause: Down::Conjunction,
             }
         });
@@ -88,7 +116,7 @@ impl EarthLink {
         // Unplanned outages: Poisson arrivals while the link is up.
         let mut gaps = Vec::new();
         if p.outage_per_sol > 0.0 {
-            let mut t: SimMs = 0;
+            let mut t: SimMs = start;
             loop {
                 let wait_s = -libm::log(1.0 - rng.uniform()) * sol_s / p.outage_per_sol;
                 let start = t.saturating_add(ms(wait_s));
@@ -122,23 +150,66 @@ impl EarthLink {
         let theta0 = match blackout {
             // Conjunction falls in the middle of the blackout.
             Some(g) => PI - omega * (g.start + (g.end - g.start) / 2) as f64,
-            // Mars receding, the delay growing from `start_delay_s`.
+            // Mars receding, the delay growing from `start_delay_s` at the start.
             None if b > 0.0 => {
                 let d0 = p.start_delay_s.clamp(dmin, dmax);
-                libm::acos(((a - d0 * d0) / b).clamp(-1.0, 1.0))
+                libm::acos(((a - d0 * d0) / b).clamp(-1.0, 1.0)) - omega * start as f64
             }
             None => 0.0,
         };
+        let windows = p
+            .pass_windows
+            .then(|| Self::pass_windows(seed, time_limit, p));
         let mut link = Self {
             a,
             b,
             theta0,
             omega,
+            start,
             gaps,
+            windows,
             reports: Vec::new(),
         };
         link.reports = link.plan_reports(time_limit);
         link
+    }
+
+    /// The pass windows, from the `passes` stream: each sol has one
+    /// direct-to-Earth window and a few relay passes, and windows that
+    /// overlap or touch are merged. They are laid out by the calendar, from
+    /// sol 0, so they depend on the seed alone. The schedule runs one whole
+    /// sol past `time_limit`, so that to the end of the run there is always
+    /// a next window to expect.
+    fn pass_windows(seed: u64, time_limit: SimMs, p: &Params) -> Vec<(SimMs, SimMs)> {
+        let mut rng = Rng::stream(seed, "passes");
+        let sol_s = secs(SOL_MS);
+        let mut windows = Vec::new();
+        let mut sol = 0;
+        while sol * SOL_MS < time_limit.saturating_add(SOL_MS) {
+            let base = sol * SOL_MS;
+            let open = base + ms(rng.range(p.dte_start_phase.0, p.dte_start_phase.1) * sol_s);
+            let length = ms(rng.range(p.dte_hours.0, p.dte_hours.1) * 3600.0);
+            windows.push((open, open + length));
+            let (lo, hi) = p.relay_passes_per_sol;
+            let span = f64::from(hi.saturating_sub(lo)) + 1.0;
+            let passes = (lo + (rng.uniform() * span) as u32).min(hi.max(lo));
+            for _ in 0..passes {
+                let open = base + ms(rng.uniform() * sol_s);
+                let (m0, m1) = p.relay_pass_minutes;
+                windows.push((open, open + ms(rng.range(m0, m1) * 60.0)));
+            }
+            sol += 1;
+        }
+        windows.retain(|&(open, close)| close > open);
+        windows.sort_unstable();
+        let mut merged: Vec<(SimMs, SimMs)> = Vec::new();
+        for (open, close) in windows {
+            match merged.last_mut() {
+                Some(last) if open <= last.1 => last.1 = last.1.max(close),
+                _ => merged.push((open, close)),
+            }
+        }
+        merged
     }
 
     /// One-way light time at `t`, s.
@@ -148,48 +219,118 @@ impl EarthLink {
         libm::sqrt(d2.clamp(self.a - self.b, self.a + self.b))
     }
 
-    /// The down stretch `t` falls in, if any.
+    /// The blackout or outage `t` falls in, if any.
     pub fn gap_at(&self, t: SimMs) -> Option<&Gap> {
         self.gaps.iter().find(|g| g.start <= t && t < g.end)
     }
 
-    /// Every down stretch, in time order.
+    /// The blackout and every outage, in time order.
     pub fn gaps(&self) -> &[Gap] {
         &self.gaps
     }
 
-    /// The link's state at `t`, as a `comms` event would report it.
-    pub fn report_at(&self, t: SimMs) -> Report {
-        let (link, cause, expected_restore) = match self.gap_at(t) {
-            None => (Link::Up, CommsCause::Nominal, None),
-            Some(g) => match g.cause {
-                Down::Conjunction => (Link::Down, CommsCause::Conjunction, Some(g.end)),
-                Down::Outage => (Link::Down, CommsCause::Outage, None),
-            },
-        };
-        Report {
-            t,
-            link,
-            cause,
-            delay_s: self.delay_s(t),
-            expected_restore,
+    /// The pass windows, in time order; `None` for a continuous link.
+    pub fn windows(&self) -> Option<&[(SimMs, SimMs)]> {
+        self.windows.as_deref()
+    }
+
+    /// The pass window `t` falls in, if the link has a pass schedule and `t`
+    /// is inside one of its windows.
+    fn window_at(&self, t: SimMs) -> Option<(SimMs, SimMs)> {
+        let windows = self.windows.as_ref()?;
+        let opened = windows.partition_point(|&(open, _)| open <= t);
+        (opened > 0 && t < windows[opened - 1].1).then(|| windows[opened - 1])
+    }
+
+    /// The first pass window to open after `t`.
+    fn next_window(&self, t: SimMs) -> Option<(SimMs, SimMs)> {
+        let windows = self.windows.as_ref()?;
+        windows
+            .get(windows.partition_point(|&(open, _)| open <= t))
+            .copied()
+    }
+
+    fn blackout(&self) -> Option<&Gap> {
+        self.gaps.iter().find(|g| g.cause == Down::Conjunction)
+    }
+
+    /// Why the link is down at `t`, if it is.
+    pub fn down_at(&self, t: SimMs) -> Option<Down> {
+        match self.gap_at(t) {
+            Some(g) => Some(g.cause),
+            None if self.windows.is_some() && self.window_at(t).is_none() => {
+                Some(Down::BetweenPasses)
+            }
+            None => None,
         }
     }
 
-    /// The `comms` reports after the one at t = 0: one at every change of
-    /// link state, and one whenever the delay has drifted by
-    /// [`DRIFT_REPORT_S`] since the previous report.
+    /// The first time at or after `t` at which the link is scheduled to be
+    /// up: inside a pass window, if it has a pass schedule, and outside the
+    /// blackout. Outages are unplanned, so they do not count. `None` when no
+    /// window is left.
+    fn scheduled_up(&self, mut t: SimMs) -> Option<SimMs> {
+        loop {
+            match self.blackout() {
+                Some(b) if b.start <= t && t < b.end => t = b.end,
+                _ if self.windows.is_none() || self.window_at(t).is_some() => return Some(t),
+                _ => t = self.next_window(t)?.0,
+            }
+        }
+    }
+
+    /// When the link, up at `t`, is next scheduled to go down: the end of
+    /// its pass window, or the start of the blackout if that comes first.
+    /// `None` for a continuous link.
+    fn window_end(&self, t: SimMs) -> Option<SimMs> {
+        let (_, close) = self.window_at(t)?;
+        Some(match self.blackout() {
+            Some(b) if b.start > t && b.start < close => b.start,
+            _ => close,
+        })
+    }
+
+    /// The link's state at `t`, as a `comms` event would report it.
+    pub fn report_at(&self, t: SimMs) -> Report {
+        let down = self.down_at(t);
+        Report {
+            t,
+            link: if down.is_some() { Link::Down } else { Link::Up },
+            cause: down.map_or(CommsCause::Nominal, Down::cause),
+            delay_s: self.delay_s(t),
+            expected_restore: match down {
+                Some(Down::Conjunction | Down::BetweenPasses) => self.scheduled_up(t),
+                Some(Down::Outage) | None => None,
+            },
+            window_end: match down {
+                None => self.window_end(t),
+                Some(_) => None,
+            },
+        }
+    }
+
+    /// The `comms` reports after the one at the start: one at every change
+    /// of the link's state or cause, and one whenever the delay has drifted
+    /// by [`DRIFT_REPORT_S`] since the previous report.
     pub fn reports(&self) -> &[Report] {
         &self.reports
     }
 
-    /// When a message sent at `t` leaves: the first time at or after `t` with the link up.
+    /// When a message sent at `t` leaves: the first time at or after `t`
+    /// with the link up. Never, if the pass schedule has run out.
     pub fn transmit_time(&self, t: SimMs) -> SimMs {
         let mut t = t;
-        while let Some(g) = self.gap_at(t) {
-            t = g.end;
+        loop {
+            if let Some(g) = self.gap_at(t) {
+                t = g.end;
+            } else if self.windows.is_none() || self.window_at(t).is_some() {
+                return t;
+            } else if let Some((open, _)) = self.next_window(t) {
+                t = open;
+            } else {
+                return SimMs::MAX;
+            }
         }
-        t
     }
 
     /// When a message sent at `t` arrives at the other end.
@@ -198,12 +339,36 @@ impl EarthLink {
         sent.saturating_add(ms(self.delay_s(sent)))
     }
 
-    /// Time within `[t0, t1)` with the link down for `cause`, ms.
+    /// Time within `[t0, t1)` with the link down for `cause`, ms. The three
+    /// causes together account for all the time the link is down.
     pub fn down_ms(&self, t0: SimMs, t1: SimMs, cause: Down) -> SimMs {
-        self.gaps
+        if cause != Down::BetweenPasses {
+            // The blackout and the outages never overlap, and nothing outranks them.
+            return self
+                .gaps
+                .iter()
+                .filter(|g| g.cause == cause)
+                .map(|g| t1.min(g.end).saturating_sub(t0.max(g.start)))
+                .sum();
+        }
+        let Some(windows) = &self.windows else {
+            return 0;
+        };
+        // The state only changes at the edge of a window or of a gap, so it
+        // is constant between consecutive edges.
+        let mut edges: Vec<SimMs> = windows
             .iter()
-            .filter(|g| g.cause == cause)
-            .map(|g| t1.min(g.end).saturating_sub(t0.max(g.start)))
+            .flat_map(|&(open, close)| [open, close])
+            .chain(self.gaps.iter().flat_map(|g| [g.start, g.end]))
+            .filter(|&t| t > t0 && t < t1)
+            .chain([t0, t1])
+            .collect();
+        edges.sort_unstable();
+        edges.dedup();
+        edges
+            .windows(2)
+            .filter(|w| self.down_at(w[0]) == Some(Down::BetweenPasses))
+            .map(|w| w[1] - w[0])
             .sum()
     }
 
@@ -212,18 +377,25 @@ impl EarthLink {
             let r = self.report_at(t);
             (r.link, r.cause)
         };
+        let start = self.start;
         let mut changes: Vec<SimMs> = self
             .gaps
             .iter()
             .flat_map(|g| [g.start, g.end])
-            .filter(|&t| t > 0 && t < time_limit && state(t) != state(t - 1))
+            .chain(
+                self.windows
+                    .iter()
+                    .flatten()
+                    .flat_map(|&(open, close)| [open, close]),
+            )
+            .filter(|&t| t > start && t < time_limit && state(t) != state(t - 1))
             .collect();
         changes.sort_unstable();
         changes.dedup();
 
         let mut reports = Vec::new();
-        let mut last_delay = self.delay_s(0);
-        let mut t = 0;
+        let mut last_delay = self.delay_s(start);
+        let mut t = start;
         let mut next = changes.into_iter().peekable();
         loop {
             let change = next.peek().copied().unwrap_or(time_limit);
@@ -276,7 +448,15 @@ mod tests {
     const LIMIT: SimMs = 60 * SOL_MS;
 
     fn link(seed: u64, p: &Params) -> EarthLink {
-        EarthLink::generate(seed, LIMIT, p)
+        EarthLink::generate(seed, 0, LIMIT, p)
+    }
+
+    /// A link that runs in pass windows.
+    fn passes() -> Params {
+        Params {
+            pass_windows: true,
+            ..Params::nominal()
+        }
     }
 
     #[test]
@@ -463,5 +643,258 @@ mod tests {
         let g = l.gaps()[0];
         assert_eq!(l.down_ms(g.start, g.start + 1000, g.cause), 1000);
         assert_eq!(l.down_ms(0, g.start, g.cause), 0);
+        // A continuous link is never between passes.
+        assert!(l.windows().is_none());
+        assert_eq!(l.down_ms(0, LIMIT, Down::BetweenPasses), 0);
+    }
+
+    /// A hand-made link: two windows, [1000, 2000) and [5000, 6000), an
+    /// outage and a blackout.
+    fn handmade(gaps: Vec<Gap>) -> EarthLink {
+        EarthLink {
+            gaps,
+            windows: Some(vec![(1000, 2000), (5000, 6000)]),
+            ..link(1, &Params::nominal())
+        }
+    }
+
+    #[test]
+    fn pass_windows_are_seeded_and_leave_the_outages_alone() {
+        let (plain, windowed) = (Params::nominal(), passes());
+        for seed in 1..=20 {
+            let l = link(seed, &windowed);
+            // The outages come from the `comms` stream, the passes from their own.
+            assert_eq!(l.gaps(), link(seed, &plain).gaps(), "seed {seed}");
+            let w = l.windows().expect("a pass schedule");
+            assert_eq!(l.windows(), link(seed, &windowed).windows());
+            assert!(w.iter().all(|&(open, close)| open < close));
+            assert!(
+                w.windows(2).all(|p| p[0].1 < p[1].0),
+                "a gap between passes"
+            );
+            // Every sol has its direct-to-Earth window of 2 to 3 hours, and
+            // 3 to 5 relay passes of 10 to 15 minutes: 4 to 6 windows unless
+            // some merged, up for about a tenth of the sol.
+            for sol in 0..60 {
+                let (a, b) = (sol * SOL_MS, (sol + 1) * SOL_MS);
+                let opened = w.iter().filter(|&&(open, _)| a <= open && open < b).count();
+                assert!((1..=6).contains(&opened), "seed {seed} sol {sol}: {opened}");
+            }
+            let up: SimMs = w
+                .iter()
+                .map(|&(open, close)| close.min(LIMIT).saturating_sub(open))
+                .sum();
+            let share = up as f64 / LIMIT as f64;
+            assert!((0.08..0.18).contains(&share), "seed {seed}: up {share}");
+            // The schedule runs a sol past the limit, so there is always a
+            // next window to expect.
+            assert!(w.last().unwrap().0 >= LIMIT);
+        }
+        assert_ne!(link(1, &windowed).windows(), link(2, &windowed).windows());
+    }
+
+    #[test]
+    fn the_first_cause_that_holds_is_reported() {
+        let l = handmade(vec![
+            Gap {
+                start: 1500,
+                end: 5500,
+                cause: Down::Outage,
+            },
+            Gap {
+                start: 5800,
+                end: 9000,
+                cause: Down::Conjunction,
+            },
+        ]);
+        let at = |t| {
+            let r = l.report_at(t);
+            (r.link, r.cause, r.expected_restore, r.window_end)
+        };
+        use CommsCause::*;
+        // Before the first window: between passes, back when it opens.
+        assert_eq!(at(0), (Link::Down, BetweenPasses, Some(1000), None));
+        // In the window: up until it closes. The outage is not scheduled.
+        assert_eq!(at(1000), (Link::Up, Nominal, None, Some(2000)));
+        // The outage outranks the gap between passes, and nobody knows its end.
+        assert_eq!(at(1500), (Link::Down, Outage, None, None));
+        assert_eq!(at(3000), (Link::Down, Outage, None, None));
+        // It ends inside the second window, which the blackout cuts short.
+        assert_eq!(at(5500), (Link::Up, Nominal, None, Some(5800)));
+        // The blackout outranks everything. No window is left after it.
+        assert_eq!(at(5800), (Link::Down, Conjunction, None, None));
+        assert_eq!(at(9000), (Link::Down, BetweenPasses, None, None));
+        for (t, down) in [
+            (0, Some(Down::BetweenPasses)),
+            (1499, None),
+            (2500, Some(Down::Outage)),
+            (5799, None),
+            (6500, Some(Down::Conjunction)),
+            (9000, Some(Down::BetweenPasses)),
+        ] {
+            assert_eq!(l.down_at(t), down, "t {t}");
+        }
+    }
+
+    #[test]
+    fn an_outage_that_ends_between_passes_leaves_the_link_down() {
+        let l = handmade(vec![Gap {
+            start: 1500,
+            end: 3000,
+            cause: Down::Outage,
+        }]);
+        let before = l.report_at(2999);
+        assert_eq!(
+            (before.cause, before.expected_restore),
+            (CommsCause::Outage, None)
+        );
+        // The cause changes while the link stays down, and now its return is known.
+        let after = l.report_at(3000);
+        assert_eq!(
+            (after.link, after.cause, after.expected_restore),
+            (Link::Down, CommsCause::BetweenPasses, Some(5000))
+        );
+        // A blackout that covers the next window pushes the return past it.
+        let dark = handmade(vec![Gap {
+            start: 2500,
+            end: 5400,
+            cause: Down::Conjunction,
+        }]);
+        assert_eq!(dark.report_at(2000).expected_restore, Some(5400));
+        assert_eq!(dark.report_at(3000).expected_restore, Some(5400));
+        assert_eq!(dark.report_at(5400).window_end, Some(6000));
+    }
+
+    #[test]
+    fn messages_wait_for_a_pass() {
+        let l = handmade(vec![Gap {
+            start: 1500,
+            end: 5500,
+            cause: Down::Outage,
+        }]);
+        assert_eq!(l.transmit_time(0), 1000, "the first window");
+        assert_eq!(l.transmit_time(1200), 1200, "in a window, at once");
+        // The outage takes the rest of this window and the start of the next.
+        assert_eq!(l.transmit_time(1500), 5500);
+        assert_eq!(l.transmit_time(4000), 5500);
+        assert_eq!(l.arrival(4000), 5500 + ms(l.delay_s(5500)));
+        // After the last window nothing leaves again.
+        assert_eq!(l.transmit_time(6000), SimMs::MAX);
+        assert_eq!(l.arrival(6000), SimMs::MAX);
+    }
+
+    #[test]
+    fn the_three_causes_account_for_all_the_down_time() {
+        let l = handmade(vec![
+            Gap {
+                start: 1500,
+                end: 5500,
+                cause: Down::Outage,
+            },
+            Gap {
+                start: 5800,
+                end: 9000,
+                cause: Down::Conjunction,
+            },
+        ]);
+        // Down [0,1000) between passes, [1500,5500) outage, [5800,9000) blackout,
+        // [9000,10000) between passes.
+        assert_eq!(l.down_ms(0, 10_000, Down::BetweenPasses), 2000);
+        assert_eq!(l.down_ms(0, 10_000, Down::Outage), 4000);
+        assert_eq!(l.down_ms(0, 10_000, Down::Conjunction), 3200);
+        assert_eq!(l.down_ms(500, 9500, Down::BetweenPasses), 1000);
+        // On a generated schedule: every millisecond is up or has one cause.
+        let p = Params {
+            conjunction: true,
+            conjunction_start_sols: (3.0, 4.0),
+            ..passes()
+        };
+        for seed in 1..=5 {
+            let l = link(seed, &p);
+            let down: SimMs = [Down::Conjunction, Down::Outage, Down::BetweenPasses]
+                .into_iter()
+                .map(|c| l.down_ms(0, LIMIT, c))
+                .sum();
+            let step = 60_000;
+            let sampled = (0..LIMIT / step)
+                .filter(|i| l.down_at(i * step).is_some())
+                .count() as u64
+                * step;
+            let err = down.abs_diff(sampled) as f64 / LIMIT as f64;
+            assert!(err < 0.005, "seed {seed}: {down} vs sampled {sampled}");
+            assert!(l.down_ms(0, LIMIT, Down::Conjunction) > 13 * SOL_MS);
+            assert!(l.down_ms(0, LIMIT, Down::BetweenPasses) > 30 * SOL_MS);
+        }
+    }
+
+    #[test]
+    fn reports_follow_the_windows() {
+        let p = passes();
+        for seed in 1..=5 {
+            let l = link(seed, &p);
+            let reports = l.reports();
+            assert!(reports.windows(2).all(|w| w[0].t < w[1].t));
+            // Every report is a change of state or cause, or a drift report.
+            let mut last = l.report_at(0);
+            for r in reports {
+                assert_eq!(*r, l.report_at(r.t));
+                let changed = (r.link, r.cause) != (last.link, last.cause);
+                let drifted = (r.delay_s - last.delay_s).abs() >= DRIFT_REPORT_S - 1e-6;
+                assert!(changed || drifted, "seed {seed}: {r:?} after {last:?}");
+                last = *r;
+            }
+            // Every window that opens with the link free is reported, with its end.
+            for &(open, close) in l.windows().unwrap() {
+                if open == 0 || open >= LIMIT || l.gap_at(open).is_some() {
+                    continue;
+                }
+                let r = reports.iter().find(|r| r.t == open).expect("the opening");
+                assert_eq!((r.link, r.cause), (Link::Up, CommsCause::Nominal));
+                assert_eq!(r.window_end, Some(close));
+            }
+            // While down between passes the next opening is always known.
+            for r in reports
+                .iter()
+                .filter(|r| r.cause == CommsCause::BetweenPasses)
+            {
+                let back = r.expected_restore.expect("the next window");
+                assert!(back > r.t && l.windows().unwrap().iter().any(|w| w.0 == back));
+            }
+        }
+    }
+
+    #[test]
+    fn a_run_can_start_at_any_time() {
+        let start = SOL_MS * 2 / 3;
+        let limit = start + LIMIT;
+        // Nominal: the delay is `start_delay_s` at the start, wherever that is.
+        let n = EarthLink::generate(3, start, limit, &Params::nominal());
+        assert!(
+            (n.delay_s(start) - 720.0).abs() < 1e-6,
+            "{}",
+            n.delay_s(start)
+        );
+        // No report before the start, and the drift is counted from it.
+        assert!(n.reports().iter().all(|r| r.t > start && r.t < limit));
+        let calm = Params {
+            outage_per_sol: 0.0,
+            ..Params::nominal()
+        };
+        let l = EarthLink::generate(1, start, limit, &calm);
+        let first = l.reports()[0];
+        assert!((first.delay_s - 780.0).abs() < 1e-3, "{first:?}");
+        // No outage begins before the start; the blackout is timed from it.
+        assert!(n.gaps().iter().all(|g| g.start >= start));
+        let c = EarthLink::generate(3, start, limit, &Params::conjunction());
+        let b = c.blackout().expect("a blackout");
+        let into = b.start - start;
+        assert!(
+            (SOL_MS / 100..=3 * SOL_MS / 100).contains(&into),
+            "{into} ms into the run"
+        );
+        // The pass schedule follows the calendar, not the start.
+        let late = EarthLink::generate(4, start, limit, &passes());
+        let early = EarthLink::generate(4, 0, limit, &passes());
+        assert_eq!(late.windows(), early.windows());
     }
 }

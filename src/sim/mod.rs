@@ -138,6 +138,7 @@ fn comms_event(r: &link::Report) -> EventKind {
         cause: r.cause,
         one_way_delay_s: r.delay_s,
         expected_restore_t: r.expected_restore.map(secs),
+        window_end_t: r.window_end.map(secs),
     }
 }
 
@@ -225,14 +226,15 @@ impl Sim {
             mission,
             starts,
         } = generated;
+        let start = ms(scenario.start_t);
         let time_limit = ms(scenario.time_limit_t);
-        let env = Environment::generate(seed, time_limit, &params);
-        let link = EarthLink::generate(seed, time_limit, &params);
+        let env = Environment::generate(seed, start, time_limit, &params);
+        let link = EarthLink::generate(seed, start, time_limit, &params);
         let robots: Vec<RobotRt> = scenario
             .robots
             .iter()
             .zip(starts)
-            .map(|(spec, pos)| RobotRt::new(spec.clone(), pos))
+            .map(|(spec, pos)| RobotRt::new(spec.clone(), pos, start))
             .collect();
         let robot_ix = robots
             .iter()
@@ -269,7 +271,6 @@ impl Sim {
             .collect();
         let grid = Grid::new(&params);
         let tally = Tally::new(robots.len(), grid.bank_wh);
-        let start = ms(scenario.start_t);
         let contact = vec![Contact::default(); robots.len()];
 
         let mut sim = Self {
@@ -325,7 +326,8 @@ impl Sim {
             params,
         };
 
-        for (t, e) in sim.env.schedule(time_limit) {
+        // Nothing is queued before the start: sim time never goes backwards.
+        for (t, e) in sim.env.schedule(start, time_limit) {
             sim.queue.push(t, Ev::Env(e));
         }
         sim.queue.push(time_limit, Ev::TimeLimit);
@@ -388,6 +390,7 @@ impl Sim {
                 .queue
                 .pop()
                 .expect("the time-limit event is always queued");
+            debug_assert!(t >= self.now, "an event at {t} ms, before {} ms", self.now);
             self.now = t;
             self.handle(ev);
             self.refresh_coverage();
@@ -659,6 +662,10 @@ impl Sim {
             status: robot.reported_status(),
             battery_wh: battery.clamp(0.0, robot.spec.battery_capacity_wh),
             payload_kg: robot.payload_kg,
+            // Exact, and only a mobile charger has a tank (semantics §3.1).
+            tank_wh: robot
+                .capability(CapabilityName::Charge)
+                .map(|_| robot.tank_wh),
             current_command: robot.running_command().map(String::from),
             health,
             faults: robot.health.active_faults(),

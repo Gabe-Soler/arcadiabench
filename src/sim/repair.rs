@@ -15,7 +15,119 @@ fn blocked(detail: String) -> StepStart {
     StepStart::Failed(FailReason::Blocked, detail)
 }
 
+/// What a check may know of a robot other than the one commanded
+/// (semantics §4.1): its true state while it is in coverage, and its state
+/// at last contact while it is out of coverage. Acceptance checks, the
+/// duration estimate and the drive toward that robot all read it through
+/// [`Sim::known`], so none of them reveals what the coordinator has not
+/// seen. What the executor finds on arrival is checked against
+/// [`Sim::truth_of`].
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Known {
+    /// Its cell.
+    pub pos: GridCoord,
+    /// The status it reports.
+    pub status: RobotStatus,
+    /// It has a command or is engaged by another robot.
+    pub busy: bool,
+    /// It was cannibalized.
+    pub lost: bool,
+    /// Its battery is empty, whatever its status shows.
+    pub offline: bool,
+    /// It has a disabling fault, whatever its status shows.
+    pub disabled: bool,
+    /// It is stuck, has a fault, or has wear.
+    pub needs_repair: bool,
+    /// Repair work for what the coordinator can see of it: its
+    /// field-repairable faults and whether it is stuck, not its wear.
+    pub visible_repair_units: f64,
+}
+
+/// Repair targets: idle, stuck, failed or offline, with no command, not
+/// engaged, and with something to repair.
+fn repairable(id: &str, target: &Known) -> Result<(), String> {
+    if !matches!(
+        target.status,
+        RobotStatus::Idle | RobotStatus::Stuck | RobotStatus::Failed | RobotStatus::Offline
+    ) {
+        return Err(format!("{id} is {}", status_name(target.status)));
+    }
+    if target.busy {
+        return Err(format!("{id} is busy"));
+    }
+    if !target.needs_repair {
+        return Err(format!("{id} has nothing to repair"));
+    }
+    Ok(())
+}
+
+/// Tow targets: failed, stuck or offline, with no command and not engaged.
+fn towable(id: &str, target: &Known) -> Result<(), String> {
+    if !matches!(
+        target.status,
+        RobotStatus::Failed | RobotStatus::Stuck | RobotStatus::Offline
+    ) {
+        return Err(format!(
+            "{id} is {}; only failed, stuck or offline robots can be towed",
+            status_name(target.status)
+        ));
+    }
+    if target.busy {
+        return Err(format!("{id} is busy"));
+    }
+    Ok(())
+}
+
+/// Cannibalize targets: a disabling fault or an empty battery, whatever the
+/// status shows; not lost, with no command and not engaged.
+fn strippable(id: &str, target: &Known) -> Result<(), String> {
+    if target.lost {
+        return Err(format!("{id} is lost"));
+    }
+    if !(target.disabled || target.offline) {
+        return Err(format!("{id} is neither failed nor offline"));
+    }
+    if target.busy {
+        return Err(format!("{id} is busy"));
+    }
+    Ok(())
+}
+
 impl Sim {
+    /// Robot `t` as it truly is now.
+    pub(crate) fn truth_of(&self, t: usize) -> Known {
+        let robot = &self.robots[t];
+        let visible = Health {
+            wear: [0.0; 6],
+            ..robot.health.clone()
+        };
+        Known {
+            pos: robot.position_at(self.now),
+            status: robot.reported_status(),
+            busy: robot.busy(),
+            lost: robot.lost,
+            offline: robot.offline,
+            disabled: robot.health.has_disabled(),
+            needs_repair: robot.health.needs_repair(),
+            visible_repair_units: visible.repair_units(&self.params),
+        }
+    }
+
+    /// Robot `t` as a check on another robot's command may know it: as it
+    /// is, while it is in coverage; as it was at last contact, while it is
+    /// out of coverage.
+    pub(crate) fn known(&self, t: usize) -> Known {
+        let contact = &self.contact[t];
+        match &contact.seen {
+            Some(seen) if !contact.covered => seen.clone(),
+            _ => self.truth_of(t),
+        }
+    }
+
+    fn id_of(&self, t: usize) -> &str {
+        &self.robots[t].spec.robot_id
+    }
+
     // ----- acceptance -----
 
     /// Whether a disabled robot may still accept this command.
@@ -40,7 +152,7 @@ impl Sim {
     }
 
     /// Already at a charging source: on the station's cell, or within reach
-    /// of a mobile charger.
+    /// of where a mobile charger is known to be.
     pub(crate) fn at_source(&self, r: usize, source: &str) -> bool {
         let pos = self.robots[r].pos;
         if let Some(&st) = self.station_ix.get(source) {
@@ -48,7 +160,7 @@ impl Sim {
         }
         match self.robot_ix.get(source) {
             Some(&c) if c != r && self.robots[c].capability(CapabilityName::Charge).is_some() => {
-                distance_cells(self.robots[c].position_at(self.now), pos) <= REACH_CELLS
+                distance_cells(self.known(c).pos, pos) <= REACH_CELLS
             }
             _ => false,
         }
@@ -65,74 +177,14 @@ impl Sim {
         }
     }
 
-    /// Repair targets: idle, stuck, failed or offline, with no command, not
-    /// engaged, and with something to repair.
-    fn repairable_now(&self, t: usize) -> Result<(), String> {
-        let target = &self.robots[t];
-        let status = target.reported_status();
-        let id = &target.spec.robot_id;
-        if !matches!(
-            status,
-            RobotStatus::Idle | RobotStatus::Stuck | RobotStatus::Failed | RobotStatus::Offline
-        ) {
-            return Err(format!("{id} is {}", status_name(status)));
-        }
-        if target.busy() {
-            return Err(format!("{id} is busy"));
-        }
-        if !target.health.needs_repair() {
-            return Err(format!("{id} has nothing to repair"));
-        }
-        Ok(())
-    }
-
-    /// Tow targets: failed, stuck or offline, with no command and not engaged.
-    fn towable_now(&self, t: usize) -> Result<(), String> {
-        let target = &self.robots[t];
-        let status = target.reported_status();
-        let id = &target.spec.robot_id;
-        if !matches!(
-            status,
-            RobotStatus::Failed | RobotStatus::Stuck | RobotStatus::Offline
-        ) {
-            return Err(format!(
-                "{id} is {}; only failed, stuck or offline robots can be towed",
-                status_name(status)
-            ));
-        }
-        if target.busy() {
-            return Err(format!("{id} is busy"));
-        }
-        Ok(())
-    }
-
-    /// Cannibalize targets: a disabling fault or an empty battery, whatever
-    /// the status shows; not lost, with no command and not engaged.
-    fn strippable_now(&self, t: usize) -> Result<(), String> {
-        let target = &self.robots[t];
-        let id = &target.spec.robot_id;
-        if target.lost {
-            return Err(format!("{id} is lost"));
-        }
-        if !(target.health.has_disabled() || target.offline) {
-            return Err(format!("{id} is neither failed nor offline"));
-        }
-        if target.busy() {
-            return Err(format!("{id} is busy"));
-        }
-        Ok(())
-    }
-
     pub(crate) fn validate_repair(&self, r: usize, target: &str) -> Result<(), Rejection> {
         let t = self.other_robot(r, target)?;
-        self.repairable_now(t)
-            .or_else(|why| reject(RejectReason::InvalidTarget, why))
+        repairable(target, &self.known(t)).or_else(|why| reject(RejectReason::InvalidTarget, why))
     }
 
     pub(crate) fn validate_tow(&self, r: usize, target: &str) -> Result<(), Rejection> {
         let t = self.other_robot(r, target)?;
-        self.towable_now(t)
-            .or_else(|why| reject(RejectReason::InvalidTarget, why))
+        towable(target, &self.known(t)).or_else(|why| reject(RejectReason::InvalidTarget, why))
     }
 
     pub(crate) fn validate_cannibalize(
@@ -142,7 +194,7 @@ impl Sim {
         beneficiary: Option<&str>,
     ) -> Result<(), Rejection> {
         let t = self.other_robot(r, target)?;
-        self.strippable_now(t)
+        strippable(target, &self.known(t))
             .or_else(|why| reject(RejectReason::InvalidTarget, why))?;
         if let Some(b) = beneficiary {
             match self.robot_ix.get(b) {
@@ -153,7 +205,7 @@ impl Sim {
                         "the beneficiary cannot be the robot being stripped",
                     );
                 }
-                Some(&bi) if self.robots[bi].lost => {
+                Some(&bi) if self.known(bi).lost => {
                     return reject(RejectReason::InvalidTarget, format!("{b} is lost"));
                 }
                 _ => {}
@@ -227,9 +279,12 @@ impl Sim {
         }
     }
 
+    // On arrival the executor sees the other robot as it truly is, in
+    // coverage or not: these checks read `truth_of`.
+
     pub(crate) fn begin_repair(&mut self, r: usize, t: usize) -> Result<Timed, StepStart> {
         self.within_reach(r, t)?;
-        self.repairable_now(t).map_err(blocked)?;
+        repairable(self.id_of(t), &self.truth_of(t)).map_err(blocked)?;
         let units = self.robots[t].health.repair_units(&self.params);
         Ok(self.maintenance_work(r, units, Some(t)))
     }
@@ -241,7 +296,7 @@ impl Sim {
         to: GridCoord,
     ) -> Result<Timed, StepStart> {
         self.within_reach(r, t)?;
-        self.towable_now(t).map_err(blocked)?;
+        towable(self.id_of(t), &self.truth_of(t)).map_err(blocked)?;
         let p = &self.params;
         let tower = &self.robots[r];
         let dist_m = distance_cells(self.robots[t].pos, to) * self.terrain.cell_size_m;
@@ -279,7 +334,7 @@ impl Sim {
 
     pub(crate) fn begin_strip(&mut self, r: usize, t: usize) -> Result<Timed, StepStart> {
         self.within_reach(r, t)?;
-        self.strippable_now(t).map_err(blocked)?;
+        strippable(self.id_of(t), &self.truth_of(t)).map_err(blocked)?;
         let units = self.params.strip_units;
         Ok(self.maintenance_work(r, units, Some(t)))
     }
@@ -423,17 +478,6 @@ impl Sim {
             h.stuck = false;
         });
         self.leave_depot(r, depot);
-    }
-
-    /// Work-content estimate for a field repair, from what the coordinator
-    /// can see (faults and stuck), ignoring hidden wear.
-    pub(crate) fn visible_repair_units(&self, t: usize) -> f64 {
-        let h = &self.robots[t].health;
-        let visible = Health {
-            wear: [0.0; 6],
-            ..h.clone()
-        };
-        visible.repair_units(&self.params)
     }
 
     /// Dust exposure weight right now: tau over clear tau.

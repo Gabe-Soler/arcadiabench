@@ -345,8 +345,11 @@ function render(forcePanels = false) {
   $('clock-sub').textContent = `t = ${fmtNumber(Math.round(t - m.t0))} s · ${fmtNumber((t - m.t0) / m.info.solLength, 2)} sols`;
   $('sun').className = `sun${f.clock.daylight ? '' : ' night'}`;
 
+  // The banner is for a link that is down when it should be up: a blackout
+  // or an outage. The gap between two passes is the link's normal rhythm,
+  // and the Earth link panel shows it.
   const banner = $('link-banner');
-  if (f.comms.link === 'down') {
+  if (f.comms.link === 'down' && f.comms.cause !== 'between_passes') {
     banner.hidden = false;
     const back = f.comms.restore ?? (f.comms.until <= m.tEnd ? f.comms.until : null);
     banner.innerHTML = `Earth link down<small>${esc(humanize(f.comms.cause ?? 'unknown cause'))}${back != null ? ` · back in ${esc(fmtDuration(back - t, m.info.solLength))}` : ''}</small>`;

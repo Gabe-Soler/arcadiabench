@@ -117,6 +117,7 @@ Compare headlines between coordinators on the same scenario and seeds. Across pr
 | | `mean_approval_wait_s` | Time spent waiting for Earth's answers, per run. |
 | | `mean_policy_violations` | Level-2 commands without a timely notify, per run. |
 | **Conditions** | `mean_storm_s`, `mean_blackout_s`, `mean_outage_s` | The adversity the runs met, per run. These are context, not merit. |
+| | `mean_between_passes_s` | Time with the Earth link down between pass windows, per run; 0 on a scenario with a continuous link. It is absent from scorecards made from protocol 1.0 logs, which do not record it. |
 
 Statistics that only make sense for a finished pad, such as sols, speed and pad error, are taken over completed runs. Everything else is over all runs, because a coordinator's failures are part of its behaviour.
 

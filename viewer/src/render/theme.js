@@ -27,6 +27,7 @@ const VARS = {
   hover: '--cv-hover',
   bandStorm: '--cv-band-storm',
   bandLink: '--cv-band-link',
+  bandPass: '--cv-band-pass',
   failure: '--cv-failure',
   chartNight: '--cv-chart-night',
   chartStorm: '--cv-chart-storm',

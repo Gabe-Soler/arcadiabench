@@ -14,7 +14,6 @@ use crate::run::DEFAULT_DECISION_TIMEOUT;
 use crate::score::{Report, logs};
 use crate::session::run_session_outcome;
 use crate::sim::params::{Params, Preset, Variant};
-use crate::sim::time::SOL_MS;
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -216,15 +215,15 @@ fn run(a: &Args) -> Result<(), String> {
     if let Some(e) = &outcome.error {
         return Err(e.to_string());
     }
-    let end_t = outcome.report.end_t;
     let r = bench::record(&params, seed, outcome);
     let m = &r.metrics;
+    // Sols since the start of the run, which need not be t = 0.
     println!(
-        "{} {} [{preset}/{variant}]: {:?} at sol {:.2}, speed {} | pad {:.0}% | {} decisions, {} commands | {} faults, {} lost | {} to Earth, {} violations | link down {:.1} h",
+        "{} {} [{preset}/{variant}]: {:?} after {:.2} sols, speed {} | pad {:.0}% | {} decisions, {} commands | {} faults, {} lost | {} to Earth, {} violations | link down {:.1} h",
         r.coordinator.name,
         r.coordinator.version,
         r.reason,
-        end_t / (SOL_MS as f64 / 1000.0),
+        m.sols,
         r.speed.map_or_else(|| "-".into(), |s| format!("{s:.3}")),
         m.quality.cells_in_spec as f64 / m.quality.cells_total.max(1) as f64 * 100.0,
         m.decisions,
@@ -233,7 +232,10 @@ fn run(a: &Args) -> Result<(), String> {
         m.fleet.robots_lost,
         m.autonomy.downlink_messages,
         m.autonomy.policy_violations,
-        (m.conditions.blackout_s + m.conditions.outage_s) / 3600.0
+        (m.conditions.blackout_s
+            + m.conditions.outage_s
+            + m.conditions.between_passes_s.unwrap_or(0.0))
+            / 3600.0
     );
     Ok(())
 }

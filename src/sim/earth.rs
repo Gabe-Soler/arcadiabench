@@ -222,7 +222,9 @@ impl Sim {
                 self.authority.answer(request_id, false, self.now);
             }
             Uplink::PolicyUpdate { policy } => self.policy = policy.clone(),
-            Uplink::Goal { .. } | Uplink::Reprioritize { .. } => {}
+            // `Unknown` is how a reader takes a later version's message;
+            // mission control here never sends one.
+            Uplink::Goal { .. } | Uplink::Reprioritize { .. } | Uplink::Unknown => {}
         }
         self.emit(
             EventKind::EarthMessage {

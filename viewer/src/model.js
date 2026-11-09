@@ -18,7 +18,7 @@ import { DEFAULT_SOL_S, fmtNumber } from './format.js';
 import { LogError } from './parse.js';
 
 /** Protocol MAJOR.MINOR versions this viewer was written against. */
-export const KNOWN_PROTOCOLS = ['0.1', '0.2', '1.0'];
+export const KNOWN_PROTOCOLS = ['0.1', '0.2', '1.0', '1.1'];
 
 /** Statuses in which a robot cannot act. */
 export const DISABLED_STATUSES = new Set(['stuck', 'failed', 'offline', 'being_towed', 'lost']);
@@ -121,13 +121,14 @@ function robotSpec(spec, cellSize) {
     capSpecs: caps,
     main: caps[0]?.name ?? null,
     haulKg: num(cap('haul')?.capacity) ?? 0,
+    tankWh: num(cap('charge')?.capacity),
     relayRange: num(cap('relay')?.range_m),
     known: true,
   };
 }
 
 function newSnaps() {
-  return { t: [], x: [], y: [], status: [], battery: [], payload: [], cmd: [], faults: [], cov: [], telemetry: [], health: [] };
+  return { t: [], x: [], y: [], status: [], battery: [], payload: [], cmd: [], faults: [], cov: [], telemetry: [], health: [], tank: [] };
 }
 
 function pushSnap(s, t, r) {
@@ -144,8 +145,10 @@ function pushSnap(s, t, r) {
     r.in_relay_coverage !== false,
     num(r.telemetry_t),
     r.health && typeof r.health === 'object' ? r.health : null,
+    // A mobile charger's tank, from protocol 1.1.
+    num(r.tank_wh),
   ];
-  const keys = ['t', 'x', 'y', 'status', 'battery', 'payload', 'cmd', 'faults', 'cov', 'telemetry', 'health'];
+  const keys = ['t', 'x', 'y', 'status', 'battery', 'payload', 'cmd', 'faults', 'cov', 'telemetry', 'health', 'tank'];
   if (n > 0 && s.t[n - 1] === t) {
     keys.forEach((k, i) => (s[k][n - 1] = row[i]));
   } else if (n === 0 || t > s.t[n - 1]) {
@@ -633,6 +636,8 @@ export class ReplayModel {
           cause: it.e.cause ?? null,
           delay: num(it.e.one_way_delay_s),
           restore: num(it.e.expected_restore_t),
+          // When the pass window in progress closes, from protocol 1.1.
+          windowEnd: num(it.e.window_end_t),
         });
       }
     }
@@ -649,29 +654,44 @@ export class ReplayModel {
     } else {
       for (const e of events) if (e.delay != null) delay.push(e.t, e.delay);
     }
+    // One interval per stretch of time the link is down for one cause. A
+    // stretch can change cause while it lasts (an outage that gives way to
+    // the blackout, or that ends in a gap between passes): each part keeps
+    // its own cause, and all of them know when the whole stretch began
+    // (`since`) and when the link came back (`until`).
     const down = [];
     let open = null;
+    let stretch = [];
     const openEnd = this.tEnd + 1e-3;
+    const close = (t) => {
+      open.end = t;
+      open.open = false;
+      down.push(open);
+      stretch.push(open);
+      open = null;
+    };
     if (events.length) {
       for (const e of events) {
-        if (e.link === 'down' && !open) open = { start: e.t, end: openEnd, open: true, cause: e.cause, restore: e.restore };
-        else if (e.link === 'down' && open && e.restore != null) open.restore = e.restore;
-        else if (e.link === 'up' && open) {
-          open.end = e.t;
-          open.open = false;
-          down.push(open);
-          open = null;
+        if (e.link === 'down') {
+          if (open && e.cause !== open.cause) close(e.t);
+          if (!open) {
+            open = { start: e.t, end: openEnd, open: true, cause: e.cause, restore: e.restore, since: stretch.length ? stretch[0].since : e.t, until: openEnd };
+          } else if (e.restore != null) open.restore = e.restore;
+        } else if (open) {
+          close(e.t);
+          for (const part of stretch) part.until = e.t;
+          stretch = [];
         }
       }
     } else {
       for (let i = 0; i < siteLink.length; i++) {
         const isDown = siteLink.v[i] === 1;
-        if (isDown && !open) open = { start: siteLink.t[i], end: openEnd, open: true, cause: null, restore: null };
+        const t = siteLink.t[i];
+        if (isDown && !open) open = { start: t, end: openEnd, open: true, cause: null, restore: null, since: t, until: openEnd };
         else if (!isDown && open) {
-          open.end = siteLink.t[i];
-          open.open = false;
-          down.push(open);
-          open = null;
+          close(t);
+          for (const part of stretch) part.until = t;
+          stretch = [];
         }
       }
     }
@@ -774,6 +794,7 @@ export class ReplayModel {
       battery,
       batteryFrac: battery != null && cap ? Math.min(1, Math.max(0, battery / cap)) : null,
       payload: st.payload ?? 0,
+      tank: s.tank[j] ?? null,
       faults: s.faults[j] ?? [],
       inCoverage: s.cov[j] !== false,
       telemetryT: s.telemetry[j],
@@ -836,9 +857,11 @@ export class ReplayModel {
       known: c.events.length > 0 || c.siteLink.length > 0,
       cause: down ? down.cause : ev?.cause ?? null,
       delay,
-      since: down ? down.start : null,
+      since: down ? down.since : null,
       restore: down ? down.restore ?? ev?.restore ?? null : null,
-      until: down ? down.end : null,
+      until: down ? down.until : null,
+      // While up in a pass window: when it is due to close.
+      windowEnd: !down && ev?.link === 'up' && ev.windowEnd != null && ev.windowEnd > t ? ev.windowEnd : null,
     };
   }
 

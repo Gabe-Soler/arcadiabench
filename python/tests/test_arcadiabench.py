@@ -16,7 +16,7 @@ from arcadiabench import Coordinator, CoordinatorError
 
 
 def test_the_package_describes_itself():
-    assert arcadiabench.PROTOCOL_VERSION == "1.0.0"
+    assert arcadiabench.PROTOCOL_VERSION == "1.1.0"
     assert arcadiabench.__version__.count(".") == 2
     # The package's version (python/Cargo.toml) is the simulator's (Cargo.toml).
     assert version("arcadiabench") == arcadiabench.__version__

@@ -1,7 +1,7 @@
 // The timeline scrubber: day/night strip, storm and link-down bands, event
 // markers and the playhead. The static part is drawn once per resize.
 
-import { SUNRISE, SUNSET, solClock, fmtDuration } from '../format.js';
+import { SUNRISE, SUNSET, solClock, fmtDuration, humanize } from '../format.js';
 import { theme } from './theme.js';
 
 const PAD_X = 10;
@@ -111,24 +111,35 @@ export class Timeline {
       if (b > a) ctx.fillRect(a, ROW_DAY[0], b - a, ROW_DAY[1] - ROW_DAY[0]);
     }
 
-    // Bands: dust storms (amber) and Earth link down (red).
-    const band = (items, color, label) => {
+    // Bands: dust storms (amber) and Earth link down (red). The gaps between
+    // two passes are the link's normal rhythm, so they get a faint band and
+    // no label; a blackout or an outage gets the full one.
+    // `labels` gives a band's label, longest first: the first that fits
+    // inside the band is drawn, so a label never spills onto its neighbours.
+    const band = (items, color, labels) => {
       for (const it of items) {
         const a = Math.max(PAD_X, this.xAt(it.start));
         const b = Math.min(this.w - PAD_X, this.xAt(Math.min(it.end, this.t1)));
         ctx.fillStyle = color;
         ctx.fillRect(a, ROW_BAND[0], Math.max(2, b - a), ROW_BAND[1] - ROW_BAND[0]);
-        if (b - a > 60) {
+        if (!labels) continue;
+        ctx.font = `500 9.5px ${theme.font}`;
+        const text = labels(it).find((l) => ctx.measureText(l).width + 8 <= b - a);
+        if (text) {
           ctx.fillStyle = '#fff';
-          ctx.font = `500 9.5px ${theme.font}`;
           ctx.textBaseline = 'middle';
           ctx.textAlign = 'left';
-          ctx.fillText(label(it), a + 4, (ROW_BAND[0] + ROW_BAND[1]) / 2 + 0.5);
+          ctx.fillText(text, a + 4, (ROW_BAND[0] + ROW_BAND[1]) / 2 + 0.5);
         }
       }
     };
-    band(m.weather.storms.items, theme.bandStorm, (s) => `dust storm τ ${s.peakTau.toFixed(1)}`);
-    band(m.comms.down.items, theme.bandLink, (d) => `link down${d.cause ? ` (${d.cause})` : ''}`);
+    band(m.weather.storms.items, theme.bandStorm, (s) => [`dust storm τ ${s.peakTau.toFixed(1)}`, 'dust storm', 'storm']);
+    const betweenPasses = (d) => d.cause === 'between_passes';
+    band(m.comms.down.items.filter(betweenPasses), theme.bandPass, null);
+    band(m.comms.down.items.filter((d) => !betweenPasses(d)), theme.bandLink, (d) => {
+      const cause = d.cause ? humanize(d.cause) : null;
+      return cause ? [`link down (${cause})`, cause] : ['link down'];
+    });
 
     // Markers.
     for (const mk of m.markers) {
@@ -215,7 +226,7 @@ export class Timeline {
     const storm = m.weather.storms.at(t);
     if (storm) lines.push(`dust storm, peak optical depth ${storm.peakTau.toFixed(2)}`);
     const down = m.comms.down.at(t);
-    if (down) lines.push(`Earth link down${down.cause ? ` (${down.cause})` : ''} for ${fmtDuration(down.end - down.start, m.info.solLength)}`);
+    if (down) lines.push(`Earth link down${down.cause ? ` (${humanize(down.cause)})` : ''} for ${fmtDuration(down.end - down.start, m.info.solLength)}`);
     return { t, clock: solClock(t, m.info.solLength).text, lines: lines.slice(0, 6) };
   }
 

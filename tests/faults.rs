@@ -525,6 +525,18 @@ fn offline_robots_charge_only_at_their_source() {
     let after = obs.iter().find(|o| o.t >= mobile).unwrap();
     assert_eq!(robot(after, "sc-1").status, RobotStatus::Idle);
     assert!(robot(after, "sc-1").battery_wh > 900.0);
+    // Only the mobile charger reports a tank: full at the start, and down by
+    // exactly what it gave once the session is over.
+    let first = &obs[0];
+    assert_eq!(robot(first, "hl-1").tank_wh, Some(8000.0));
+    assert!(
+        first
+            .robots
+            .iter()
+            .all(|r| r.tank_wh.is_some() == (r.robot_id == "hl-1"))
+    );
+    let given = 8000.0 - robot(after, "hl-1").tank_wh.expect("a tank");
+    assert!((given - 1000.0).abs() < 1.0, "gave {given} Wh");
     let station = completed(obs, "station").expect("charges at the station after the tow");
     let after = obs.iter().find(|o| o.t >= station).unwrap();
     assert_eq!(robot(after, "cp-1").status, RobotStatus::Idle);

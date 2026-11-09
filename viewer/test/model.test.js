@@ -185,15 +185,17 @@ test('a missing run_end, unknown kinds, newer protocols and disorder are warned 
   assert.equal(m.tEnd, 700);
 });
 
-test('a protocol 1.0 log loads without a version notice, and a newer one gets it', () => {
+test('protocol 1.0 and 1.1 logs load without a version notice, and a newer one gets it', () => {
   const recs = log();
-  recs[0] = runStart({ protocol_version: '1.0.0', simulator: { name: 'arcadiabench', version: '1.0.0' } });
-  const m = modelFromRecords(recs);
-  assert.deepEqual(m.warnings, []);
-  assert.equal(m.info.protocol, '1.0.0');
-  recs[0] = runStart({ protocol_version: '1.1.0' });
+  for (const v of ['1.0.0', '1.1.0']) {
+    recs[0] = runStart({ protocol_version: v, simulator: { name: 'arcadiabench', version: v } });
+    const m = modelFromRecords(recs);
+    assert.deepEqual(m.warnings, [], v);
+    assert.equal(m.info.protocol, v);
+  }
+  recs[0] = runStart({ protocol_version: '1.2.0' });
   assert.deepEqual(modelFromRecords(recs).warnings, [
-    'This log uses protocol 1.1.0; the viewer was written for 0.1, 0.2 and 1.0. Unknown records and fields are ignored.',
+    'This log uses protocol 1.2.0; the viewer was written for 0.1, 0.2, 1.0 and 1.1. Unknown records and fields are ignored.',
   ]);
 });
 

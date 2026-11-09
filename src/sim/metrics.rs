@@ -18,6 +18,8 @@ pub(crate) struct Tally {
     pub decisions: u64,
     pub commands: u64,
     pub commands_rejected: u64,
+    /// Of `commands_rejected`, those rejected `out_of_coverage`.
+    pub out_of_coverage_rejections: u64,
     pub faults: u64,
     pub grid_energy_wh: f64,
     pub min_storage_wh: f64,
@@ -35,6 +37,7 @@ impl Tally {
             decisions: 0,
             commands: 0,
             commands_rejected: 0,
+            out_of_coverage_rejections: 0,
             faults: 0,
             grid_energy_wh: 0.0,
             min_storage_wh: initial_storage_wh,
@@ -152,7 +155,16 @@ impl Sim {
                 storm_s: secs(self.env.storm_ms(self.start, now)),
                 blackout_s: secs(self.link.down_ms(self.start, now, Down::Conjunction)),
                 outage_s: secs(self.link.down_ms(self.start, now, Down::Outage)),
+                between_passes_s: Some(secs(self.link.down_ms(
+                    self.start,
+                    now,
+                    Down::BetweenPasses,
+                ))),
             },
+            coverage: Some(CoverageMetrics {
+                out_of_coverage_rejections: t.out_of_coverage_rejections,
+                lost_link_returns: self.lost_link_returns,
+            }),
         }
     }
 }

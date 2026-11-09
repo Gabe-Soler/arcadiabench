@@ -140,6 +140,9 @@ impl Sim {
 
     fn emit_rejected(&mut self, cmd: &Command, reason: RejectReason, detail: String) {
         self.tally.commands_rejected += 1;
+        if reason == RejectReason::OutOfCoverage {
+            self.tally.out_of_coverage_rejections += 1;
+        }
         self.emit(
             EventKind::CommandRejected {
                 command_id: cmd.command_id.clone(),
@@ -432,7 +435,8 @@ impl Sim {
     }
 
     /// Expected duration of a planned command, from the advertised spec:
-    /// no noise, wear, faults, queueing or grid throttling.
+    /// no noise, wear, faults, queueing or grid throttling. Another robot
+    /// is taken as the coordinator knows it ([`Sim::known`]).
     fn estimate_s(&self, r: usize, steps: &VecDeque<Step>) -> f64 {
         let robot = &self.robots[r];
         let p = &self.params;
@@ -450,7 +454,7 @@ impl Sim {
                     d
                 }
                 Step::TravelToRobot(c) => {
-                    let to = self.robots[*c].position_at(self.now);
+                    let to = self.known(*c).pos;
                     let d = drive(pos, to);
                     pos = to;
                     d
@@ -482,10 +486,10 @@ impl Sim {
                 }
                 Step::Hold => 0.0,
                 Step::Repair { target } => {
-                    (self.visible_repair_units(*target) / repair_rate).max(p.min_work_s)
+                    (self.known(*target).visible_repair_units / repair_rate).max(p.min_work_s)
                 }
                 Step::Tow { target, to } => {
-                    let from = self.robots[*target].position_at(self.now);
+                    let from = self.known(*target).pos;
                     pos = *to;
                     distance_cells(from, *to) * self.terrain.cell_size_m
                         / (robot.spec.max_speed_m_s * p.tow_speed_factor)
@@ -528,8 +532,10 @@ impl Sim {
     }
 
     fn begin_step(&mut self, r: usize, step: Step) -> StepStart {
+        // A drive to another robot heads for where it is known to be when
+        // the drive starts: its last-contact cell if it is out of coverage.
         let step = match step {
-            Step::TravelToRobot(c) => Step::Travel(self.robots[c].position_at(self.now)),
+            Step::TravelToRobot(c) => Step::Travel(self.known(c).pos),
             s => s,
         };
         let timed = match &step {

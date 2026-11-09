@@ -137,6 +137,7 @@ mod tests {
     fn calm_env() -> Environment {
         Environment::generate(
             0,
+            0,
             SOL_MS,
             &Params {
                 storm_chance_per_sol: 0.0,

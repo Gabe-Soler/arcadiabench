@@ -2,6 +2,37 @@
 
 All notable changes to ArcadiaBench. Versions follow semver.
 
+## [Unreleased]
+
+Version 1.1.0, in development. It speaks arcadia-protocol 1.1.0, which does not work with protocol 1.0: use ArcadiaBench 1.0.1 with a 1.0 coordinator.
+
+### Fixed
+
+- **The coverage leak** (semantics §4.1, §8.5; protocol 1.0's "known limitation"). A `repair`, `tow`, `cannibalize` or mobile `charge` that names a robot out of coverage is now checked against that robot's state at last contact, not its true state. The estimate is worked out from that state too, and the executor drives to the cell the robot was last heard in. So a rejection or an estimate no longer tells a coordinator what it has not seen. On arrival the executor finds the robot as it truly is. This changes which commands are accepted in that one case; no pinned run meets it, and every regression fingerprint still matches.
+
+### Changed
+
+- **Protocol 1.1.0.** ArcadiaBench speaks arcadia-protocol 1.1.0. What it simulates on the catalog is unchanged: every regression fingerprint taken on 1.0 still matches once the fields 1.1 adds are cut out of the log.
+  - Every `hello` carries `scenario.constants`: the grade window, the repair and towing costs, the depot's service time, the lost-link timeout and the other constants a coordinator plans with.
+  - A mobile charger's snapshots carry `tank_wh`, the energy left in its tank.
+  - Run metrics carry `coverage` (the commands rejected `out_of_coverage`, and the lost-link returns) and `conditions.between_passes_s`.
+  - The baselines read the minimum work duration and the rock density from the scenario's constants.
+- **Scorecard schema.** `schemas/scorecard.schema.json` refers to the protocol's 1.1.0 schemas, and its `$id` is now `https://raw.githubusercontent.com/Gabe-Soler/arcadiabench/v1.1.0/schemas/scorecard.schema.json`. Two optional fields are new: `end_reasons.other`, for runs that ended for a reason this version does not know, and `conditions.mean_between_passes_s`. Scorecards written by 1.0 are still valid.
+- **Run summary.** `arcadiabench run` reports the sols a run took ("after 0.92 sols") instead of the sol it ended at, and counts the time between passes in "link down".
+- **Replay viewer.**
+  - Protocol 1.1 logs load without a version notice.
+  - A stretch of link down time keeps each of its causes: an outage that gives way to the blackout is shown as an outage, then a blackout. During an outage the link's return is shown as unknown, as it was at the time.
+  - The timeline draws the gaps between passes as a faint band, and a blackout or an outage as the full one. A band's label is shortened to fit inside it.
+  - The Earth link panel says when the pass window in progress closes, and the banner over the map is kept for blackouts and outages.
+  - A mobile charger's details show its charge tank.
+  - The time limit is counted from the start of the run.
+
+### Added
+
+- **Pass windows on the Earth link** (semantics §8.1), off in every scenario of the catalog. With `pass_windows` on, the link is up only during each sol's direct-to-Earth window and relay passes, drawn from their own `passes` stream. Between them it is down with cause `between_passes`; `comms` events carry `window_end_t` while it is up and `expected_restore_t` while it waits for the next pass; messages wait for a pass; and the run metrics split the down time by cause.
+- **Runs that start at any time of the sol.** `start_sols` draws `scenario.start_t` from the `start` stream. The calendar stays put (sunrise, the seasonal storms, the pass windows), and the run is timed from its start: the time limit, the variant's storm front and blackout, the first outage and the delay's epoch. The catalog keeps starting at midnight.
+- **Regression tests.** The baselines' runs on the catalog are fingerprinted, as the test coordinators' already were: 17 runs across the three baselines.
+
 ## [1.0.1] - 2026-11-09
 
 The Python package on PyPI, and the release's renamed repository and restyled viewer.

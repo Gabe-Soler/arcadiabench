@@ -102,7 +102,9 @@ fn the_demo_replays_are_complete_valid_logs() {
         assert!(size <= REPLAY_LIMIT, "{}: {size} bytes", path.display());
         let text = support::gunzip(&path);
         // Every record valid against the protocol's event_log.schema.json,
-        // in time order, ending with a truth record and run_end.
+        // in time order, ending with a truth record and run_end. The
+        // replays were written on protocol 1.0; a minor version only adds,
+        // so they are still valid under the schemas this build carries.
         support::assert_valid_log(&text);
         let first: LogRecord = serde_json::from_str(text.lines().next().unwrap()).unwrap();
         let LogEntry::RunStart {
@@ -114,7 +116,10 @@ fn the_demo_replays_are_complete_valid_logs() {
         else {
             panic!("{}: no run_start", path.display());
         };
-        assert_eq!(protocol_version, PROTOCOL_VERSION);
+        assert_eq!(
+            protocol_version, "1.0.0",
+            "the v1.0 results are protocol 1.0"
+        );
         assert_eq!(coordinator.unwrap().name, "arcadiaos");
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         assert_eq!(format!("{run_id}.jsonl.gz"), name);

@@ -66,6 +66,7 @@ pub(super) fn scorecard(s: &Scorecard) -> String {
         ("fleet_lost", r.fleet_lost),
         ("coordinator_error", r.coordinator_error),
         ("simulator_error", r.simulator_error),
+        ("other", r.other),
     ]
     .into_iter()
     .filter(|&(_, n)| n > 0)
@@ -115,9 +116,14 @@ pub(super) fn scorecard(s: &Scorecard) -> String {
         a.mean_approval_wait_s / 3600.0,
         a.mean_policy_violations
     );
+    // A link with no pass schedule is never between passes: say nothing of it.
+    let between_passes = match k.mean_between_passes_s {
+        Some(s) if s > 0.0 => format!(", between passes {:.1} h", s / 3600.0),
+        _ => String::new(),
+    };
     let _ = writeln!(
         out,
-        "  conditions     storm {:.1} h, blackout {:.1} h, outage {:.1} h per run",
+        "  conditions     storm {:.1} h, blackout {:.1} h, outage {:.1} h{between_passes} per run",
         k.mean_storm_s / 3600.0,
         k.mean_blackout_s / 3600.0,
         k.mean_outage_s / 3600.0

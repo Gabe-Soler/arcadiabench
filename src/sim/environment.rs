@@ -70,7 +70,10 @@ const TEMP_SWING_C: f64 = 30.0;
 const TEMP_RISING_PHASE: f64 = 0.375;
 
 impl Environment {
-    pub fn generate(seed: u64, time_limit: SimMs, p: &Params) -> Self {
+    /// The weather of a run from `start` to `time_limit`. Seasonal storms
+    /// follow the calendar from sol 0, so they depend on the seed alone; the
+    /// `dust_storm` variant's front is timed from the start of the run.
+    pub fn generate(seed: u64, start: SimMs, time_limit: SimMs, p: &Params) -> Self {
         let mut rng = Rng::stream(seed, "weather");
         let mut storms = Vec::new();
         let mut sol = 0;
@@ -90,7 +93,7 @@ impl Environment {
             sol += 1;
         }
         if p.dust_storm {
-            let front = Self::storm_front(seed, p);
+            let front = Self::storm_front(seed, start, p);
             // Seasonal storms that would overlap the front give way to it.
             storms.retain(|s| s.end <= front.start || s.start >= front.end);
             let at = storms.partition_point(|s| s.start < front.start);
@@ -104,13 +107,13 @@ impl Environment {
         }
     }
 
-    /// The `dust_storm` variant's storm: a front arriving early in the run,
-    /// drawn from its own stream.
-    fn storm_front(seed: u64, p: &Params) -> Storm {
+    /// The `dust_storm` variant's storm: a front arriving early in a run that
+    /// starts at `run_start`, drawn from its own stream.
+    fn storm_front(seed: u64, run_start: SimMs, p: &Params) -> Storm {
         let mut rng = Rng::stream(seed, "dust_storm");
         let sol_s = secs(SOL_MS);
         let (s0, s1) = p.dust_storm_start_sols;
-        let start = ms(rng.range(s0, s1) * sol_s);
+        let start = run_start + ms(rng.range(s0, s1) * sol_s);
         let length = ms(rng.range(p.dust_storm_sols.0, p.dust_storm_sols.1) * sol_s).max(2);
         let peak_tau = rng.range(p.dust_storm_peak_tau.0, p.dust_storm_peak_tau.1);
         let rise = ms(p.dust_storm_rise_sols * sol_s).clamp(1, length - 1);
@@ -253,8 +256,9 @@ impl Environment {
         self.clear_tau
     }
 
-    /// Every scheduled environment event up to `until`, in time order.
-    pub fn schedule(&self, until: SimMs) -> Vec<(SimMs, EnvEvent)> {
+    /// Every scheduled environment event in `[from, until)`, in time order.
+    /// A storm under way at `from` has no start event, only what is left of it.
+    pub fn schedule(&self, from: SimMs, until: SimMs) -> Vec<(SimMs, EnvEvent)> {
         let mut out = Vec::new();
         let mut sol = 0;
         while sol * SOL_MS < until {
@@ -282,6 +286,7 @@ impl Environment {
                 out.push((s.end, EnvEvent::StormEnd(i)));
             }
         }
+        out.retain(|&(t, _)| t >= from);
         out.sort_by_key(|&(t, _)| t);
         out
     }
@@ -306,8 +311,11 @@ mod tests {
             storm_chance_per_sol: 0.5,
             ..Params::default()
         };
-        let a = Environment::generate(9, 60 * SOL_MS, &p);
-        assert_eq!(a.storms, Environment::generate(9, 60 * SOL_MS, &p).storms);
+        let a = Environment::generate(9, 0, 60 * SOL_MS, &p);
+        assert_eq!(
+            a.storms,
+            Environment::generate(9, 0, 60 * SOL_MS, &p).storms
+        );
         let s = a
             .storms
             .first()
@@ -322,7 +330,7 @@ mod tests {
         );
         assert!(a.tau(peak) > 1.5);
         assert!(
-            a.schedule(60 * SOL_MS)
+            a.schedule(0, 60 * SOL_MS)
                 .contains(&(peak, EnvEvent::StormPeak(0)))
         );
         assert!(a.transmittance(peak) < 0.5);
@@ -332,7 +340,7 @@ mod tests {
     #[test]
     fn cold_window_matches_the_temperature_curve() {
         let p = Params::default();
-        let env = Environment::generate(1, SOL_MS, &p);
+        let env = Environment::generate(1, 0, SOL_MS, &p);
         // Sampled every minute over two sols, away from the boundaries.
         let mut cold_minutes = 0;
         for i in 0..(2 * SOL_MS / 60_000) {
@@ -357,7 +365,7 @@ mod tests {
 
     #[test]
     fn cold_time_adds_up_and_changes_are_found() {
-        let env = Environment::generate(1, 3 * SOL_MS, &Params::default());
+        let env = Environment::generate(1, 0, 3 * SOL_MS, &Params::default());
         let (a, b, c) = (12_345, SOL_MS + 777, 2 * SOL_MS + 99_999);
         assert_eq!(env.cold_ms(a, b) + env.cold_ms(b, c), env.cold_ms(a, c));
         assert_eq!(env.cold_ms(a, a), 0);
@@ -377,6 +385,7 @@ mod tests {
         assert_eq!(summed, total);
         let never = Environment::generate(
             1,
+            0,
             SOL_MS,
             &Params {
                 heater_threshold_c: -200.0,
@@ -394,7 +403,7 @@ mod tests {
             ..Params::default()
         };
         let limit = 60 * SOL_MS;
-        let env = Environment::generate(9, limit, &p);
+        let env = Environment::generate(9, 0, limit, &p);
         let expected: SimMs = env.storms.iter().map(|s| s.end.min(limit) - s.start).sum();
         assert_eq!(env.storm_ms(0, limit), expected);
         let s = env.storms[0].clone();
@@ -409,8 +418,8 @@ mod tests {
 
     #[test]
     fn schedule_is_sorted_and_has_three_solar_events_per_sol() {
-        let env = Environment::generate(1, 3 * SOL_MS, &Params::default());
-        let sched = env.schedule(3 * SOL_MS);
+        let env = Environment::generate(1, 0, 3 * SOL_MS, &Params::default());
+        let sched = env.schedule(0, 3 * SOL_MS);
         assert!(sched.windows(2).all(|w| w[0].0 <= w[1].0));
         let solar = sched
             .iter()
@@ -424,8 +433,8 @@ mod tests {
         let limit = 60 * SOL_MS;
         let p = Params::dust_storm();
         for seed in 1..=40 {
-            let nominal = Environment::generate(seed, limit, &Params::nominal());
-            let env = Environment::generate(seed, limit, &p);
+            let nominal = Environment::generate(seed, 0, limit, &Params::nominal());
+            let env = Environment::generate(seed, 0, limit, &p);
             let front: Vec<&Storm> = env
                 .storms
                 .iter()
@@ -458,13 +467,47 @@ mod tests {
                 assert_eq!(env.storms.contains(n), clear, "seed {seed}");
             }
             assert!(
-                env.schedule(limit)
+                env.schedule(0, limit)
                     .iter()
                     .any(|&(t, e)| t == s.peak() && matches!(e, EnvEvent::StormPeak(_)))
             );
         }
         // Nominal never draws a front.
-        let env = Environment::generate(3, limit, &Params::nominal());
+        let env = Environment::generate(3, 0, limit, &Params::nominal());
         assert!(env.storms.iter().all(|s| s.front_peak.is_none()));
+    }
+
+    #[test]
+    fn a_run_that_starts_mid_sol_keeps_the_calendar_and_times_its_front_from_the_start() {
+        let (start, limit) = (SOL_MS * 2 / 3, 60 * SOL_MS);
+        // The sky follows the calendar: the seasonal storms are the same.
+        let p = Params {
+            storm_chance_per_sol: 0.5,
+            ..Params::default()
+        };
+        let midnight = Environment::generate(9, 0, limit, &p);
+        let later = Environment::generate(9, start, limit, &p);
+        assert_eq!(later.storms, midnight.storms);
+        // Nothing is scheduled before the run starts; the rest is unchanged.
+        let all = midnight.schedule(0, limit);
+        let from_start = later.schedule(start, limit);
+        assert!(from_start.iter().all(|&(t, _)| t >= start));
+        let expected: Vec<_> = all.iter().copied().filter(|&(t, _)| t >= start).collect();
+        assert_eq!(from_start, expected);
+        assert!(from_start.len() < all.len(), "sol 0's sunrise is past");
+        // The dust storm variant's front arrives that long into the run.
+        let p = Params::dust_storm();
+        let sol = |x: f64| ms(x * secs(SOL_MS));
+        for seed in 1..=10 {
+            let at_midnight = Environment::generate(seed, 0, limit, &p);
+            let front = |e: &Environment| e.storms.iter().find(|s| s.front_peak.is_some()).cloned();
+            let (a, b) = (
+                front(&at_midnight).unwrap(),
+                front(&Environment::generate(seed, start, limit, &p)).unwrap(),
+            );
+            assert_eq!(b.start - start, a.start, "seed {seed}");
+            assert_eq!(b.end - b.start, a.end - a.start);
+            assert!(b.start - start <= sol(p.dust_storm_start_sols.1));
+        }
     }
 }

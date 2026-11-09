@@ -260,7 +260,8 @@ impl Health {
             .filter(|f| f.field_repairable)
             .map(|f| match f.severity {
                 Severity::Degraded => p.repair_units_degraded,
-                Severity::Disabled => p.repair_units_disabled,
+                // The simulator only ever raises the two severities above.
+                Severity::Disabled | Severity::Unknown => p.repair_units_disabled,
             })
             .sum();
         let stuck = if self.stuck {

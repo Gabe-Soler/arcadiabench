@@ -78,6 +78,7 @@
   --cv-hover: rgba(18, 17, 13, .28);
   --cv-band-storm: rgba(217, 130, 43, .85);
   --cv-band-link: rgba(200, 52, 74, .88);
+  --cv-band-pass: rgba(200, 52, 74, .16);
   --cv-failure: #e0661a;
   --cv-chart-night: rgba(70, 90, 130, .08);
   --cv-chart-storm: rgba(217, 130, 43, .14);
@@ -135,6 +136,7 @@
     --cv-hover: rgba(244, 242, 237, .32);
     --cv-band-storm: rgba(224, 149, 74, .8);
     --cv-band-link: rgba(224, 87, 109, .82);
+    --cv-band-pass: rgba(224, 87, 109, .2);
     --cv-failure: #fb923c;
     --cv-chart-night: rgba(130, 150, 200, .1);
     --cv-chart-storm: rgba(224, 149, 74, .16);

@@ -10,7 +10,7 @@ use crate::sim::mission::Mission;
 use crate::sim::params::{Params, Preset, Variant};
 use crate::sim::rng::Rng;
 use crate::sim::terrain::{Terrain, rect_cells};
-use crate::sim::time::{SOL_MS, secs};
+use crate::sim::time::{SOL_MS, ms, secs};
 use arcadia_protocol::*;
 
 pub const SITE_SIZE: u32 = 60;
@@ -113,10 +113,14 @@ pub fn generate(seed: u64, p: &Params) -> Generated {
 
     let robots = presets::crew(p.preset);
     let starts = presets::starts(p.preset);
+    // When the run starts: a seeded time after the midnight at t = 0. The
+    // time limit counts from there. Both are whole milliseconds.
+    let (first, last) = p.start_sols;
+    let start = ms(Rng::stream(seed, "start").range(first, last) * secs(SOL_MS));
     let scenario = Scenario {
         scenario_id: scenario_id(p.preset, p.variant),
-        start_t: 0.0,
-        time_limit_t: secs(TIME_LIMIT_SOLS * SOL_MS),
+        start_t: secs(start),
+        time_limit_t: secs(start + TIME_LIMIT_SOLS * SOL_MS),
         sol_length_s: secs(SOL_MS),
         site: prior,
         robots,
@@ -134,6 +138,7 @@ pub fn generate(seed: u64, p: &Params) -> Generated {
             range_m: p.base_station_range_m,
         },
         policy: default_policy(),
+        constants: Some(constants(p)),
     };
     Generated {
         scenario,
@@ -141,6 +146,34 @@ pub fn generate(seed: u64, p: &Params) -> Generated {
         goal,
         mission,
         starts,
+    }
+}
+
+/// The simulator constants a coordinator plans with (`scenario.constants`,
+/// semantics appendix), from the run's parameters.
+pub fn constants(p: &Params) -> Constants {
+    Constants {
+        grade_window_m: p.grade_max_delta_m,
+        compaction_settlement_m: p.compact_settle_m,
+        min_work_duration_s: p.min_work_s,
+        rock_density_kg_m3: p.rock_density_kg_m3,
+        repair_work_degraded: p.repair_units_degraded,
+        repair_work_disabled: p.repair_units_disabled,
+        repair_work_stuck: p.repair_units_stuck,
+        repair_work_per_wear_removed: p.repair_units_per_wear,
+        repair_wear_removed_fraction: p.repair_wear_cut,
+        strip_work: p.strip_units,
+        install_work: p.install_units,
+        tow_speed_factor: p.tow_speed_factor,
+        tow_energy_factor: p.tow_energy_factor,
+        depot_service_s: p.service_s,
+        // A depot always takes at least one robot (`Sim::begin_service`).
+        depot_capacity: p.depot_capacity.max(1),
+        heater_threshold_c: p.heater_threshold_c,
+        heater_power_factor: p.heater_idle_factor,
+        relay_radio_w: p.relay_radio_w,
+        lost_link_timeout_s: p.lost_link_timeout_s,
+        earth_response_mean_s: p.earth_response_mean_s,
     }
 }
 
@@ -195,6 +228,54 @@ mod tests {
         let prior = a.scenario.site.cells[3 * 60 + 3].cell.elevation_m.unwrap();
         assert_ne!(truth, prior);
         assert!((truth - prior).abs() < 1.5);
+    }
+
+    #[test]
+    fn the_scenario_carries_the_constants_the_simulator_uses() {
+        // What a coordinator had to assume on protocol 1.0 (the semantics'
+        // appendix gives ArcadiaBench 1.0's values) now arrives in `hello`.
+        let c = generate(1, &Params::default())
+            .scenario
+            .constants
+            .expect("a 1.1 simulator always sends its constants");
+        assert_eq!(
+            (
+                c.grade_window_m,
+                c.compaction_settlement_m,
+                c.min_work_duration_s
+            ),
+            (0.15, 0.01, 5.0)
+        );
+        assert_eq!(c.rock_density_kg_m3, 2800.0);
+        assert_eq!(
+            (
+                c.repair_work_degraded,
+                c.repair_work_disabled,
+                c.repair_work_stuck,
+                c.repair_work_per_wear_removed,
+                c.repair_wear_removed_fraction
+            ),
+            (0.25, 1.0, 0.5, 0.3, 0.5)
+        );
+        assert_eq!((c.strip_work, c.install_work), (0.5, 1.0));
+        assert_eq!((c.tow_speed_factor, c.tow_energy_factor), (0.5, 2.0));
+        assert_eq!((c.depot_service_s, c.depot_capacity), (7200.0, 1));
+        assert_eq!((c.heater_threshold_c, c.heater_power_factor), (-60.0, 1.0));
+        assert_eq!((c.relay_radio_w, c.lost_link_timeout_s), (25.0, 1800.0));
+        assert_eq!(c.earth_response_mean_s, 1200.0);
+
+        // They follow the parameters, whatever those are.
+        let p = Params {
+            grade_max_delta_m: 0.2,
+            service_s: 3600.0,
+            depot_capacity: 0,
+            lost_link_timeout_s: 900.0,
+            ..Params::default()
+        };
+        let c = constants(&p);
+        assert_eq!((c.grade_window_m, c.depot_service_s), (0.2, 3600.0));
+        assert_eq!(c.lost_link_timeout_s, 900.0);
+        assert_eq!(c.depot_capacity, 1, "a depot always takes one robot");
     }
 
     #[test]
