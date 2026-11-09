@@ -305,15 +305,37 @@ The conjunction's start is drawn in every variant, before the outages, so the ou
 
 So the link is always up when a blackout ends.
 
+**Pass windows.** With `pass_windows` on, the link is up only during windows and down in the gaps between them, with cause `between_passes` (semantics §8.1). No scenario of the catalog turns it on: its link is continuous.
+
+- Each sol gets one direct-to-Earth window and a few relay passes, drawn from the `passes` stream, so turning them on changes no outage.
+- Windows that overlap or touch are merged.
+- The schedule follows the calendar from sol 0, so it depends on the seed alone, and it runs one sol past the time limit, so there is always a next window to expect.
+- While the link is down its cause is the first that holds of `conjunction`, `outage`, `between_passes`. An outage that ends in a gap leaves the link down, and the cause changes.
+
+| Parameter | Value | Rationale |
+|---|---|---|
+| `pass_windows` | off | A continuous link, as in protocol 1.0. |
+| `dte_start_phase` | sol phase 0.30–0.45 (uniform) | The direct-to-Earth window opens in the morning. |
+| `dte_hours` | 2–3 h (uniform) | One direct session a sol. |
+| `relay_passes_per_sol` | 3–5 (uniform) | Orbiter overflights. |
+| `relay_pass_minutes` | 10–15 min (uniform) | A relay pass is short. |
+
+With these values the link is up for about a tenth of each sol.
+
 **`comms` events.**
 
-- One at t = 0.
+- One at the start of the run.
 - One at every change of link state, including a change of cause while the link stays down.
 - One whenever `d` has drifted 60 s since the previous `comms` event.
 
-Each state change resets the drift baseline, so with outages, pure drift reports are rare; without outages there are four in 60 sols. A link-down event carries `expected_restore_t` for the conjunction (its end), never for an unplanned outage.
+Each state change resets the drift baseline, so with outages, pure drift reports are rare; without outages there are four in 60 sols.
 
-**Delivery.** A message sent at `t` leaves at the first time at or after `t` with the link up, following an outage straight into the blackout if they are back to back. It arrives at that time plus `d` at that time. Both directions use the same schedule. `deliver_t` is that arrival, to the millisecond. It is absent when the arrival would not be before the time limit.
+- A link-down event carries `expected_restore_t` when the link's return is scheduled: the end of the conjunction, or the next window that opens outside it. It never does for an unplanned outage.
+- A link-up event in a pass window carries `window_end_t`: the end of the window, or the start of the conjunction if that comes first.
+
+**Delivery.** A message sent at `t` leaves at the first time at or after `t` with the link up, following an outage straight into the blackout if they are back to back, and waiting for the next pass when there is a schedule. It arrives at that time plus `d` at that time. Both directions use the same schedule. `deliver_t` is that arrival, to the millisecond. It is absent when the arrival would not be before the time limit.
+
+**The start of the run.** A run starts at `scenario.start_t`, drawn from `start_sols` on the `start` stream; the catalog uses (0, 0), so its runs start at the midnight `t = 0`. Whatever the start, the calendar does not move: sunrise, the seasonal storms and the pass windows fall where they would have. What is timed from the start is the run itself: the time limit, the `dust_storm` variant's front, the conjunction's blackout, the first outage, and the delay's epoch.
 
 ## 12. Scripted mission control
 

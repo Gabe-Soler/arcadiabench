@@ -10,7 +10,7 @@ use crate::sim::mission::Mission;
 use crate::sim::params::{Params, Preset, Variant};
 use crate::sim::rng::Rng;
 use crate::sim::terrain::{Terrain, rect_cells};
-use crate::sim::time::{SOL_MS, secs};
+use crate::sim::time::{SOL_MS, ms, secs};
 use arcadia_protocol::*;
 
 pub const SITE_SIZE: u32 = 60;
@@ -113,10 +113,14 @@ pub fn generate(seed: u64, p: &Params) -> Generated {
 
     let robots = presets::crew(p.preset);
     let starts = presets::starts(p.preset);
+    // When the run starts: a seeded time after the midnight at t = 0. The
+    // time limit counts from there. Both are whole milliseconds.
+    let (first, last) = p.start_sols;
+    let start = ms(Rng::stream(seed, "start").range(first, last) * secs(SOL_MS));
     let scenario = Scenario {
         scenario_id: scenario_id(p.preset, p.variant),
-        start_t: 0.0,
-        time_limit_t: secs(TIME_LIMIT_SOLS * SOL_MS),
+        start_t: secs(start),
+        time_limit_t: secs(start + TIME_LIMIT_SOLS * SOL_MS),
         sol_length_s: secs(SOL_MS),
         site: prior,
         robots,

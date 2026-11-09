@@ -13,11 +13,20 @@ Version 1.1.0, in development. It speaks arcadia-protocol 1.1.0, which does not 
   - A mobile charger's snapshots carry `tank_wh`, the energy left in its tank.
   - Run metrics carry `coverage` (the commands rejected `out_of_coverage`, and the lost-link returns) and `conditions.between_passes_s`.
   - The baselines read the minimum work duration and the rock density from the scenario's constants.
-- **Scorecard schema.** `schemas/scorecard.schema.json` refers to the protocol's 1.1.0 schemas, and its `$id` is now `https://raw.githubusercontent.com/Gabe-Soler/arcadiabench/v1.1.0/schemas/scorecard.schema.json`. `end_reasons` gains an optional `other`, for runs that ended for a reason this version does not know. Scorecards written by 1.0 are still valid.
-- **Replay viewer.** Protocol 1.1 logs load without a version notice.
+- **Scorecard schema.** `schemas/scorecard.schema.json` refers to the protocol's 1.1.0 schemas, and its `$id` is now `https://raw.githubusercontent.com/Gabe-Soler/arcadiabench/v1.1.0/schemas/scorecard.schema.json`. Two optional fields are new: `end_reasons.other`, for runs that ended for a reason this version does not know, and `conditions.mean_between_passes_s`. Scorecards written by 1.0 are still valid.
+- **Run summary.** `arcadiabench run` reports the sols a run took ("after 0.92 sols") instead of the sol it ended at, and counts the time between passes in "link down".
+- **Replay viewer.**
+  - Protocol 1.1 logs load without a version notice.
+  - A stretch of link down time keeps each of its causes: an outage that gives way to the blackout is shown as an outage, then a blackout. During an outage the link's return is shown as unknown, as it was at the time.
+  - The timeline draws the gaps between passes as a faint band, and a blackout or an outage as the full one. A band's label is shortened to fit inside it.
+  - The Earth link panel says when the pass window in progress closes, and the banner over the map is kept for blackouts and outages.
+  - A mobile charger's details show its charge tank.
+  - The time limit is counted from the start of the run.
 
 ### Added
 
+- **Pass windows on the Earth link** (semantics §8.1), off in every scenario of the catalog. With `pass_windows` on, the link is up only during each sol's direct-to-Earth window and relay passes, drawn from their own `passes` stream. Between them it is down with cause `between_passes`; `comms` events carry `window_end_t` while it is up and `expected_restore_t` while it waits for the next pass; messages wait for a pass; and the run metrics split the down time by cause.
+- **Runs that start at any time of the sol.** `start_sols` draws `scenario.start_t` from the `start` stream. The calendar stays put (sunrise, the seasonal storms, the pass windows), and the run is timed from its start: the time limit, the variant's storm front and blackout, the first outage and the delay's epoch. The catalog keeps starting at midnight.
 - **Regression tests.** The baselines' runs on the catalog are fingerprinted, as the test coordinators' already were: 17 runs across the three baselines.
 
 ## [1.0.1] - 2026-11-09

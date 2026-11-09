@@ -300,7 +300,9 @@ export class MapView {
       ctx.fillStyle = `rgba(214, 170, 128, ${a})`;
       ctx.fillRect(x0, y0, sw, sh);
     }
-    if (f.comms?.link === 'down') {
+    // The site goes dark for a blackout or an outage. The gap between two
+    // passes is the link's normal rhythm, so the map stays as it is.
+    if (f.comms?.link === 'down' && f.comms.cause !== 'between_passes') {
       ctx.fillStyle = 'rgba(8, 10, 18, 0.5)';
       ctx.fillRect(x0, y0, sw, sh);
       ctx.strokeStyle = 'rgba(200, 60, 80, 0.10)';

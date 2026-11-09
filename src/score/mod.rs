@@ -268,6 +268,10 @@ pub struct Conditions {
     pub mean_storm_s: f64,
     pub mean_blackout_s: f64,
     pub mean_outage_s: f64,
+    /// Time with the link down between pass windows. Absent when the runs
+    /// do not record it, as logs written on protocol 1.0 do not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mean_between_passes_s: Option<f64>,
 }
 
 /// Why runs could not be scored together.
@@ -452,6 +456,10 @@ impl Scorecard {
                 mean_storm_s: all(|m| m.conditions.storm_s),
                 mean_blackout_s: all(|m| m.conditions.blackout_s),
                 mean_outage_s: all(|m| m.conditions.outage_s),
+                mean_between_passes_s: runs
+                    .iter()
+                    .any(|r| r.metrics.conditions.between_passes_s.is_some())
+                    .then(|| all(|m| m.conditions.between_passes_s.unwrap_or(0.0))),
             },
         })
     }

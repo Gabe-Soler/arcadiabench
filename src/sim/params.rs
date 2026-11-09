@@ -21,6 +21,10 @@ pub struct Params {
     /// scenario (`landing-pad-<preset>-<variant>`); a parameter set edited by
     /// hand keeps the name of the variant it started from.
     pub variant: Variant,
+    /// Range of when the run starts, in sols after the local midnight at
+    /// t = 0 (uniform, from the `start` stream). `(0, 0)` starts every run
+    /// at midnight.
+    pub start_sols: (f64, f64),
 
     // --- terrain (Arcadia Planitia: smooth, low rock abundance) ---
     /// Mean surface elevation of the site, m (MOLA datum).
@@ -142,6 +146,18 @@ pub struct Params {
     pub outage_per_sol: f64,
     /// Range of an unplanned outage's length, hours (uniform).
     pub outage_hours: (f64, f64),
+    /// The link runs in pass windows (semantics §8.1): it is up only during
+    /// each sol's direct-to-Earth window and relay passes, drawn from the
+    /// `passes` stream. Off: a continuous link.
+    pub pass_windows: bool,
+    /// Range of when a sol's direct-to-Earth window opens, as a sol phase (uniform).
+    pub dte_start_phase: (f64, f64),
+    /// Range of the direct-to-Earth window's length, hours (uniform).
+    pub dte_hours: (f64, f64),
+    /// Range of the number of relay passes in a sol (uniform, both ends included).
+    pub relay_passes_per_sol: (u32, u32),
+    /// Range of a relay pass's length, minutes (uniform).
+    pub relay_pass_minutes: (f64, f64),
 
     // --- site comms (coverage and relays) ---
     /// Coverage radius of the base station, m.
@@ -346,6 +362,7 @@ impl Params {
         Self {
             preset: Preset::Small,
             variant: Variant::Nominal,
+            start_sols: (0.0, 0.0),
 
             base_elevation_m: -4102.0,
             tilt_sigma: 0.004,
@@ -405,6 +422,13 @@ impl Params {
             conjunction_sols: 14.0,
             outage_per_sol: 0.15,
             outage_hours: (2.0, 8.0),
+            // A continuous link. The pass values below apply only when a
+            // parameter set turns `pass_windows` on.
+            pass_windows: false,
+            dte_start_phase: (0.30, 0.45),
+            dte_hours: (2.0, 3.0),
+            relay_passes_per_sol: (3, 5),
+            relay_pass_minutes: (10.0, 15.0),
 
             base_station_range_m: 33.0,
             relay_radio_w: 25.0,

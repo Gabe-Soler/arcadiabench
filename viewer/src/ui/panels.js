@@ -270,11 +270,19 @@ export class Panels {
     );
     setText($('delay'), c.delay != null ? fmtDuration(c.delay) : '–');
     setText($('link-cause'), c.cause ? humanize(c.cause) : '–');
+    // One row for what the link does next: when it is back, or, in a pass
+    // window, when the window closes.
     const restoreRow = $('restore-row');
+    const label = restoreRow.querySelector('span');
     if (c.link === 'down') {
       restoreRow.hidden = false;
+      setText(label, 'Back');
       const back = c.restore ?? (c.until <= m.tEnd ? c.until : null);
       setText($('restore'), back != null ? `in ${fmtDuration(back - t, m.info.solLength)}` : 'unknown');
+    } else if (c.windowEnd != null) {
+      restoreRow.hidden = false;
+      setText(label, 'Closes');
+      setText($('restore'), `in ${fmtDuration(c.windowEnd - t, m.info.solLength)}`);
     } else {
       restoreRow.hidden = true;
     }
@@ -378,7 +386,9 @@ export class Panels {
         <dt>Status</dt><dd>${esc(humanize(sel.status))}</dd>
         <dt>Position</dt><dd>${fmtCoord({ x: Math.round(sel.x), y: Math.round(sel.y) })}</dd>
         <dt>Battery</dt><dd>${fmtEnergy(sel.battery)}${spec.batteryWh ? ` of ${fmtEnergy(spec.batteryWh)} (${fmtPct(sel.batteryFrac)})` : ''}</dd>
-        <dt>Payload</dt><dd>${spec.haulKg ? `${fmtMass(sel.payload)} of ${fmtMass(spec.haulKg)}` : 'cannot carry'}</dd>
+        <dt>Payload</dt><dd>${spec.haulKg ? `${fmtMass(sel.payload)} of ${fmtMass(spec.haulKg)}` : 'cannot carry'}</dd>${
+          sel.tank != null ? `\n        <dt>Charge tank</dt><dd>${fmtEnergy(sel.tank)}${spec.tankWh ? ` of ${fmtEnergy(spec.tankWh)}` : ''}</dd>` : ''
+        }
         <dt>Command</dt><dd>${cmd ? `${esc(cmd.id)}: ${esc(describeCommand(cmd.cmd))}${cmd.est ? ` (est. ${fmtDuration(cmd.est)})` : ''}` : 'none'}</dd>
         <dt>Capabilities</dt><dd>${esc(spec.caps.join(', ') || '–')}</dd>
         <dt>Top speed</dt><dd>${fmtNumber(spec.speed, 2)} m/s</dd>
@@ -417,7 +427,8 @@ export class Panels {
       ['Run id', i.runId ?? '–'],
       ['Seed', i.seed != null ? String(i.seed) : '–'],
       ['End', m.describeEnd()],
-      ['Time limit', i.timeLimitT != null ? `${fmtNumber(i.timeLimitT / sol, 1)} sols` : null],
+      // Counted from the start of the run, which need not be t = 0.
+      ['Time limit', i.timeLimitT != null ? `${fmtNumber((i.timeLimitT - m.t0) / sol, 1)} sols` : null],
       ['Power system', i.power ? `${humanize(i.power.mode)}: fission ${fmtPower(i.power.fission_w)}, solar ${fmtPower(i.power.solar_peak_w)}, ${fmtEnergy(i.power.storage_capacity_wh)}` : null],
     ])}`;
     const pad = frame.padCounts;

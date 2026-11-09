@@ -155,8 +155,11 @@ impl Sim {
                 storm_s: secs(self.env.storm_ms(self.start, now)),
                 blackout_s: secs(self.link.down_ms(self.start, now, Down::Conjunction)),
                 outage_s: secs(self.link.down_ms(self.start, now, Down::Outage)),
-                // No scenario has a pass schedule yet.
-                between_passes_s: Some(0.0),
+                between_passes_s: Some(secs(self.link.down_ms(
+                    self.start,
+                    now,
+                    Down::BetweenPasses,
+                ))),
             },
             coverage: Some(CoverageMetrics {
                 out_of_coverage_rejections: t.out_of_coverage_rejections,

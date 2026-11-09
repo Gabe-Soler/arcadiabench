@@ -187,7 +187,11 @@
       "properties": {
         "mean_storm_s": { "$ref": "#/$defs/NonNegative" },
         "mean_blackout_s": { "$ref": "#/$defs/NonNegative" },
-        "mean_outage_s": { "$ref": "#/$defs/NonNegative" }
+        "mean_outage_s": { "$ref": "#/$defs/NonNegative" },
+        "mean_between_passes_s": {
+          "description": "Time with the Earth link down between pass windows. Absent when the runs do not record it, as logs written on protocol 1.0 do not.",
+          "$ref": "#/$defs/NonNegative"
+        }
       },
       "required": ["mean_storm_s", "mean_blackout_s", "mean_outage_s"],
       "additionalProperties": false
