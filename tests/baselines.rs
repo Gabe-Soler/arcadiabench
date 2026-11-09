@@ -26,9 +26,93 @@ impl Agent for InProc {
     }
 }
 
+/// Every baseline run this file makes is also pinned: its log after
+/// `run_start` must hash to what ArcadiaBench 1.0.1 produced.
 fn run(how: Allocation, seed: u64, params: &Params) -> (RunReport, String) {
     let (report, text, _) = support::run_raw(InProc(Baseline::new(how)), seed, params);
+    assert_pinned(how, seed, params, &text);
     (report, text)
+}
+
+/// The baselines' runs on catalog 1.0, as ArcadiaBench 1.0.1 produced them
+/// on protocol 1.0.0: (baseline, preset, variant, seed, FNV-1a of the raw
+/// log after `run_start`). A change that alters how a baseline decides, or
+/// what the simulator does with its decisions, moves these.
+const V1_0_RUNS: [(&str, &str, &str, u64, u64); 17] = [
+    // Small has one robot of each design, so random and greedy have no
+    // choice to make and their runs are the same.
+    ("baseline-random", "small", "nominal", 1, 0xe096d5256f8ca920),
+    ("baseline-random", "small", "nominal", 2, 0x793e82326ab6c6e8),
+    ("baseline-random", "small", "nominal", 3, 0xa6f5dfa91f8645e5),
+    ("baseline-greedy", "small", "nominal", 1, 0xe096d5256f8ca920),
+    ("baseline-greedy", "small", "nominal", 2, 0x793e82326ab6c6e8),
+    ("baseline-greedy", "small", "nominal", 3, 0xa6f5dfa91f8645e5),
+    ("baseline-fcfs", "small", "nominal", 1, 0x5bcc015e71fa9213),
+    ("baseline-fcfs", "small", "nominal", 2, 0x84f49358d334dcc3),
+    ("baseline-fcfs", "small", "nominal", 3, 0x6db90207d71b498d),
+    (
+        "baseline-random",
+        "medium",
+        "nominal",
+        5,
+        0xacc7a4ed06395037,
+    ),
+    (
+        "baseline-greedy",
+        "medium",
+        "nominal",
+        5,
+        0x66e54cdbe07faa9a,
+    ),
+    ("baseline-fcfs", "medium", "nominal", 5, 0xc29596775c6d8a88),
+    (
+        "baseline-random",
+        "medium",
+        "nominal",
+        2,
+        0xde77ed36a3dd91cd,
+    ),
+    (
+        "baseline-greedy",
+        "medium",
+        "nominal",
+        2,
+        0x4ccdec15e7d50f28,
+    ),
+    ("baseline-fcfs", "medium", "nominal", 2, 0xaa0bd45b4baafed2),
+    (
+        "baseline-greedy",
+        "small",
+        "cascading_faults",
+        1,
+        0x034060bc9388f5e9,
+    ),
+    (
+        "baseline-greedy",
+        "small",
+        "cascading_faults",
+        2,
+        0xe3f8473ce1714ad9,
+    ),
+];
+
+fn assert_pinned(how: Allocation, seed: u64, params: &Params, text: &str) {
+    let key = (
+        how.name(),
+        params.preset.name(),
+        params.variant.name(),
+        seed,
+    );
+    let pinned = V1_0_RUNS
+        .iter()
+        .find(|r| (r.0, r.1, r.2, r.3) == key)
+        .unwrap_or_else(|| panic!("no fingerprint for {key:?}"))
+        .4;
+    assert_eq!(
+        support::run_fingerprint(text),
+        pinned,
+        "{key:?}: the run is not what 1.0.1 produced"
+    );
 }
 
 #[test]

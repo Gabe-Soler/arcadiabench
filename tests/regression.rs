@@ -33,6 +33,7 @@ use arcadiabench::coordinator::{Agent, InProcess};
 use arcadiabench::log::EventLog;
 use arcadiabench::session::{RunReport, run_session};
 use arcadiabench::sim::params::{Params, Preset, Variant};
+use support::fnv1a;
 
 /// (seed, true_site text, scenario text, weather event texts, number of weather events).
 const WEEK2: [(u64, u64, u64, u64, usize); 5] = [
@@ -72,15 +73,6 @@ const WEEK2: [(u64, u64, u64, u64, usize); 5] = [
         15,
     ),
 ];
-
-fn fnv1a(s: &str) -> u64 {
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in s.bytes() {
-        h ^= u64::from(b);
-        h = h.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    h
-}
 
 /// The raw text between two markers of a log line.
 fn between<'a>(line: &'a str, from: &str, to: &str) -> &'a str {

@@ -76,6 +76,32 @@ pub fn run<A: Agent>(agent: A, seed: u64, params: &Params) -> (RunReport, Vec<Lo
     (report, records, agent)
 }
 
+/// FNV-1a, 64 bits, of raw text. The regression fingerprints hash log text
+/// without parsing it, so they do not depend on how JSON numbers are parsed.
+pub fn fnv1a(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// The fingerprint of a whole run: every record of a raw log after
+/// `run_start`. It carries no software or protocol version, so it pins what
+/// happened in the run and nothing else.
+pub fn run_fingerprint(text: &str) -> u64 {
+    let rest = &text[text.find('\n').expect("a run_start line") + 1..];
+    for key in [
+        "\"protocol_version\"",
+        "\"simulator\":{",
+        "\"coordinator\":{",
+    ] {
+        assert!(!rest.contains(key), "{key} after run_start");
+    }
+    fnv1a(rest)
+}
+
 /// Every record validates against the protocol schemas, the log is in time
 /// order, and it ends with a truth record followed by run_end.
 pub fn assert_valid_log(text: &str) {
