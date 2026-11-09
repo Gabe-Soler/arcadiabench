@@ -313,15 +313,15 @@ fn resilience_never_compares_across_catalogs() {
         for v in [Variant::Nominal].into_iter().chain(Variant::STRESS) {
             runs.push(record("x", v, seed, true, 1.0));
         }
-        // Catalog 1.1: half as fast as its own nominal in a storm, and the
-        // other stress variants not run.
+        // Catalog 1.1, where a build takes weeks: half as fast as its own
+        // nominal in a storm, and the other stress variants not run.
         runs.push(record_on(
             Catalog::V1_1,
             "x",
             Variant::Nominal,
             seed,
             true,
-            2.0,
+            45.0,
         ));
         runs.push(record_on(
             Catalog::V1_1,
@@ -329,7 +329,7 @@ fn resilience_never_compares_across_catalogs() {
             Variant::DustStorm,
             seed,
             true,
-            4.0,
+            90.0,
         ));
     }
     let report = Report::from_runs(&runs).unwrap();
@@ -357,8 +357,12 @@ fn resilience_never_compares_across_catalogs() {
     assert_eq!(old.coordinator, new.coordinator);
     assert_eq!(old.presets[0].dust_storm, Some(1.0));
     assert_eq!(old.resilience, Some(1.0));
-    // Against catalog 1.0's nominal the 1.1 storm would score a quarter.
+    // Its storm is set against its own nominal, not catalog 1.0's.
     assert!((new.presets[0].dust_storm.unwrap() - 0.5).abs() < 1e-12);
+    assert_ne!(
+        new.presets[0].nominal_headline,
+        old.presets[0].nominal_headline
+    );
     assert_eq!(new.presets[0].conjunction, None);
     assert_eq!(new.resilience, None);
     let text = report.render();

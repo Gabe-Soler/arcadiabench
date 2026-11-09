@@ -49,54 +49,116 @@ fn every_scenario_says_a_valid_hello() {
     }
 }
 
-/// A catalog 1.1 log under catalog 1.0's names: only the scenario id, and
-/// the run id made from it, tell the two apart.
-fn renamed_1_0(text: &str) -> String {
-    assert!(text.contains("\"scenario_id\":\"landing-pad-1.1-"));
-    text.replace("landing-pad-1.1-", "landing-pad-")
+#[test]
+fn catalog_1_1_says_what_makes_it_harder() {
+    let c = Catalog::V1_1;
+    for seed in [1, 9] {
+        let mut starts = Vec::new();
+        for preset in Preset::ALL {
+            let h = hello(seed, &Params::scenario(c, preset, Variant::Nominal));
+            let s = &h.scenario;
+            // A hundred sols, from a seeded time of the sol.
+            let limit_sols = (s.time_limit_t - s.start_t) / s.sol_length_s;
+            assert!((limit_sols - 100.0).abs() < 1e-9, "{limit_sols}");
+            assert!(s.start_t > 0.0 && s.start_t < s.sol_length_s);
+            starts.push(s.start_t);
+            // Earth takes hours to answer, so a level-3 request waits a sol.
+            let k = s.constants.as_ref().expect("constants");
+            assert_eq!(s.policy.level3.max_wait_s, s.sol_length_s);
+            assert!(k.earth_response_mean_s >= 4.0 * 3600.0);
+            assert!(k.earth_response_mean_s < s.policy.level3.max_wait_s);
+            // Compaction takes most of the tolerance off a cell.
+            assert_eq!(k.compaction_settlement_m, 0.04);
+            // Six, twelve and twenty robots, half of them sinterers.
+            let sinterers = s
+                .robots
+                .iter()
+                .filter(|r| r.capability(CapabilityName::Sinter).is_some())
+                .count();
+            assert_eq!(2 * sinterers, s.robots.len(), "{preset}");
+            assert!(s.power.fission_w >= 40_000.0);
+        }
+        // The start depends on the seed alone, never on the preset.
+        assert!(starts.windows(2).all(|w| w[0] == w[1]), "{starts:?}");
+    }
+    // Different seeds start at different times of the sol.
+    let start = |seed| hello(seed, &Params::scenario(c, Preset::Small, Variant::Nominal));
+    assert_ne!(start(1).scenario.start_t, start(2).scenario.start_t);
+    // The power variants are other plants, and the stresses are switched on.
+    let p = |v| Params::scenario(c, Preset::Small, v);
+    let nominal = p(Variant::Nominal);
+    assert!(nominal.pass_windows && !nominal.dust_storm && !nominal.conjunction);
+    assert!(p(Variant::DustStorm).dust_storm);
+    assert!(p(Variant::Conjunction).conjunction);
+    assert_eq!(p(Variant::SolarOnly).fission_w, 0.0);
+    assert!(p(Variant::SolarOnly).solar_peak_w > nominal.solar_peak_w);
+    assert!(p(Variant::NuclearHeavy).fission_w > nominal.fission_w);
+    assert!(p(Variant::CascadingFaults).random_fault_per_h > nominal.random_fault_per_h);
+    for v in Variant::ALL {
+        assert_eq!((p(v).catalog, p(v).variant), (c, v));
+    }
 }
 
 #[test]
-fn catalog_1_1_still_carries_catalog_1_0() {
-    // Until catalog 1.1 gets its own values, a run on it is catalog 1.0's
-    // run byte for byte, apart from the id. Every scenario's world and
-    // weather with an idle crew, and whole builds on a few.
-    for preset in Preset::ALL {
-        for variant in Variant::ALL {
-            let old = Params::scenario(Catalog::V1_0, preset, variant);
-            let new = Params::scenario(Catalog::V1_1, preset, variant);
-            assert_eq!(new.catalog, Catalog::V1_1);
-            assert_eq!(
-                Params {
-                    catalog: Catalog::V1_0,
-                    ..new.clone()
-                },
-                old
-            );
-            let (_, a, _) = support::run_raw(support::Idle, 4, &old);
-            let (_, b, _) = support::run_raw(support::Idle, 4, &new);
-            assert!(a == renamed_1_0(&b), "{preset}/{variant}: idle runs differ");
+fn catalog_1_1_runs_to_its_end_with_the_null_coordinator() {
+    let out = support::scratch_dir("catalog-1.1-null");
+    let opts = Options {
+        jobs: std::thread::available_parallelism().map_or(4, |n| n.get()),
+        out: Some(out.clone()),
+        save_logs: true,
+    };
+    let connect = bench::command(vec![NULL.into()], Duration::from_secs(10));
+    let stresses = [Variant::Nominal, Variant::DustStorm, Variant::Conjunction];
+    let result = bench::suite(
+        &connect,
+        Catalog::V1_1,
+        &Preset::ALL,
+        &stresses,
+        &[3],
+        &opts,
+        &|_, _| true,
+    )
+    .unwrap();
+    assert_eq!(result.cells.len(), 9);
+    for cell in &result.cells {
+        let r = &cell.runs[0];
+        let what = format!("{}/{}", cell.preset, cell.variant);
+        assert!(
+            matches!(r.reason, EndReason::FleetLost | EndReason::TimeLimit),
+            "{what}: {:?}",
+            r.reason
+        );
+        assert_eq!((r.metrics.commands, r.score), (0, 0.0), "{what}");
+        assert_eq!(r.error, None);
+        let log = bench::cell_dir(&out, cell.catalog, cell.preset, cell.variant)
+            .join("logs")
+            .join(format!("{}.jsonl.gz", r.run_id));
+        support::assert_valid_log(&support::gunzip(&log));
+        let c = &r.metrics.conditions;
+        // The link runs in pass windows, so it is mostly down between them.
+        let between = c.between_passes_s.expect("a 1.1 run records it");
+        assert!(between > 0.5 * r.metrics.sols * SOL_S, "{what}: {between}");
+        match cell.variant {
+            Variant::DustStorm => assert!(c.storm_s > 10.0 * SOL_S, "{what}: {}", c.storm_s),
+            Variant::Conjunction => {
+                assert!(c.blackout_s > 13.0 * SOL_S, "{what}: {}", c.blackout_s)
+            }
+            _ => assert_eq!(c.blackout_s, 0.0, "{what}"),
         }
     }
-    for (preset, variant, seed) in [
-        (Preset::Small, Variant::Nominal, 1),
-        (Preset::Small, Variant::CascadingFaults, 2),
-        (Preset::Medium, Variant::DustStorm, 3),
-        (Preset::Large, Variant::Conjunction, 4),
-    ] {
-        let run = |catalog| {
-            let p = Params::scenario(catalog, preset, variant);
-            let (report, text, _) = support::run_raw(support::builder::Builder::new(), seed, &p);
-            (report.end_reason, report.metrics, text)
-        };
-        let (old_reason, old_metrics, old) = run(Catalog::V1_0);
-        let (new_reason, new_metrics, new) = run(Catalog::V1_1);
-        assert_eq!(old_reason, new_reason, "{preset}/{variant}");
-        assert_eq!(old_metrics, new_metrics, "{preset}/{variant}");
-        assert!(
-            old == renamed_1_0(&new),
-            "{preset}/{variant}: builds differ"
-        );
+    // The storm and the blackout fall when the seed says, whatever the
+    // preset: idle crews of every size meet the same conditions.
+    for variant in stresses {
+        let met: Vec<(f64, f64)> = result
+            .cells
+            .iter()
+            .filter(|c| c.variant == variant)
+            .map(|c| {
+                let k = &c.runs[0].metrics.conditions;
+                (k.storm_s, k.blackout_s)
+            })
+            .collect();
+        assert!(met.windows(2).all(|w| w[0] == w[1]), "{variant}: {met:?}");
     }
 }
 

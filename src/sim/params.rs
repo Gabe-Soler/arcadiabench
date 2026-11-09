@@ -611,13 +611,174 @@ impl Params {
         }
     }
 
-    /// The parameters of a catalog 1.1 variant, for the Small preset. For
-    /// now they are catalog 1.0's, under the catalog's own name.
-    fn variant_1_1(v: Variant) -> Self {
+    /// Catalog 1.1's default variant on its Small preset. Where a value has a
+    /// published source it is the sourced one, and `docs/simulator.md` (§19)
+    /// gives the citation for every line below; the rest are calibrated so
+    /// that the pad takes weeks, power and the Earth link matter, and a
+    /// careful coordinator still finishes. A field not listed keeps catalog
+    /// 1.0's value.
+    fn nominal_1_1() -> Self {
         Self {
             catalog: Catalog::V1_1,
-            ..Self::variant(v)
+            // A run starts at a seeded time of the sol, and has 100 sols.
+            start_sols: (0.0, 1.0),
+            time_limit_sols: 100.0,
+
+            // Terrain: Bramson 2015 (elevation), Kirk 2008 (1 m slopes of
+            // about 2°), Herkenhoff 2008 (density, cohesion), Golombek 2021
+            // (rock abundance of 2-3%), Macke 2011 (rock density). Ice lies
+            // within a metre of the surface (Dundas 2014).
+            base_elevation_m: -3950.0,
+            noise_octaves: [(16.0, 0.35), (8.0, 0.20), (4.0, 0.12)],
+            regolith_depth_m: (0.1, 1.5),
+            regolith_density_kg_m3: (1150.0, 1600.0),
+            regolith_cohesion_kpa: (0.2, 3.0),
+            boulders_per_cell: 0.5,
+            boulder_alpha: 3.0,
+            rock_density_kg_m3: 3000.0,
+
+            // Actions: Buckles 2022 and Rankin 2021 (how much work and drive
+            // times vary); settlement from loose and compacted densities
+            // (Metzger & Autry 2022).
+            work_duration_sigma: 0.25,
+            travel_duration_sigma: 0.10,
+            min_work_s: 30.0,
+            dig_cut_noise_m: 0.03,
+            grade_noise_m: 0.006,
+            compact_settle_m: 0.04,
+            compact_settle_noise_m: 0.005,
+
+            // Sensing: RIMFAX depth resolution (Hamran 2020); density to
+            // about 10% (Herkenhoff 2008).
+            scan_depth_noise_m: 0.07,
+            scan_density_noise_frac: 0.10,
+
+            // Power: a 40 kWe Fission Surface Power unit (Oleson 2022), with
+            // a 20 kW array and a 200 kWh bank. The outpost's own load is
+            // calibrated at 8 kW, so that a Large crew's sinterers want more
+            // than the plant gives at night.
+            fission_w: 40_000.0,
+            solar_peak_w: 20_000.0,
+            bank_capacity_wh: 200_000.0,
+            essential_load_w: 8_000.0,
+
+            // Dust: Battalio & Wang 2021 (how often and how long), Lemmon
+            // 2015 (opacity), Appelbaum & Flood 1991 (extinction). The
+            // variant's regional storm follows Guzewich 2019 and Wang &
+            // Richardson 2015: it rises over two sols and lasts weeks.
+            storm_chance_per_sol: 0.02,
+            storm_sols: (1.0, 10.0),
+            storm_peak_tau: (1.5, 3.5),
+            dust_extinction: 0.30,
+            dust_storm_start_sols: (0.5, 3.0),
+            dust_storm_rise_sols: 2.0,
+            dust_storm_sols: (15.0, 60.0),
+
+            // Earth link: light time from the real range of distances
+            // (NSSDC), outages from DSN availability (Rankin 2021), and pass
+            // windows instead of a continuous link (Gaines, JPL D-97908).
+            delay_min_s: 182.0,
+            delay_max_s: 1339.0,
+            conjunction_start_sols: (1.0, 4.0),
+            outage_per_sol: 0.03,
+            outage_hours: (1.0, 12.0),
+            pass_windows: true,
+
+            // Site comms: an Electra-Lite class radio.
+            relay_radio_w: 20.0,
+
+            // Mission control answers in hours and changes policy the next
+            // sol (Hazelrig 2025, Rankin 2021). A level-3 request therefore
+            // waits up to a sol before its fallback applies.
+            earth_response_mean_s: 14_400.0,
+            earth_response_sigma: 0.8,
+            trust_incident_free_sols: 10.0,
+            policy_reaction_s: 88_775.0,
+            level3_max_wait_s: 88_775.0,
+
+            // Wear: wheels and drive motors qualified for about 25 km (Rankin
+            // 2021, 2022; VIPER). Tools, joints and batteries are sized for
+            // the hours and energy of a build that lasts weeks: a magnetron
+            // of some 2,000 h (industrial tubes run 5,000 h), and a pack of
+            // 1,000 full cycles (Preger 2020).
+            wear_wheels_per_km: 0.04,
+            wear_drive_motor_per_km: 0.04,
+            wear_tool_per_work_h: 0.0005,
+            wear_joints_per_work_h: 0.0005,
+            wear_joints_per_dust_h: 0.0002,
+            wear_sensors_per_dust_h: 0.0004,
+            wear_battery_per_kwh: 1e-5,
+            wear_speed_loss: 0.1,
+            wear_energy_gain: 0.25,
+
+            // Failures: the random hazard stays at a fault every 125 exposed
+            // hours, between flight rovers and field robots (Carlson & Murphy
+            // 2005, Rankin 2021). Embedding starts at decimetres of loose
+            // regolith (Opportunity at Purgatory).
+            soft_depth_m: 0.3,
+            soft_depth_span_m: 0.5,
+
+            // Health telemetry: Curiosity's mean slip (Rankin 2021).
+            slip_base: 0.06,
+            ..Self::nominal()
         }
+    }
+
+    /// The parameters of a catalog 1.1 variant, for the Small preset.
+    fn variant_1_1(v: Variant) -> Self {
+        let n = Self::nominal_1_1();
+        match v {
+            Variant::Nominal => n,
+            // A severe regional storm whose front arrives in the first sols
+            // of the run and stays for weeks.
+            Variant::DustStorm => Self {
+                dust_storm: true,
+                ..n
+            },
+            // A two-week blackout that begins in the first sols of the run.
+            Variant::Conjunction => Self {
+                conjunction: true,
+                ..n
+            },
+            // Faster wear and far more failures, fewer of them repairable
+            // in the field.
+            Variant::CascadingFaults => Self {
+                wear_wheels_per_km: n.wear_wheels_per_km * 4.0,
+                wear_drive_motor_per_km: n.wear_drive_motor_per_km * 4.0,
+                wear_tool_per_work_h: n.wear_tool_per_work_h * 4.0,
+                wear_joints_per_work_h: n.wear_joints_per_work_h * 4.0,
+                wear_joints_per_dust_h: n.wear_joints_per_dust_h * 4.0,
+                wear_sensors_per_dust_h: n.wear_sensors_per_dust_h * 4.0,
+                wear_battery_per_kwh: n.wear_battery_per_kwh * 4.0,
+                wear_hazard_per_h: n.wear_hazard_per_h * 4.0,
+                random_fault_per_h: n.random_fault_per_h * 5.0,
+                storm_sensor_fault_per_h: n.storm_sensor_fault_per_h * 3.0,
+                stuck_per_km: n.stuck_per_km * 3.0,
+                p_field_repairable: 0.4,
+                ..n
+            },
+            // Arrays and storage only (SAWS: 1000 m² gives about 130 kW).
+            Variant::SolarOnly => Self {
+                power_mode: PowerMode::SolarOnly,
+                fission_w: 0.0,
+                solar_peak_w: 100_000.0,
+                bank_capacity_wh: 400_000.0,
+                ..n
+            },
+            // Two fission units and a small array: the easy variant.
+            Variant::NuclearHeavy => Self {
+                power_mode: PowerMode::NuclearHeavy,
+                fission_w: 80_000.0,
+                solar_peak_w: 5_000.0,
+                bank_capacity_wh: 100_000.0,
+                ..n
+            },
+        }
+        .named(v)
+    }
+
+    fn named(self, variant: Variant) -> Self {
+        Self { variant, ..self }
     }
 
     /// The parameters of a scenario: a catalog's variant, with a preset's

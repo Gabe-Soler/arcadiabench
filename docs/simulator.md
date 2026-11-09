@@ -2,7 +2,7 @@
 
 This document gives the numbers behind the interface. The protocol's [semantics](https://github.com/Gabe-Soler/arcadia-protocol/blob/v1.1.0/docs/semantics.md) (protocol 1.1.0) fix the structure: what happens, in what order, and what a coordinator sees. This document gives the parameter values ArcadiaBench uses and the functional forms they feed. Every parameter lives in [`src/sim/params.rs`](../src/sim/params.rs), with a doc comment on each field; the few fixed constants, such as the daily temperature curve, the 1.5-cell reach between robots and the 60 s of drift between `comms` reports, are given where they apply. The ones a coordinator plans with are sent to it in `scenario.constants`; the semantics' appendix lists them, and the few that no message carries.
 
-All values are placeholders. They are chosen to be physically plausible, to make a 20 m pad buildable in a few sols, and to make faults, comms and Earth's oversight matter without crippling a crew. Sourcing realistic numbers is an open question in the project outline.
+There are two scenario catalogs (§1). Sections 2 to 18 give catalog 1.0's values. Those are placeholders: chosen to be physically plausible, to make a 20 m pad buildable in a few sols, and to make faults, comms and Earth's oversight matter without crippling a crew. Catalog 1.1 replaces them with sourced values where a source exists; §19 lists every one, with its citation.
 
 ## Contents
 
@@ -24,6 +24,7 @@ All values are placeholders. They are chosen to be physically plausible, to make
 16. [Randomness and reproducibility](#16-randomness-and-reproducibility)
 17. [Session limits and the event log](#17-session-limits-and-the-event-log)
 18. [Calibration](#18-calibration)
+19. [Catalog 1.1](#19-catalog-11)
 
 ## 1. The scenario catalog
 
@@ -36,7 +37,7 @@ A scenario is a **preset** (the crew and its outpost) combined with a **variant*
 **Catalogs.** The presets and variants belong to a catalog: a fixed set of robot designs, crews, outposts and parameters. A catalog never changes once it is released, so results on it stay comparable, and a harder one is added beside it.
 
 - **Catalog 1.0** is the one ArcadiaBench 1.0 shipped with, and the default. This document describes it. Its ids are `landing-pad-<preset>-<variant>`, as published.
-- **Catalog 1.1** is being built. Until its own values land it carries catalog 1.0's, under its own ids: `landing-pad-1.1-<preset>-<variant>`. `tests/catalog.rs` checks that its runs are catalog 1.0's byte for byte, apart from the id.
+- **Catalog 1.1** is the harder one, built on sourced rates: crews of 6, 12 and 20, a pad that takes weeks, an Earth link in pass windows and a 100-sol limit. §19 gives its values and their sources. Its ids are `landing-pad-1.1-<preset>-<variant>`. It is being calibrated on `main` and is not final until ArcadiaBench 1.1.0 is released.
 - **Choosing one:** `--catalog 1.0` or `--catalog 1.1` on `run`, `bench` and `suite`, and `catalog=` in Python.
 
 Every scenario has the same site, the same landing-pad goal and the same base station (§15), and a seed gives the same terrain, weather and Earth link in every preset.
@@ -528,3 +529,123 @@ A crew of four working continuously, with no repairs, sees four to six incidents
 Scorecards for these runs, and how to read them, are in [`docs/scoring.md`](scoring.md). The builder's speed is about 0.25 on Small: it works one robot at a time. The baseline coordinators and ArcadiaOS use the whole crew; each of them finishes every seed of every scenario, and [`results/v1.0/RESULTS.md`](../results/v1.0/RESULTS.md) has their scorecards.
 
 Wear-driven faults are rare in short runs and dominate longer ones as wear builds up. Random faults set the floor.
+
+## 19. Catalog 1.1
+
+Catalog 1.1 keeps the site, the goal, the four robot designs and every rule of the simulator. It changes numbers: where a published value exists it is used, and the rest are calibrated around it. The result is a pad that takes weeks, on which night, storms, power, charging, wear and Earth's hours-long answers all fall inside one build. Sections 2 to 18 describe catalog 1.0; this section lists everything catalog 1.1 changes. A parameter not listed here keeps catalog 1.0's value. The catalog is not final until ArcadiaBench 1.1.0 is released.
+
+**Basis** is the source's short name (the list is at the end of this section) or *calibrated*, meaning no meaningful published value exists and the number was chosen so that the catalog behaves as intended.
+
+### Robots
+
+| Design | Mass | Battery | Speed | Idle | Capabilities (rate, energy) | Basis |
+|---|---|---|---|---|---|---|
+| scout `sc` | 90 kg | 1.5 kWh | 0.2 m/s | 15 W | scan 4 m²/s; repair 0.0005 units/s | Speed: VIPER, Perseverance. Idle: Curiosity asleep |
+| excavator `ex` | 420 kg | 6 kWh | 0.1 m/s | 50 W | dig 1.4e-4 m³/s at 500 Wh/m³; grade 0.1 m²/s at 11 Wh/m²; load and dump 0.2 kg/s, 250 kg | RASSOR 2.0 and IPEx scaled by mass; Metzger & Autry |
+| hauler `hl` | 300 kg | 12 kWh | 0.2 m/s | 40 W | load and dump 0.2 kg/s, 400 kg; charge from an 8 kWh tank; relay 150 m | As the excavator |
+| compactor-sinterer `cp` | 900 kg | 100 kWh | 0.1 m/s | 50 W | compact 0.05 m²/s at 4 Wh/m²; sinter 4e-5 m²/s at 37 kWh/m² | Metzger & Autry (microwave sintering, 50% magnetron efficiency). Pack: calibrated |
+
+- **Sintering sets the pace.** One 1 m² cell takes about 7 hours and 37 kWh, drawn when the step starts (§4). The whole pad needs about 15 MWh. In catalog 1.0 a cell took 100 s and 60 Wh.
+- **The pack holds two cells.** A 100 kWh pack sinters two cells and keeps a reserve for wear, faults and the drive back. A step that cannot be paid for empties the pack and takes the robot offline (semantics §7), so a coordinator must count energy before it commits a cell.
+
+### Crews, outposts and the run
+
+| | Small | Medium | Large | Basis |
+|---|---|---|---|---|
+| Crew (`sc`, `ex`, `hl`, `cp`) | 1, 1, 1, 3 | 2, 2, 2, 6 | 3, 4, 3, 10 | Agreed design: at most 20 robots, half of them sinterers |
+| Charge stations, each 2 slots at 20 kW | 1 | 2 | 4 | Calibrated |
+| Reference build time `T_ref` (scoring §1) | 37.5 sols | 18.8 sols | 11.3 sols | The crew's sintering time |
+| Build time, greedy baseline, seeds 1–50 | 55 sols | 28 sols | 18 sols | Measured |
+
+- **Time limit:** 100 sols from the start of the run, for every preset (`time_limit_sols`).
+- **Start:** a seeded time of the sol (`start_sols` (0, 1)), the same for every preset.
+- **Level-3 wait:** one sol (`level3_max_wait_s`), because Earth takes hours to answer.
+
+### Parameters
+
+| Group | Field | 1.0 | 1.1 | Basis |
+|---|---|---|---|---|
+| Terrain | `base_elevation_m` | −4102 | −3950 | Bramson 2015 |
+| | `noise_octaves` amplitudes, m | 0.30, 0.12, 0.04 | 0.35, 0.20, 0.12 | Kirk 2008: slopes of about 2° over 1 m |
+| | `regolith_depth_m` | 0.4–1.5 | 0.1–1.5 | Dundas 2014, Bramson 2015: ice within a metre |
+| | `regolith_density_kg_m3` | 1400–1700 | 1150–1600 | Herkenhoff 2008, Grott 2021 |
+| | `regolith_cohesion_kpa` | 0.5–3.0 | 0.2–3.0 | Herkenhoff 2008 |
+| | `boulders_per_cell`, `boulder_alpha` | 0.06, 2.5 | 0.5, 3.0 | Golombek 2021, at 2–3% rock cover |
+| | `rock_density_kg_m3` | 2800 | 3000 | Macke 2011 |
+| Actions | `work_duration_sigma` | 0.15 | 0.25 | Buckles & Schuler 2022 |
+| | `travel_duration_sigma` | 0.05 | 0.10 | Rankin 2021: slip and stopped drives |
+| | `min_work_s` | 5 | 30 | Calibrated |
+| | `dig_cut_noise_m` | 0.02 | 0.03 | Calibrated |
+| | `compact_settle_m` | 0.01 | 0.04 | Loose and compacted densities (Metzger & Autry) |
+| | `grade_noise_m`, `compact_settle_noise_m` | 0.005, 0.002 | 0.006, 0.005 | Calibrated, so that a build graded with care rarely has to redo a cell for the 2° slope limit |
+| Sensing | `scan_depth_noise_m` | 0.05 | 0.07 | Hamran 2020 (RIMFAX) |
+| | `scan_density_noise_frac` | 0.03 | 0.10 | Herkenhoff 2008 |
+| Power | `fission_w` | 10 kW | 40 kW | Oleson 2022: Fission Surface Power |
+| | `bank_capacity_wh` | 100 kWh | 200 kWh | Calibrated |
+| | `essential_load_w` | 2 kW | 8 kW | Calibrated, so that a Large crew wants more than the plant gives at night |
+| | `solar_only` | 30 kW, 150 kWh | 100 kW, 400 kWh | NASA SAWS: 1000 m² gives about 130 kW |
+| | `nuclear_heavy` | 15 kW, 5 kW solar, 50 kWh | 80 kW, 5 kW solar, 100 kWh | Two fission units |
+| Dust | `storm_chance_per_sol` | 0.03 | 0.02 | Battalio & Wang 2021 |
+| | `storm_sols` | 2–10 | 1–10 | Battalio & Wang 2021 |
+| | `storm_peak_tau` | 2–4 | 1.5–3.5 | Lemmon 2015 |
+| | `dust_extinction` | 0.6 | 0.30 | Appelbaum & Flood 1991; Opportunity 2018 |
+| | `dust_storm` variant: start, rise, length | 0–0.02 sols, 0.03 sols, 4–8 sols | 0.5–3 sols, 2 sols, 15–60 sols | Guzewich 2019, Wang & Richardson 2015. Start: calibrated |
+| Earth link | `delay_min_s`, `delay_max_s` | 240, 1440 | 182, 1339 | NSSDC: 54.6–401.4 million km |
+| | `pass_windows` | off | on: a 2–3 h direct window and 3–5 relay passes of 10–15 min each sol | Gaines (JPL D-97908), Mars Relay Network. Lengths: calibrated |
+| | `outage_per_sol`, `outage_hours` | 0.15, 2–8 | 0.03, 1–12 | Rankin 2021, DSN availability |
+| | `conjunction_start_sols` | 0.01–0.03 | 1–4 | Calibrated: inside every preset's build |
+| Site comms | `relay_radio_w` | 25 | 20 | Electra-Lite |
+| Mission control | `earth_response_mean_s`, `earth_response_sigma` | 1200, 0.5 | 14,400, 0.8 | Hazelrig 2025: plans take hours |
+| | `policy_reaction_s` | 3600 | 88,775 | Rankin 2021: once a sol |
+| | `trust_incident_free_sols` | 2 | 10 | Calibrated |
+| Wear | `wear_wheels_per_km`, `wear_drive_motor_per_km` | 0.08, 0.06 | 0.04, 0.04 | Rankin 2021 and 2022, VIPER: about 25 km |
+| | `wear_tool_per_work_h`, `wear_joints_per_work_h` | 0.02, 0.012 | 0.0005, 0.0005 | Calibrated to builds of weeks: a life of 2,000 h (industrial magnetrons run 5,000 h) |
+| | `wear_joints_per_dust_h`, `wear_sensors_per_dust_h` | 0.004, 0.006 | 0.0002, 0.0004 | Calibrated; Lorenz 2021 for the dust load |
+| | `wear_battery_per_kwh` | 0.006 | 0.00001 | Preger 2020: 1,000 full cycles of the sinterer's pack |
+| | `wear_speed_loss` | 0.3 | 0.1 | Rankin 2022 |
+| | `wear_energy_gain` | 0.15 | 0.25 | Preger 2020: 80% capacity at end of life |
+| Failures | `soft_depth_m`, `soft_depth_span_m` | 0.9, 0.6 | 0.3, 0.5 | Opportunity at Purgatory: embedding at decimetres |
+| Telemetry | `slip_base` | 0.02 | 0.06 | Rankin 2021 |
+
+- **Unchanged on purpose.** The random hazard (a fault per 125 exposed hours), the wear hazard, the chance of getting stuck, the repair and service costs and the heater model keep catalog 1.0's values: the published ranges are wide and contain them. Over a build of weeks they now add up to tens of faults a run.
+- **`cascading_faults`** multiplies the same rates as in catalog 1.0: wear and the wear hazard by 4, random faults by 5, stuck and storm sensor faults by 3, with 40% of disabling faults repairable in the field.
+- **Not modelled.** Seasons, ice-cemented ground below the loose layer, and the colder nights of winter are left for a later catalog.
+
+### What a coordinator must handle
+
+- **Settlement.** Compaction lowers a cell by 4 cm, most of the ±5 cm tolerance. `scenario.constants.compaction_settlement_m` says so, and a cell has to be graded high by that much. A cell found out of tolerance after sintering costs another 37 kWh and 7 hours.
+- **Energy.** Sinterers spend about a fifth of their time charging. A Large crew's ten sinterers want more than the hybrid plant supplies at night, and far more than `solar_only` supplies at any time.
+- **The Earth link** is down between passes for about 21 hours of every sol. A request waits for a pass, Earth takes about 4 hours, and the answer waits for the next pass.
+- **Faults.** A sinterer works about 900 hours on Small, so it meets several random faults and its wear matters by the end. On Small there is one scout to repair them.
+
+### Sources
+
+- Appelbaum, J., Flood, D. J. (1989, updated 1991). Solar radiation on Mars. NASA TM-102299. <https://ntrs.nasa.gov/citations/19890018252>
+- Battalio, M., Wang, H. (2021). The Mars Dust Activity Database. Icarus. <https://earth.yale.edu/sites/default/files/2024-07/publication%206%20Battalio.pdf>
+- Bramson, A. M. et al. (2015). Widespread excess ice in Arcadia Planitia, Mars. GRL. <https://arxiv.org/pdf/1509.03210>
+- Buckles, B. C., Schuler, J. M. (2022). ISRU Pilot Excavator: development of autonomous excavation algorithms. <https://ntrs.nasa.gov/citations/20220005125>
+- Dundas, C. M. et al. (2014). HiRISE observations of new impact craters exposing Martian ground ice. JGR. <https://www.usgs.gov/publications/hirise-observations-new-impact-craters-exposing-martian-ground-ice>
+- Electra-Lite description (NASA). <https://discovery.larc.nasa.gov/PDF_FILES/30Electra-Lite_Description.pdf>
+- Gaines, D. et al. Rover productivity report (JPL D-97908). <https://ai.jpl.nasa.gov/public/documents/papers/gaines-report-roverProductivity.pdf>
+- Golombek, M. et al. (2021). Rock size-frequency distributions at the InSight landing site. Earth and Space Science. <https://authors.library.caltech.edu/records/d1t32-akr32>
+- Grott, M. et al. (2021). Thermal conductivity of the Martian soil at the InSight landing site. JGR. <https://elib.dlr.de/141828>
+- Guzewich, S. D. et al. (2019). Mars Science Laboratory observations of the 2018/Mars Year 34 global dust storm. GRL. <https://ntrs.nasa.gov/api/citations/20190001691/downloads/20190001691.pdf>
+- Hamran, S.-E. et al. (2020). Radar Imager for Mars' Subsurface Experiment: RIMFAX. Space Science Reviews 216:128. <https://link.springer.com/doi/10.1007/s11214-020-00740-4>
+- Hazelrig, J. et al. (2025). Mars 2020 operations systems engineering. <https://ai.jpl.nasa.gov/public/documents/presentations/m2020-5-syseng.pdf>
+- Herkenhoff, K. E. et al. (2008). In situ observations of the physical properties of the Martian surface. <https://zenodo.org/records/840210/files/article.pdf>
+- Kirk, R. L. et al. (2008). Ultrahigh resolution topographic mapping of Mars with MRO HiRISE stereo images. JGR. <https://www.usgs.gov/publications/ultrahigh-resolution-topographic-mapping-mars-mro-hirise-stereo-images-meter-scale>
+- Lemmon, M. T. et al. (2015). Dust aerosol, clouds, and the atmospheric optical depth record over 5 Mars years of the MER mission. Icarus. <https://www.arxiv.org/pdf/1403.4234>
+- Lorenz, R. D. et al. (2021). Lander and rover histories of dust accumulation on and removal from solar arrays. Planetary and Space Science 207:105337.
+- Macke, R. J. et al. (2011). Density, porosity and magnetic susceptibility of Martian meteorites. Meteoritics & Planetary Science. <https://stars.library.ucf.edu/facultybib2010/1608>
+- Metzger, P. T., Autry, G. W. (2022). The cost of lunar landing pads with a trade study of construction methods. New Space. <https://arxiv.org/abs/2205.00378>
+- Mueller, R. P. et al. (2016). Design of an excavation robot: RASSOR 2.0. <https://ntrs.nasa.gov/citations/20210011366>
+- NASA Mars Relay Network. <https://science.nasa.gov/mars/mars-relay-network/>
+- NASA SAWS solar study (2017). <https://ntrs.nasa.gov/api/citations/20170004910/downloads/20170004910.pdf>
+- NSSDC Mars Fact Sheet. <https://nssdc.gsfc.nasa.gov/planetary/factsheet/marsfact.html>
+- Oleson, S. et al. A deployable 40 kWe lunar Fission Surface Power concept. <https://ntrs.nasa.gov/api/citations/20220004670/downloads/40%20kW%20Deployable%20FSP%20Paper_FINAL.pdf>
+- Preger, Y. et al. (2020). Degradation of commercial lithium-ion cells as a function of chemistry and cycling conditions. Journal of the Electrochemical Society. <https://www.osti.gov/pages/servlets/purl/1650174>
+- Rankin, A. et al. (2021). Mars Curiosity rover mobility trends during the first 7 years. Journal of Field Robotics. <https://www-robotics.jpl.nasa.gov/media/documents/ROB-20-0040_R3.pdf>
+- Rankin, A. et al. (2022). Assessing Mars Curiosity rover wheel damage. IEEE Aerospace. <https://www-robotics.jpl.nasa.gov/media/documents/fmwi-rankin-2022-0225-final.pdf>
+- Schuler, J. M. et al. (2024). ISRU Pilot Excavator (IPEx) TRL 5 design overview. ASCEND. <https://ntrs.nasa.gov/api/citations/20240008162/downloads/ASCEND24_IPEx%20TRL%205%20Design%20Overview.pdf>
+- VIPER mobility hardware (NASA, 2024). <https://ntrs.nasa.gov/api/citations/20240013903/downloads/LSIC_2024-Tech%20Infusion_Panel-VIPER_Mob-HW.pdf>
+- Wang, H., Richardson, M. I. (2015). The origin, evolution, and trajectory of large dust storms on Mars. Icarus. <https://lweb.cfa.harvard.edu/~hwang/publication/Wang15_dustseq.pdf>

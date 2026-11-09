@@ -1,7 +1,12 @@
-//! The Standard track presets: Small (4 robots), Medium (10) and Large (20).
-//! Each is a crew with a defined capability mix plus the outpost it works
-//! from. Every preset has the same site and the same landing-pad goal, and
-//! the base station is the same in every one.
+//! The Standard track presets: Small, Medium and Large. Each is a crew with
+//! a defined capability mix plus the outpost it works from. Every preset has
+//! the same site and the same landing-pad goal, and the base station is the
+//! same in every one.
+//!
+//! All of this belongs to a [`Catalog`]: each catalog has its own designs,
+//! crews and station power, and every function here takes the catalog
+//! first. What follows describes catalog 1.0 (4, 10 and 20 robots); the
+//! catalog 1.1 section comes after it.
 //!
 //! - **Four designs.** Every robot is one of the Small crew's four designs,
 //!   with unchanged specs. A rate, a battery or a speed therefore means the
@@ -24,11 +29,19 @@
 //!   keeps the Small station's 3 kW per slot. Everything stands inside the
 //!   base station's coverage. The power plant is the variant's in every
 //!   preset, so a bigger crew must share the same supply.
-
 //!
-//! All of this belongs to a [`Catalog`]: each catalog has its own designs,
-//! crews and outposts, and every function here takes the catalog first.
-//! Catalog 1.1 carries catalog 1.0's until its own values land.
+//! **Catalog 1.1** keeps the four designs, the nesting and the outposts'
+//! layout, and changes the numbers:
+//!
+//! - **Sourced rates.** The designs work at published rates
+//!   (`docs/simulator.md` §19). A square metre takes about seven hours and
+//!   37 kWh to sinter, so the pad takes weeks and sintering is nearly all of
+//!   the work.
+//! - **Crews of 6, 12 and 20,** half of them compactor-sinterers: (1, 1, 1,
+//!   3), (2, 2, 2, 6) and (3, 4, 3, 10) scouts, excavators, haulers and
+//!   compactor-sinterers.
+//! - **Stations at 20 kW a slot,** so a sinterer's 100 kWh pack fills in a
+//!   few hours and the slots can together draw more than the plant supplies.
 
 use crate::scenario::{DEPOT, STATION};
 use crate::sim::params::{Catalog, Preset};
@@ -78,7 +91,58 @@ impl Design {
     /// A robot of this design in `catalog`, with the given id.
     pub fn spec(self, catalog: Catalog, robot_id: &str) -> RobotSpec {
         match catalog {
-            Catalog::V1_0 | Catalog::V1_1 => self.spec_1_0(robot_id),
+            Catalog::V1_0 => self.spec_1_0(robot_id),
+            Catalog::V1_1 => self.spec_1_1(robot_id),
+        }
+    }
+
+    /// Catalog 1.1's design: the same four robots at sourced rates
+    /// (`docs/simulator.md` §19 cites each). Speeds are those of VIPER-class
+    /// rovers. Digging and loading follow RASSOR and IPEx scaled by mass;
+    /// grading, compaction and sintering follow Metzger & Autry's landing-pad
+    /// study. A square metre takes about seven hours and 37 kWh to sinter, so
+    /// the compactor-sinterer carries a pack of two cells' worth.
+    fn spec_1_1(self, robot_id: &str) -> RobotSpec {
+        use CapabilityName::*;
+        match self {
+            Design::Scout => robot(
+                robot_id,
+                self,
+                (90.0, 1500.0, 0.2, 0.2, 15.0),
+                vec![
+                    cap(Scan, 4.0, 0.05, None, Some(10.0)),
+                    cap(Repair, 0.0005, 400.0, None, None),
+                ],
+            ),
+            Design::Excavator => robot(
+                robot_id,
+                self,
+                (420.0, 6000.0, 0.1, 0.9, 50.0),
+                vec![
+                    cap(Dig, 1.4e-4, 500.0, None, None),
+                    cap(Grade, 0.1, 11.0, None, None),
+                    cap(Haul, 0.2, 0.01, Some(250.0), None),
+                ],
+            ),
+            Design::Hauler => robot(
+                robot_id,
+                self,
+                (300.0, 12000.0, 0.2, 0.7, 40.0),
+                vec![
+                    cap(Haul, 0.2, 0.008, Some(400.0), None),
+                    cap(Charge, 0.5, 0.0, Some(8000.0), None),
+                    cap(Relay, 0.0, 0.0, None, Some(150.0)),
+                ],
+            ),
+            Design::CompactorSinterer => robot(
+                robot_id,
+                self,
+                (900.0, 100_000.0, 0.1, 1.0, 50.0),
+                vec![
+                    cap(Compact, 0.05, 4.0, None, None),
+                    cap(Sinter, 4e-5, 37_000.0, None, None),
+                ],
+            ),
         }
     }
 
@@ -131,7 +195,34 @@ impl Design {
 /// The robots each preset adds to the one before it, in crew order.
 fn added(catalog: Catalog, preset: Preset) -> &'static [(Design, u32)] {
     match catalog {
-        Catalog::V1_0 | Catalog::V1_1 => added_1_0(preset),
+        Catalog::V1_0 => added_1_0(preset),
+        Catalog::V1_1 => added_1_1(preset),
+    }
+}
+
+/// Catalog 1.1: 6, 12 and 20 robots. Sintering is nearly all of the work, so
+/// half of every crew sinters.
+fn added_1_1(preset: Preset) -> &'static [(Design, u32)] {
+    use Design::*;
+    match preset {
+        Preset::Small => &[
+            (Scout, 1),
+            (Excavator, 1),
+            (Hauler, 1),
+            (CompactorSinterer, 3),
+        ],
+        Preset::Medium => &[
+            (Scout, 1),
+            (Excavator, 1),
+            (Hauler, 1),
+            (CompactorSinterer, 3),
+        ],
+        Preset::Large => &[
+            (Scout, 1),
+            (Excavator, 2),
+            (Hauler, 1),
+            (CompactorSinterer, 4),
+        ],
     }
 }
 
@@ -216,7 +307,9 @@ pub fn crew_size(catalog: Catalog, preset: Preset) -> u32 {
 /// What a charge station delivers in all, W, over its two slots.
 fn station_power_w(catalog: Catalog) -> f64 {
     match catalog {
-        Catalog::V1_0 | Catalog::V1_1 => 6000.0,
+        Catalog::V1_0 => 6000.0,
+        // 20 kW a slot, so a sinterer's pack fills in a few hours.
+        Catalog::V1_1 => 40_000.0,
     }
 }
 
@@ -336,6 +429,45 @@ mod tests {
             .map(|r| r.robot_id)
             .collect();
         assert_eq!(ids, ["sc-1", "ex-1", "hl-1", "cp-1"]);
+    }
+
+    #[test]
+    fn catalog_1_1_crews_have_the_documented_sizes_and_mixes() {
+        let c = Catalog::V1_1;
+        let counts = |p| mix(c, p).map(|(_, n)| n);
+        assert_eq!(counts(Preset::Small), [1, 1, 1, 3]);
+        assert_eq!(counts(Preset::Medium), [2, 2, 2, 6]);
+        assert_eq!(counts(Preset::Large), [3, 4, 3, 10]);
+        for (p, n) in [
+            (Preset::Small, 6),
+            (Preset::Medium, 12),
+            (Preset::Large, 20),
+        ] {
+            assert_eq!(crew(c, p).len(), n);
+            assert_eq!(starts(c, p).len(), n);
+            for s in stations(c, p) {
+                assert_eq!(s.max_power_w / f64::from(s.slots), 20_000.0);
+            }
+        }
+        let ids: Vec<String> = crew(c, Preset::Small)
+            .into_iter()
+            .map(|r| r.robot_id)
+            .collect();
+        assert_eq!(ids, ["sc-1", "ex-1", "hl-1", "cp-1", "cp-2", "cp-3"]);
+        // A sinterer's pack holds two cells' sintering with room to spare,
+        // and its sinter draws about 5.3 kW.
+        let cp = Design::CompactorSinterer.spec(c, "cp-1");
+        let sinter = cp.capability(CapabilityName::Sinter).unwrap();
+        assert!(cp.battery_capacity_wh > 2.5 * sinter.energy_wh_per_unit);
+        let draw_w = sinter.rate * sinter.energy_wh_per_unit * 3600.0;
+        assert!((draw_w - 5328.0).abs() < 1.0, "{draw_w}");
+        // The same four designs, by model and capabilities, in both catalogs.
+        for d in Design::ALL {
+            let (old, new) = (d.spec(Catalog::V1_0, "x"), d.spec(c, "x"));
+            assert_eq!(old.model, new.model);
+            let names = |r: &RobotSpec| r.capabilities.iter().map(|c| c.name).collect::<Vec<_>>();
+            assert_eq!(names(&old), names(&new));
+        }
     }
 
     #[test]

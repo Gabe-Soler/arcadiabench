@@ -42,8 +42,10 @@ use std::io::{self, BufReader};
 use std::process::ExitCode;
 use world::World;
 
-/// The longest a baseline goes without a decision, s.
-const WAKE_S: f64 = 600.0;
+/// The longest a baseline goes without a decision, s. Events wake it for
+/// everything it acts on; this is only how often it looks at the batteries
+/// of robots that are doing nothing.
+const WAKE_S: f64 = 3600.0;
 /// Pause for a robot after one of its commands is refused, s.
 const BACKOFF_S: f64 = 60.0;
 
@@ -186,12 +188,14 @@ impl Baseline {
         let orders = std::mem::take(&mut crew.orders);
         self.issue(orders, &mut d);
 
-        // Wake for the first back-off to end, if sooner than the usual wake-up.
-        if let Some(world) = &self.world {
+        // Wake for the first back-off or retry to end, if sooner than the
+        // usual wake-up.
+        if let (Some(world), Some(plan)) = (&self.world, &self.plan) {
             let soon = world
                 .robots
                 .iter()
                 .map(|r| r.backoff_until)
+                .chain(plan.timers())
                 .filter(|&b| b > t)
                 .fold(t + WAKE_S, f64::min);
             d.wake_at = Some(soon);

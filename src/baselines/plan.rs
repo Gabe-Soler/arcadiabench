@@ -270,6 +270,8 @@ pub struct Plan {
     surveyed: bool,
     berm_ok: bool,
     recheck_after: f64,
+    /// How far compaction lowers a cell, m (the scenario's constant).
+    settle_m: f64,
 }
 
 /// The pad's cells in sweep order: rows from the corner nearest `from`,
@@ -472,6 +474,7 @@ impl Plan {
             surveyed: false,
             berm_ok: berm_cells.is_empty(),
             recheck_after: 0.0,
+            settle_m: world.settle_m,
         };
         plan.add(Work::Survey(survey));
         plan
@@ -532,6 +535,16 @@ impl Plan {
             }
             None => 0.0,
         }
+    }
+
+    /// When waiting tasks may be tried again, and when the next recheck of a
+    /// pad that looks finished is due.
+    pub fn timers(&self) -> impl Iterator<Item = f64> + '_ {
+        self.tasks
+            .values()
+            .filter(|t| !t.taken)
+            .map(|t| t.not_before)
+            .chain([self.recheck_after])
     }
 
     /// Tasks that can start now, unsorted.
@@ -713,10 +726,12 @@ impl Plan {
                     },
                 )
             }
+            // Graded high by what compaction will take off, so the cell
+            // settles onto the target.
             Work::Grade(c) => (
                 Action::Grade {
                     area: GridRect { min: c, max: c },
-                    target_elevation_m: target,
+                    target_elevation_m: target + self.settle_m,
                 },
                 Hold::None,
             ),
@@ -947,9 +962,9 @@ impl Plan {
             }
             Work::Borrow { .. } => {}
             Work::Fill(c) => self.settle(key(c)),
-            Work::Grade(c) => self.advance(c, target, Stage::Compact, t),
+            Work::Grade(c) => self.advance(c, target + self.settle_m, Stage::Compact, t),
             Work::Compact(c) => {
-                let elev = self.cells.get(&key(c)).map_or(target, |p| p.elev) - 0.01;
+                let elev = self.cells.get(&key(c)).map_or(target, |p| p.elev) - self.settle_m;
                 // A pad that needs no stabilizing is finished once compacted.
                 let next = if self.pad.stabilize {
                     Stage::Sinter

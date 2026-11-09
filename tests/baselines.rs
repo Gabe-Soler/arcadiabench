@@ -27,72 +27,80 @@ impl Agent for InProc {
 }
 
 /// Every baseline run this file makes is also pinned: its log after
-/// `run_start` must hash to what ArcadiaBench 1.0.1 produced.
+/// `run_start` must hash to what these baselines produced when they were
+/// last changed on purpose.
 fn run(how: Allocation, seed: u64, params: &Params) -> (RunReport, String) {
     let (report, text, _) = support::run_raw(InProc(Baseline::new(how)), seed, params);
     assert_pinned(how, seed, params, &text);
     (report, text)
 }
 
-/// The baselines' runs on catalog 1.0, as ArcadiaBench 1.0.1 produced them
-/// on protocol 1.0.0: (baseline, preset, variant, seed, FNV-1a of the raw
-/// log after `run_start`). A change that alters how a baseline decides, or
-/// what the simulator does with its decisions, moves these.
+/// The baselines' runs on catalog 1.0: (baseline, preset, variant, seed,
+/// FNV-1a of the raw log after `run_start`, with what protocol 1.1 adds cut
+/// out). A change that alters how a baseline decides, or what the simulator
+/// does with its decisions, moves these.
+///
+/// They were first taken on ArcadiaBench 1.0.1 and held through the move to
+/// protocol 1.1. They were taken again when 1.1.0 changed the baselines
+/// themselves: a baseline now grades a cell high by the compaction
+/// settlement the scenario states, and wakes hourly and for its own timers
+/// instead of every ten minutes. The simulator's own fingerprints
+/// (`tests/regression.rs`) did not move.
 const V1_0_RUNS: [(&str, &str, &str, u64, u64); 17] = [
     // Small has one robot of each design, so random and greedy have no
     // choice to make and their runs are the same.
-    ("baseline-random", "small", "nominal", 1, 0xe096d5256f8ca920),
-    ("baseline-random", "small", "nominal", 2, 0x793e82326ab6c6e8),
-    ("baseline-random", "small", "nominal", 3, 0xa6f5dfa91f8645e5),
-    ("baseline-greedy", "small", "nominal", 1, 0xe096d5256f8ca920),
-    ("baseline-greedy", "small", "nominal", 2, 0x793e82326ab6c6e8),
-    ("baseline-greedy", "small", "nominal", 3, 0xa6f5dfa91f8645e5),
-    ("baseline-fcfs", "small", "nominal", 1, 0x5bcc015e71fa9213),
-    ("baseline-fcfs", "small", "nominal", 2, 0x84f49358d334dcc3),
-    ("baseline-fcfs", "small", "nominal", 3, 0x6db90207d71b498d),
+    ("baseline-random", "small", "nominal", 1, 0xc7eb8d44112143ee),
+    ("baseline-random", "small", "nominal", 2, 0x4072195b88ded3a8),
+    ("baseline-random", "small", "nominal", 3, 0xf8dd2e024ed35d52),
+    ("baseline-greedy", "small", "nominal", 1, 0xc7eb8d44112143ee),
+    ("baseline-greedy", "small", "nominal", 2, 0x4072195b88ded3a8),
+    ("baseline-greedy", "small", "nominal", 3, 0xf8dd2e024ed35d52),
+    ("baseline-fcfs", "small", "nominal", 1, 0xbb7db7055ee29c13),
+    ("baseline-fcfs", "small", "nominal", 2, 0x6bb993bc4acf213b),
+    ("baseline-fcfs", "small", "nominal", 3, 0xe74130ab1d566a93),
     (
         "baseline-random",
         "medium",
         "nominal",
         5,
-        0xacc7a4ed06395037,
+        0x232d5dc7ccb5c5a0,
     ),
     (
         "baseline-greedy",
         "medium",
         "nominal",
         5,
-        0x66e54cdbe07faa9a,
+        0xd36e24cf1a382264,
     ),
-    ("baseline-fcfs", "medium", "nominal", 5, 0xc29596775c6d8a88),
+    ("baseline-fcfs", "medium", "nominal", 5, 0xccec25422b219b6c),
     (
         "baseline-random",
         "medium",
         "nominal",
         2,
-        0xde77ed36a3dd91cd,
+        0xb0a72cfe061c761b,
     ),
     (
         "baseline-greedy",
         "medium",
         "nominal",
         2,
-        0x4ccdec15e7d50f28,
+        0x58f39873e927d221,
     ),
-    ("baseline-fcfs", "medium", "nominal", 2, 0xaa0bd45b4baafed2),
+    ("baseline-fcfs", "medium", "nominal", 2, 0x08d8e25a4a8aa5e4),
     (
         "baseline-greedy",
         "small",
         "cascading_faults",
         1,
-        0x034060bc9388f5e9,
+        0xad177e033a08b278,
     ),
     (
         "baseline-greedy",
         "small",
         "cascading_faults",
         2,
-        0xe3f8473ce1714ad9,
+        0x210d6a8941d9deb9,
     ),
 ];
 
@@ -111,7 +119,7 @@ fn assert_pinned(how: Allocation, seed: u64, params: &Params, text: &str) {
     assert_eq!(
         support::run_fingerprint(text),
         pinned,
-        "{key:?}: the run is not what 1.0.1 produced"
+        "{key:?}: the run is not the pinned one"
     );
 }
 
