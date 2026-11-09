@@ -2,10 +2,18 @@
 
 All notable changes to ArcadiaBench. Versions follow semver.
 
-## [Unreleased]
+## [1.0.1] - 2026-11-09
+
+The Python package on PyPI, and the release's renamed repository and restyled viewer.
+
+### Added
+
+- **`pip install arcadiabench`.** The Python package is on PyPI: abi3 wheels for CPython 3.9 and later on Linux (x86_64 and aarch64), macOS (universal2) and Windows (x64), and a source distribution for everything else. The new **Python release** workflow builds them on every push that changes the package's sources, installs and tests each on its own platform, and publishes them to PyPI from a version tag, by trusted publishing.
 
 ### Changed
 
+- **Viewer on GitHub Pages.** The Viewer Pages workflow now also runs on every push to `main` that changes `viewer/` or `results/`, so the site follows `main` without a manual run.
+- **Source distribution.** The crate now lists the files it is built from (`include` in `Cargo.toml`), so the Python source distribution carries the simulator's sources and not the results, the viewer or the tests: 175 KB instead of 5.5 MB.
 - **Repository name.** The repository is now `Gabe-Soler/arcadiabench`, and the package metadata and docs link there. The replay viewer's GitHub Pages site follows the name, at `https://gabe-soler.github.io/arcadiabench/`. GitHub still resolves the old `Gabe-Soler/ArcadiaBench` addresses, so the 1.0.0 scorecard schema keeps its `$id`.
 - **Replay viewer.** A new look, light and dark: the system's setting picks one, and the page switches live when it changes, canvases included. Display type is Manrope and text is Inter, controls are pills, panels are soft borderless cards, and blue is kept for the primary action. The start screen is a landing page with the samples as cards. What the viewer shows is unchanged.
 

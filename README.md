@@ -4,7 +4,7 @@ ArcadiaBench: an open, seeded benchmark for coordinating robot crews building on
 
 ArcadiaBench is a fast, headless simulator of a construction site at Arcadia Planitia. Any team can plug in a coordinator and compare results. Coordinators connect through [arcadia-protocol](https://github.com/Gabe-Soler/arcadia-protocol), newline-delimited JSON over stdio, so they can be written in any language. [ArcadiaOS](https://github.com/Gabe-Soler/arcadiaos) is the reference coordinator.
 
-**Version 1.0.0**, speaking arcadia-protocol 1.0.0. A coordinator builds a landing pad end to end while robots wear out, break down and get stuck, on a choice of power systems, with Earth minutes away behind a link that drops out, and authority rules that Earth enforces and updates. Crews come in three sizes, every scenario runs across seeds in parallel, and scorecards rank coordinators by success rate × speed. Three baseline coordinators ship with the benchmark, the [v1.0 results](results/v1.0/RESULTS.md) compare them with ArcadiaOS across the whole catalog, a [replay viewer](viewer/README.md) turns any run into a shareable visual demo, and Python researchers can drive it all through the [`arcadiabench` package](python/README.md).
+**Version 1.0.1**, speaking arcadia-protocol 1.0.0. A coordinator builds a landing pad end to end while robots wear out, break down and get stuck, on a choice of power systems, with Earth minutes away behind a link that drops out, and authority rules that Earth enforces and updates. Crews come in three sizes, every scenario runs across seeds in parallel, and scorecards rank coordinators by success rate × speed. Three baseline coordinators ship with the benchmark, the [v1.0 results](results/v1.0/RESULTS.md) compare them with ArcadiaOS across the whole catalog, a [replay viewer](viewer/README.md) turns any run into a shareable visual demo, and Python researchers can drive it all through the [`arcadiabench` package](python/README.md).
 
 ## Quickstart
 
@@ -192,9 +192,15 @@ python3 -m http.server 8000
 # then open http://localhost:8000/viewer/?log=../results/v1.0/replays/landing-pad-large-nominal-1.jsonl.gz
 ```
 
-Any log saved with `--log`, or with `--save-logs` in a batch, opens the same way, or from the page's **Open log** button. The **Viewer Pages** workflow publishes the viewer and the results to GitHub Pages.
+Any log saved with `--log`, or with `--save-logs` in a batch, opens the same way, or from the page's **Open log** button. The **Viewer Pages** workflow publishes the viewer and the results to GitHub Pages whenever either changes on `main`.
 
 ## Python
+
+```sh
+pip install arcadiabench
+```
+
+Wheels cover CPython 3.9 and later on Linux (x86_64 and aarch64), macOS (Intel and Apple silicon) and Windows (x64); elsewhere pip builds the package from source, which needs Rust.
 
 ```python
 import arcadiabench
@@ -240,7 +246,7 @@ cd python && ~/.local/bin/uv venv .venv && ~/.local/bin/uv pip install --python 
 .venv/bin/maturin develop --uv --release && .venv/bin/python -m pytest
 ```
 
-CI runs all of these on every push and pull request.
+CI runs all of these on every push and pull request. The **Python release** workflow (`.github/workflows/release-python.yml`) builds the wheels and the source distribution on every push that changes the package's sources, and installs and tests each on its own platform; a pushed `v*` tag that matches the version also publishes them to PyPI.
 
 The baselines are the proof that the default parameters make the mission buildable: each of them finishes all 50 seeds of every scenario in the catalog. `tests/support/builder.rs` is an older, naive scripted coordinator that builds the pad one task at a time, in about 2 sols, using only what it observes and repairing, towing, servicing and recharging robots as faults strike. The regression tests pin its runs. With faults turned off it takes about 1.7 sols.
 

@@ -1,6 +1,6 @@
 [package]
 name = "arcadiabench-python"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 description = "Python bindings for ArcadiaBench (the native module of the arcadiabench package)."
 license = "MIT"

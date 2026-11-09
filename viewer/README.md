@@ -117,7 +117,7 @@ The tests cover parsing (including gzip, chunk boundaries and bad input), the mo
 
 The page is static, so publishing `viewer/` to any static host works, with logs alongside it or anywhere that allows cross-origin requests.
 
-For GitHub Pages, run the **Viewer Pages** workflow (`.github/workflows/pages.yml`) by hand from the Actions tab; it never runs on push. The repository's Pages source must be set to GitHub Actions. The workflow runs the tests, then publishes a site that keeps the repository's paths:
+For GitHub Pages, the **Viewer Pages** workflow (`.github/workflows/pages.yml`) runs on every push to `main` that changes `viewer/`, `results/` or the workflow itself, and can also be run by hand from the Actions tab. The repository's Pages source must be set to GitHub Actions. The workflow runs the tests, then publishes a site that keeps the repository's paths:
 
 - `viewer/` (without its tests), with the samples;
 - `results/`, when the repository has it, such as the replays in `results/v1.0/replays/`;
