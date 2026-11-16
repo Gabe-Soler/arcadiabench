@@ -8,15 +8,21 @@
 //! - `--crew FILE` on any of the three: the fleet design track, with a crew
 //!   of the coordinator's own in place of a preset.
 //! - `score`: scorecards and resilience from saved event logs.
+//! - `scenario`: the `hello` a coordinator would get, and the goal, without
+//!   running anything: what a crew designer needs to know.
+//! - `crew`: whether a crew file may enter the fleet design track.
 
 use crate::bench::{self, LogFile, Options};
 use crate::coordinator::CoordinatorProcess;
 use crate::log::EventLog;
 use crate::presets;
 use crate::run::DEFAULT_DECISION_TIMEOUT;
+use crate::scenario;
 use crate::score::{Report, logs};
-use crate::session::run_session_outcome;
+use crate::session::{self, run_session_outcome};
 use crate::sim::params::{Catalog, CrewMix, Lineup, Params, Preset, Variant};
+use arcadia_protocol::SimToCoordinator;
+use arcadia_protocol::wire::{self, WireError};
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -33,6 +39,14 @@ usage:
                      [--seeds LIST] [--jobs N] [--out DIR] [--save-logs]
                      [--decision-timeout SECS] -- <coordinator> [args...]
   arcadiabench score [--json] <log, metrics.jsonl or directory>...
+  arcadiabench scenario [--seed N] [--catalog C] [--preset P | --crew FILE]
+                     [--variant V] [--goal]
+  arcadiabench crew  [--catalog C] <crew file>...
+
+  scenario runs nothing: it prints the hello message a coordinator would get,
+  as one line of JSON, and with --goal the goal Earth sends at the start as a
+  second line. crew says whether each crew file may enter the fleet design
+  track, with its robots and its mass against the budget.
 
   catalog   1.1 (default), 1.0
   presets   small, medium, large (default small; suite: all)
@@ -64,6 +78,7 @@ struct Args {
     jobs: Option<usize>,
     save_logs: bool,
     json: bool,
+    goal: bool,
     timeout: Option<Duration>,
     paths: Vec<PathBuf>,
     coordinator: Vec<String>,
@@ -76,7 +91,7 @@ fn list<T: std::str::FromStr<Err = String>>(v: &str) -> Result<Vec<T>, String> {
 fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let mut argv = args.into_iter();
     let command = match argv.next().as_deref() {
-        Some(c @ ("run" | "bench" | "suite" | "score")) => c.to_string(),
+        Some(c @ ("run" | "bench" | "suite" | "score" | "scenario" | "crew")) => c.to_string(),
         Some("-h" | "--help") | None => return Err(USAGE.into()),
         Some(other) => return Err(format!("unknown command '{other}'\n{USAGE}")),
     };
@@ -116,14 +131,26 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             "--save-logs",
             "--decision-timeout",
         ],
+        "scenario" => &[
+            "--seed",
+            "--catalog",
+            "--preset",
+            "--crew",
+            "--variant",
+            "--goal",
+        ],
+        "crew" => &["--catalog"],
         _ => &["--json"],
     };
+    // Commands that take files to read, and none that launch a coordinator.
+    let reads_files = matches!(a.command.as_str(), "score" | "crew");
+    let launches = !reads_files && a.command != "scenario";
     while let Some(arg) = argv.next() {
-        if arg == "--" && a.command != "score" {
+        if arg == "--" && launches {
             a.coordinator = argv.by_ref().collect();
             break;
         }
-        if !arg.starts_with("--") && a.command == "score" {
+        if !arg.starts_with("--") && reads_files {
             a.paths.push(arg.into());
             continue;
         }
@@ -156,6 +183,7 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             }
             "--save-logs" => a.save_logs = true,
             "--json" => a.json = true,
+            "--goal" => a.goal = true,
             "--decision-timeout" => {
                 let v = value()?;
                 let s: f64 = v.parse().map_err(|_| format!("bad timeout '{v}'"))?;
@@ -171,7 +199,11 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         if a.paths.is_empty() {
             return Err(format!("score needs logs or directories\n{USAGE}"));
         }
-    } else if a.coordinator.is_empty() {
+    } else if a.command == "crew" {
+        if a.paths.is_empty() {
+            return Err(format!("crew needs a crew file\n{USAGE}"));
+        }
+    } else if launches && a.coordinator.is_empty() {
         return Err(format!("missing coordinator command\n{USAGE}"));
     }
     if a.crew.is_some() && a.presets.is_some() {
@@ -196,6 +228,8 @@ pub fn main(args: impl IntoIterator<Item = String>) -> u8 {
         "run" => run(&a),
         "bench" => batch(&a, false),
         "suite" => batch(&a, true),
+        "scenario" => print_scenario(&a, &mut io::stdout().lock()),
+        "crew" => check_crews(&a, &mut io::stdout().lock()),
         _ => score(&a),
     };
     match result {
@@ -261,6 +295,51 @@ fn lineup(a: &Args, catalog: Catalog) -> Result<Lineup, String> {
         Some(path) => Lineup::Crew(read_crew(path, catalog)?),
         None => Lineup::Preset(one(&a.presets)),
     })
+}
+
+/// `scenario`: the `hello` a coordinator would get for this scenario and
+/// seed, as one line of JSON, and with `--goal` the goal Earth sends at the
+/// start as a second. Nothing runs.
+fn print_scenario(a: &Args, out: &mut impl Write) -> Result<(), String> {
+    let catalog = a.catalog.unwrap_or(Catalog::DEFAULT);
+    let params = Params::lineup(catalog, lineup(a, catalog)?, one(&a.variants));
+    let seed = a.seed.unwrap_or(0);
+    let hello = SimToCoordinator::Hello(Box::new(session::hello(seed, &params)));
+    let mut lines = wire::send(out, &hello);
+    if a.goal && lines.is_ok() {
+        lines = wire::send(out, &scenario::generate(seed, &params).goal);
+    }
+    match lines {
+        // A reader that has seen enough, as in `| head -c 300`.
+        Err(WireError::Io(e)) if e.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+        other => other.map_err(|e| format!("cannot write: {e}")),
+    }
+}
+
+/// `crew`: each crew file's robots and mass against the catalog's rules.
+/// Fails if any may not enter the fleet design track, after reporting all.
+fn check_crews(a: &Args, out: &mut impl Write) -> Result<(), String> {
+    let catalog = a.catalog.unwrap_or(Catalog::DEFAULT);
+    let mut refused = Vec::new();
+    for path in &a.paths {
+        match read_crew(path, catalog) {
+            Ok(crew) => writeln!(
+                out,
+                "{}: crew {crew}, {} robots, {:.0} kg of the {:.0} kg catalog {catalog} allows",
+                path.display(),
+                crew.total(),
+                presets::crew_mass_kg(catalog, crew),
+                presets::mass_budget_kg(catalog)
+            )
+            .map_err(|e| format!("cannot write: {e}"))?,
+            Err(e) => refused.push(e),
+        }
+    }
+    if refused.is_empty() {
+        Ok(())
+    } else {
+        Err(refused.join("\narcadiabench: "))
+    }
 }
 
 fn run(a: &Args) -> Result<(), String> {
@@ -540,5 +619,98 @@ mod tests {
         let e = crew_from_json(heavy, Catalog::V1_0).unwrap_err();
         assert!(e.contains("mass budget is 6000 kg"), "{e}");
         assert!(read_crew(std::path::Path::new("/nonexistent/crew.json"), c).is_err());
+    }
+    #[test]
+    fn scenario_prints_what_a_coordinator_is_told_and_runs_nothing() {
+        let line = |a: &str| -> Vec<serde_json::Value> {
+            let mut out = Vec::new();
+            print_scenario(&parse(args(a)).unwrap(), &mut out).unwrap();
+            String::from_utf8(out)
+                .unwrap()
+                .lines()
+                .map(|l| serde_json::from_str(l).unwrap())
+                .collect()
+        };
+        // One line: the hello of the default scenario, which is catalog
+        // 1.1's Small crew on seed 0.
+        let hello = line("scenario");
+        assert_eq!(hello.len(), 1);
+        assert_eq!(hello[0]["type"], "hello");
+        assert_eq!(hello[0]["run_id"], "landing-pad-1.1-small-nominal-0");
+        assert_eq!(hello[0]["scenario"]["robots"].as_array().unwrap().len(), 6);
+        // It is the hello a run of that scenario and seed starts with.
+        let params = Params::scenario(Catalog::V1_0, Preset::Medium, Variant::SolarOnly);
+        let told = line("scenario --catalog 1.0 --preset medium --variant solar_only --seed 7");
+        let sent = SimToCoordinator::Hello(Box::new(session::hello(7, &params)));
+        assert_eq!(told[0], serde_json::to_value(&sent).unwrap());
+        // With --goal, the goal Earth sends at the start follows.
+        let both = line("scenario --seed 7 --goal");
+        assert_eq!(both.len(), 2);
+        assert_eq!(both[1]["type"], "goal");
+        assert_eq!(both[1]["objective"]["kind"], "landing_pad");
+        let pad = &both[1]["objective"]["pad"]["area"];
+        assert_eq!(
+            (pad["min"]["x"].as_u64(), pad["max"]["x"].as_u64()),
+            (Some(20), Some(39))
+        );
+        // It takes no coordinator, and no option of the commands that run.
+        for bad in [
+            "scenario -- c",
+            "scenario --seeds 1-3",
+            "scenario --log x",
+            "scenario --preset small --crew crew.json",
+            "scenario x",
+        ] {
+            assert!(parse(args(bad)).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn crew_says_whether_a_crew_file_may_enter() {
+        let dir = std::env::temp_dir().join(format!("arcadiabench-crew-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = |name: &str, text: &str| {
+            let path = dir.join(name);
+            std::fs::write(&path, text).unwrap();
+            path.display().to_string()
+        };
+        let fits = file(
+            "fits.json",
+            r#"{"scout": 2, "excavator": 2, "hauler": 2, "compactor_sinterer": 9}"#,
+        );
+        let heavy = file(
+            "heavy.json",
+            r#"{"scout": 2, "excavator": 2, "hauler": 2, "compactor_sinterer": 11}"#,
+        );
+        let check = |a: &str| {
+            let mut out = Vec::new();
+            let result = check_crews(&parse(args(a)).unwrap(), &mut out);
+            (result, String::from_utf8(out).unwrap())
+        };
+        // Its robots and its mass against the budget.
+        let (result, out) = check(&format!("crew {fits}"));
+        assert!(result.is_ok());
+        assert!(
+            out.ends_with(
+                "fits.json: crew 2.2.2.9, 15 robots, 9720 kg of the 10000 kg catalog 1.1 allows\n"
+            ),
+            "{out}"
+        );
+        // Every file is reported, and one that may not enter fails the
+        // command with the reason.
+        let (result, out) = check(&format!("crew {heavy} {fits}"));
+        let e = result.unwrap_err();
+        assert!(
+            e.contains("heavy.json") && e.contains("this crew weighs 11520 kg"),
+            "{e}"
+        );
+        assert!(out.contains("fits.json: crew 2.2.2.9"), "{out}");
+        // The budget is the catalog's.
+        let (result, _) = check(&format!("crew --catalog 1.0 {fits}"));
+        assert!(result.unwrap_err().contains("mass budget is 6000 kg"));
+        for bad in ["crew", "crew --seed 1 x", "crew -- c"] {
+            assert!(parse(args(bad)).is_err(), "{bad}");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

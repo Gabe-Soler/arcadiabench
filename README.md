@@ -118,6 +118,7 @@ arcadiabench suite --crew crew.json --seeds 1-50 -- path/to/coordinator
 - **The same for everyone:** every crew works from the Medium outpost (2 charge stations, 2 depots) and meets the same site, weather and Earth link as the presets do on that seed.
 - **One reference for every crew:** speed is measured against the time the pad would take with as many sinterers as the budget carries (11 on catalog 1.1, which is 10.2 sols), not against the crew's own. A crew with few sinterers therefore scores lower than one with many, and the choice of crew is part of what is scored.
 - **Names:** the scenario is `landing-pad-1.1-crew.1.2.1.6-<variant>`, the counts in the order scout, excavator, hauler, compactor-sinterer. Scorecards carry the crew, and each crew has its own resilience.
+- **Designing a crew** needs what a coordinator is told, without a run. `arcadiabench scenario --preset medium --goal` prints the `hello` of the outpost every crew works from (the four designs with their masses and rates, the stations, the power plant, the site as seen from orbit) and the goal with the pad, as two lines of JSON. `arcadiabench crew crew.json` says whether a crew file may enter, with its robots and its mass against the budget.
 
 [`schemas/crew.schema.json`](schemas/crew.schema.json) describes the crew file.
 
@@ -149,6 +150,8 @@ arcadiabench score results/1.1-small-nominal/logs
 - **`suite`** writes one such directory per scenario under `results/` (or `--out DIR`), plus `suite.json` with every scorecard and the coordinator's resilience.
 - **`--crew FILE`** on `run`, `bench` or `suite` takes the place of the preset: [the fleet design track](#the-fleet-design-track). A suite then runs every variant with that crew.
 - **Parallelism.** Runs go `--jobs` at a time (default: one per CPU), each with a fresh coordinator process. The outputs are byte-identical at any `--jobs`.
+- **`scenario`** runs nothing. It prints the `hello` message a coordinator would get for a scenario and seed (`--seed`, `--catalog`, `--preset` or `--crew`, `--variant`) as one line of JSON, and with `--goal` the goal Earth sends at the start as a second line.
+- **`crew`** checks crew files against the fleet design track's rules for `--catalog`, and exits with 1 if any may not enter.
 - **`score`** reads `.jsonl` and `.jsonl.gz` event logs, and skips other files in a directory. Named as a file, a bench's `metrics.jsonl` is read too, so runs from several benches can be scored together without their logs.
 
 ## Scoring
