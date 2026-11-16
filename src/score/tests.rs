@@ -43,7 +43,12 @@ fn record_on(
     sols: f64,
 ) -> RunRecord {
     let p = Params::scenario(catalog, Preset::Small, variant);
-    let g = scenario::generate(seed, &p);
+    record_of(&p, coordinator, seed, completed, sols)
+}
+
+/// A record of `coordinator` on the scenario `p` describes.
+fn record_of(p: &Params, coordinator: &str, seed: u64, completed: bool, sols: f64) -> RunRecord {
+    let g = scenario::generate(seed, p);
     let Uplink::Goal {
         objective: Objective::LandingPad { pad },
         ..
@@ -291,7 +296,7 @@ fn resilience_compares_stress_headlines_with_nominal() {
         panic!("{:?}", report.resilience);
     };
     let p = &x.presets[0];
-    assert_eq!(p.preset, Preset::Small);
+    assert_eq!(p.preset, Some(Preset::Small));
     assert!((p.dust_storm.unwrap() - 0.5).abs() < 1e-12);
     assert_eq!(p.conjunction, Some(0.0));
     assert_eq!(p.cascading_faults, Some(1.0), "capped at 1");
@@ -374,4 +379,139 @@ fn seed_lists_collapse_into_ranges() {
     assert_eq!(render::seed_ranges(&[1, 2, 3, 5, 7, 8]), "1-3, 5, 7-8");
     assert_eq!(render::seed_ranges(&[4]), "4");
     assert_eq!(render::seed_ranges(&[]), "");
+}
+
+#[test]
+fn every_fleet_crew_is_scored_against_one_reference() {
+    let mix = |sc, ex, hl, cp| CrewMix {
+        scout: sc,
+        excavator: ex,
+        hauler: hl,
+        compactor_sinterer: cp,
+    };
+    let (few, many) = (mix(1, 1, 1, 2), mix(1, 1, 1, 8));
+    let c = Catalog::V1_1;
+    let run = |crew, v, sols| record_of(&Params::fleet(c, crew, v), "x", 1, true, sols);
+    let (a, b) = (
+        run(few, Variant::Nominal, 80.0),
+        run(many, Variant::Nominal, 20.0),
+    );
+    assert_eq!(a.run_id, "landing-pad-1.1-crew.1.1.1.2-nominal-1");
+    assert_eq!((a.catalog, a.preset, a.crew), (Some(c), None, Some(few)));
+    assert_eq!(a.variant, Some(Variant::Nominal));
+    // Eleven sinterers fit in catalog 1.1's 10 t: 400 m² at 11 x 4e-5 m²/s.
+    let reference = 400.0 / (11.0 * 4e-5) / 88_775.0;
+    assert!((a.reference_sols.unwrap() - reference).abs() < 1e-9);
+    assert_eq!(a.reference_sols, b.reference_sols);
+    // Measured against itself, the crew of two sinterers would have a
+    // reference five and a half times longer, and a higher speed for it.
+    let own = {
+        let g = scenario::generate(1, &Params::fleet(c, few, Variant::Nominal));
+        reference_sols(&g.scenario, &g.mission.pad).unwrap()
+    };
+    assert!((own / reference - 5.5).abs() < 1e-9, "{own}");
+    assert!((a.speed.unwrap() - reference / 80.0).abs() < 1e-12);
+    assert!((b.speed.unwrap() - reference / 20.0).abs() < 1e-12);
+    // The Standard track still measures a preset against its own crew.
+    let small = record_on(c, "x", Variant::Nominal, 1, true, 80.0);
+    assert!((small.reference_sols.unwrap() - 400.0 / (3.0 * 4e-5) / 88_775.0).abs() < 1e-9);
+    assert_eq!((small.preset, small.crew), (Some(Preset::Small), None));
+    // Catalog 1.0 has its own budget and its own designs.
+    let old = record_of(
+        &Params::fleet(Catalog::V1_0, few, Variant::Nominal),
+        "x",
+        1,
+        true,
+        1.0,
+    );
+    assert_eq!(old.run_id, "landing-pad-crew.1.1.1.2-nominal-1");
+    assert!((old.reference_sols.unwrap() - 400.0 / (12.0 * 0.01) / 88_775.0).abs() < 1e-12);
+
+    // A crew's record and scorecard carry it; a preset's leave it out.
+    let json = serde_json::to_value(&a).unwrap();
+    assert_eq!(json["crew"]["compactor_sinterer"], 2);
+    assert!(json["preset"].is_null());
+    assert_eq!(serde_json::from_value::<RunRecord>(json).unwrap(), a);
+    assert!(serde_json::to_value(&small).unwrap().get("crew").is_none());
+    let card = Scorecard::from_runs(std::slice::from_ref(&a)).unwrap();
+    assert_eq!((card.crew, card.preset), (Some(few), None));
+    assert_eq!(card.reference_sols, a.reference_sols);
+}
+
+#[test]
+fn each_fleet_crew_has_its_own_resilience() {
+    let mix = |cp| CrewMix {
+        scout: 1,
+        excavator: 1,
+        hauler: 1,
+        compactor_sinterer: cp,
+    };
+    let c = Catalog::V1_1;
+    let mut runs = Vec::new();
+    for seed in 1..=2 {
+        // The Standard track, at full strength under every stress.
+        for v in [Variant::Nominal].into_iter().chain(Variant::STRESS) {
+            runs.push(record_on(c, "x", v, seed, true, 60.0));
+        }
+        // One crew keeps half its pace in a storm; another keeps all of it
+        // but was not run under cascading faults.
+        for (crew, storm) in [(mix(4), 80.0), (mix(8), 40.0)] {
+            let run = |v, sols| record_of(&Params::fleet(c, crew, v), "x", seed, true, sols);
+            runs.push(run(Variant::Nominal, 40.0));
+            runs.push(run(Variant::DustStorm, storm));
+            runs.push(run(Variant::Conjunction, 40.0));
+            if crew == mix(4) {
+                runs.push(run(Variant::CascadingFaults, 40.0));
+            }
+        }
+    }
+    let report = Report::from_runs(&runs).unwrap();
+    // Presets first, then the crews, each in variant order.
+    let ids: Vec<&str> = report
+        .scorecards
+        .iter()
+        .map(|s| s.scenario_id.strip_prefix("landing-pad-1.1-").unwrap())
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            "small-nominal",
+            "small-dust_storm",
+            "small-conjunction",
+            "small-cascading_faults",
+            "crew.1.1.1.4-nominal",
+            "crew.1.1.1.4-dust_storm",
+            "crew.1.1.1.4-conjunction",
+            "crew.1.1.1.4-cascading_faults",
+            "crew.1.1.1.8-nominal",
+            "crew.1.1.1.8-dust_storm",
+            "crew.1.1.1.8-conjunction",
+        ]
+    );
+    let [standard, four, eight] = report.resilience.as_slice() else {
+        panic!("one resilience per line-up: {:?}", report.resilience);
+    };
+    assert_eq!((standard.crew, standard.resilience), (None, Some(1.0)));
+    assert_eq!(standard.presets[0].preset, Some(Preset::Small));
+    assert_eq!((four.crew, four.catalog), (Some(mix(4)), c));
+    let [line] = four.presets.as_slice() else {
+        panic!("a crew is one line-up");
+    };
+    assert_eq!(line.preset, None);
+    assert!((line.dust_storm.unwrap() - 0.5).abs() < 1e-12);
+    assert_eq!(
+        (line.conjunction, line.cascading_faults),
+        (Some(1.0), Some(1.0))
+    );
+    assert!((four.resilience.unwrap() - 2.5 / 3.0).abs() < 1e-12);
+    // Without every stress variant a crew's resilience stays unknown.
+    assert_eq!((eight.crew, eight.resilience), (Some(mix(8)), None));
+    assert_eq!(eight.presets[0].dust_storm, Some(1.0));
+    let json = serde_json::to_value(&report).unwrap();
+    assert!(json["resilience"][0].get("crew").is_none());
+    assert_eq!(json["resilience"][1]["crew"]["compactor_sinterer"], 4);
+    assert!(json["resilience"][1]["presets"][0]["preset"].is_null());
+    assert_eq!(serde_json::from_value::<Report>(json).unwrap(), report);
+    let text = report.render();
+    assert!(text.contains("crew 1.1.1.4"), "{text}");
 }

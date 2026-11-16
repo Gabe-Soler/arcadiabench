@@ -5,15 +5,18 @@
 //! - `bench`: a coordinator on one scenario over many seeds, in parallel,
 //!   with per-run metrics, a scorecard and optional logs.
 //! - `suite`: the same across presets and variants, with resilience.
+//! - `--crew FILE` on any of the three: the fleet design track, with a crew
+//!   of the coordinator's own in place of a preset.
 //! - `score`: scorecards and resilience from saved event logs.
 
 use crate::bench::{self, LogFile, Options};
 use crate::coordinator::CoordinatorProcess;
 use crate::log::EventLog;
+use crate::presets;
 use crate::run::DEFAULT_DECISION_TIMEOUT;
 use crate::score::{Report, logs};
 use crate::session::run_session_outcome;
-use crate::sim::params::{Catalog, Params, Preset, Variant};
+use crate::sim::params::{Catalog, CrewMix, Lineup, Params, Preset, Variant};
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -21,18 +24,22 @@ use std::time::{Duration, Instant};
 /// How to use the command line.
 pub const USAGE: &str = "\
 usage:
-  arcadiabench run   [--seed N] [--catalog C] [--preset P] [--variant V] [--log FILE]
-                     [--decision-timeout SECS] -- <coordinator> [args...]
-  arcadiabench bench [--catalog C] [--preset P] [--variant V] [--seeds LIST] [--jobs N]
-                     [--out DIR] [--save-logs] [--decision-timeout SECS]
-                     -- <coordinator> [args...]
-  arcadiabench suite [--catalog C] [--presets LIST] [--variants LIST] [--seeds LIST]
+  arcadiabench run   [--seed N] [--catalog C] [--preset P | --crew FILE] [--variant V]
+                     [--log FILE] [--decision-timeout SECS] -- <coordinator> [args...]
+  arcadiabench bench [--catalog C] [--preset P | --crew FILE] [--variant V] [--seeds LIST]
                      [--jobs N] [--out DIR] [--save-logs] [--decision-timeout SECS]
                      -- <coordinator> [args...]
+  arcadiabench suite [--catalog C] [--presets LIST | --crew FILE] [--variants LIST]
+                     [--seeds LIST] [--jobs N] [--out DIR] [--save-logs]
+                     [--decision-timeout SECS] -- <coordinator> [args...]
   arcadiabench score [--json] <log, metrics.jsonl or directory>...
 
   catalog   1.1 (default), 1.0
   presets   small, medium, large (default small; suite: all)
+  crew      the fleet design track: a JSON file giving your own crew in place
+            of a preset, such as
+            {\"scout\": 1, \"excavator\": 2, \"hauler\": 1, \"compactor_sinterer\": 6}
+            (4 to 20 robots, within the catalog's mass budget)
   variants  nominal, dust_storm, conjunction, cascading_faults, solar_only,
             nuclear_heavy (default nominal; suite: all)
   seeds     seeds and ranges, such as 1-50 or 1,4,10-20 (default 1-50)
@@ -50,6 +57,7 @@ struct Args {
     seeds: Option<Vec<u64>>,
     catalog: Option<Catalog>,
     presets: Option<Vec<Preset>>,
+    crew: Option<PathBuf>,
     variants: Option<Vec<Variant>>,
     log: Option<PathBuf>,
     out: Option<PathBuf>,
@@ -81,6 +89,7 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             "--seed",
             "--catalog",
             "--preset",
+            "--crew",
             "--variant",
             "--log",
             "--decision-timeout",
@@ -88,6 +97,7 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         "bench" => &[
             "--catalog",
             "--preset",
+            "--crew",
             "--variant",
             "--seeds",
             "--jobs",
@@ -98,6 +108,7 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         "suite" => &[
             "--catalog",
             "--presets",
+            "--crew",
             "--variants",
             "--seeds",
             "--jobs",
@@ -130,6 +141,7 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             "--preset" => a.presets = Some(vec![value()?.parse()?]),
             "--variant" => a.variants = Some(vec![value()?.parse()?]),
             "--presets" => a.presets = Some(list(&value()?)?),
+            "--crew" => a.crew = Some(value()?.into()),
             "--variants" => a.variants = Some(list(&value()?)?),
             "--log" => a.log = Some(value()?.into()),
             "--out" => a.out = Some(value()?.into()),
@@ -161,6 +173,11 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         }
     } else if a.coordinator.is_empty() {
         return Err(format!("missing coordinator command\n{USAGE}"));
+    }
+    if a.crew.is_some() && a.presets.is_some() {
+        return Err(format!(
+            "--crew takes the place of a preset: give one or the other\n{USAGE}"
+        ));
     }
     Ok(a)
 }
@@ -197,17 +214,58 @@ fn one<T: Copy + Default>(xs: &Option<Vec<T>>) -> T {
 }
 
 /// A scenario in a few words: `<preset>/<variant>` on catalog 1.0, with the
-/// catalog in front on a later one, as in its id.
-fn label(catalog: Catalog, preset: Preset, variant: Variant) -> String {
+/// catalog in front on a later one, as in its id. A crew of the
+/// coordinator's own reads `crew 1.2.1.6` where the preset would be.
+fn label(catalog: Catalog, who: Lineup, variant: Variant) -> String {
+    let who = match who {
+        Lineup::Preset(preset) => preset.to_string(),
+        Lineup::Crew(crew) => format!("crew {crew}"),
+    };
     match catalog {
-        Catalog::V1_0 => format!("{preset}/{variant}"),
-        Catalog::V1_1 => format!("{catalog} {preset}/{variant}"),
+        Catalog::V1_0 => format!("{who}/{variant}"),
+        Catalog::V1_1 => format!("{catalog} {who}/{variant}"),
     }
+}
+
+/// Read a crew file and check it against the fleet design track's rules.
+pub fn read_crew(path: &std::path::Path, catalog: Catalog) -> Result<CrewMix, String> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| format!("cannot read the crew file {}: {e}", path.display()))?;
+    crew_from_json(&text, catalog).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// A crew from the JSON of a crew file (`schemas/crew.schema.json`), checked
+/// against the fleet design track's rules for `catalog`.
+pub fn crew_from_json(text: &str, catalog: Catalog) -> Result<CrewMix, String> {
+    let not_a_crew = |why: String| {
+        format!(
+            "not a crew ({why}); expected the count of each design, such as \
+             {{\"scout\": 1, \"excavator\": 2, \"hauler\": 1, \"compactor_sinterer\": 6}}"
+        )
+    };
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| not_a_crew(e.to_string()))?;
+    // An object with the four counts by name, as the schema says: serde
+    // alone would also take a bare list of four numbers.
+    if !value.is_object() {
+        return Err(not_a_crew("not a JSON object".into()));
+    }
+    let crew: CrewMix = serde_json::from_value(value).map_err(|e| not_a_crew(e.to_string()))?;
+    presets::check_crew(catalog, crew).map_err(|e| e.to_string())?;
+    Ok(crew)
+}
+
+/// Who builds: the crew file's crew if one was given, else the preset.
+fn lineup(a: &Args, catalog: Catalog) -> Result<Lineup, String> {
+    Ok(match &a.crew {
+        Some(path) => Lineup::Crew(read_crew(path, catalog)?),
+        None => Lineup::Preset(one(&a.presets)),
+    })
 }
 
 fn run(a: &Args) -> Result<(), String> {
     let catalog = a.catalog.unwrap_or(Catalog::DEFAULT);
-    let (preset, variant) = (one(&a.presets), one(&a.variants));
+    let (who, variant) = (lineup(a, catalog)?, one(&a.variants));
     let seed = a.seed.unwrap_or(0);
     let file = match &a.log {
         Some(path) => Some(
@@ -216,7 +274,7 @@ fn run(a: &Args) -> Result<(), String> {
         None => None,
     };
     let (program, rest) = a.coordinator.split_first().expect("checked by parse");
-    let params = Params::scenario(catalog, preset, variant);
+    let params = Params::lineup(catalog, who, variant);
     let timeout = a.timeout.unwrap_or(DEFAULT_DECISION_TIMEOUT);
     let mut link = CoordinatorProcess::spawn(program, rest, timeout).map_err(|e| e.to_string())?;
     let outcome = match file {
@@ -241,7 +299,7 @@ fn run(a: &Args) -> Result<(), String> {
         "{} {} [{}]: {:?} after {:.2} sols, speed {} | pad {:.0}% | {} decisions, {} commands | {} faults, {} lost | {} to Earth, {} violations | link down {:.1} h",
         r.coordinator.name,
         r.coordinator.version,
-        label(catalog, preset, variant),
+        label(catalog, who, variant),
         r.reason,
         m.sols,
         r.speed.map_or_else(|| "-".into(), |s| format!("{s:.3}")),
@@ -281,6 +339,8 @@ fn batch(a: &Args, is_suite: bool) -> Result<(), String> {
     let timeout = a.timeout.unwrap_or(DEFAULT_DECISION_TIMEOUT);
     let connect = bench::command(a.coordinator.clone(), timeout);
     let catalog = a.catalog.unwrap_or(Catalog::DEFAULT);
+    // A crew file is read and checked before anything runs.
+    let who = lineup(a, catalog)?;
     let started = Instant::now();
     let (runs, out) = if is_suite {
         let presets = a.presets.clone().unwrap_or_else(|| Preset::ALL.to_vec());
@@ -291,24 +351,30 @@ fn batch(a: &Args, is_suite: bool) -> Result<(), String> {
             out: Some(out.clone()),
             save_logs: a.save_logs,
         };
-        let result = bench::suite(
-            &connect, catalog, &presets, &variants, &seeds, &opts, &progress,
-        )
+        let result = match who {
+            Lineup::Crew(crew) => {
+                bench::suite_crew(&connect, catalog, crew, &variants, &seeds, &opts, &progress)
+            }
+            Lineup::Preset(_) => bench::suite(
+                &connect, catalog, &presets, &variants, &seeds, &opts, &progress,
+            ),
+        }
         .map_err(|e| e.to_string())?;
         print!("{}", result.report.render());
         let runs: Vec<_> = result.cells.into_iter().flat_map(|c| c.runs).collect();
         (runs, out)
     } else {
-        let (preset, variant) = (one(&a.presets), one(&a.variants));
+        let variant = one(&a.variants);
         let out = a.out.clone().unwrap_or_else(|| {
-            bench::cell_dir(&PathBuf::from("results"), catalog, preset, variant)
+            let scenario = Params::lineup(catalog, who, variant);
+            bench::cell_dir_of(&PathBuf::from("results"), &scenario)
         });
         let opts = Options {
             jobs,
             out: Some(out.clone()),
             save_logs: a.save_logs,
         };
-        let result = bench::bench(&connect, catalog, preset, variant, &seeds, &opts, &progress)
+        let result = bench::bench(&connect, catalog, who, variant, &seeds, &opts, &progress)
             .map_err(|e| e.to_string())?;
         print!("{}", result.scorecard.render());
         (result.runs, out)
@@ -416,8 +482,63 @@ mod tests {
 
     #[test]
     fn a_run_is_labelled_with_its_catalog_after_1_0() {
-        let (p, v) = (Preset::Large, Variant::SolarOnly);
+        let (p, v) = (Lineup::Preset(Preset::Large), Variant::SolarOnly);
         assert_eq!(label(Catalog::V1_0, p, v), "large/solar_only");
         assert_eq!(label(Catalog::V1_1, p, v), "1.1 large/solar_only");
+        let crew = Lineup::Crew("1.2.1.6".parse().unwrap());
+        assert_eq!(label(Catalog::V1_0, crew, v), "crew 1.2.1.6/solar_only");
+        assert_eq!(label(Catalog::V1_1, crew, v), "1.1 crew 1.2.1.6/solar_only");
+    }
+
+    #[test]
+    fn a_crew_file_takes_the_place_of_a_preset() {
+        for command in ["run", "bench", "suite"] {
+            let a = parse(args(&format!("{command} --crew crew.json -- c"))).unwrap();
+            assert_eq!(a.crew, Some(PathBuf::from("crew.json")), "{command}");
+        }
+        for bad in [
+            "run --crew crew.json --preset small -- c",
+            "suite --presets small,large --crew crew.json -- c",
+            "bench --crew -- c",
+            "score --crew crew.json x",
+        ] {
+            assert!(parse(args(bad)).is_err(), "{bad}");
+        }
+        let c = Catalog::V1_1;
+        let crew = crew_from_json(
+            r#"{"scout": 1, "excavator": 2, "hauler": 1, "compactor_sinterer": 6}"#,
+            c,
+        )
+        .unwrap();
+        assert_eq!(crew.to_string(), "1.2.1.6");
+        for (bad, why) in [
+            ("[1, 2, 1, 6]", "not a crew"),
+            (r#"{"scout": 1, "excavator": 2, "hauler": 1}"#, "not a crew"),
+            (
+                r#"{"scout": 1, "excavator": 2, "hauler": 1, "compactor_sinterer": 6, "drone": 1}"#,
+                "not a crew",
+            ),
+            (
+                r#"{"scout": 1, "excavator": 1, "hauler": 1, "compactor_sinterer": -1}"#,
+                "not a crew",
+            ),
+            (
+                r#"{"scout": 1, "excavator": 1, "hauler": 1, "compactor_sinterer": 0}"#,
+                "4 to 20 robots",
+            ),
+            (
+                r#"{"scout": 3, "excavator": 4, "hauler": 3, "compactor_sinterer": 10}"#,
+                "mass budget is 10000 kg",
+            ),
+        ] {
+            let e = crew_from_json(bad, c).unwrap_err();
+            assert!(e.contains(why), "{bad}: {e}");
+        }
+        // The same crew file can pass one catalog's budget and not another's.
+        let heavy = r#"{"scout": 1, "excavator": 14, "hauler": 1, "compactor_sinterer": 0}"#;
+        assert!(crew_from_json(heavy, c).is_ok());
+        let e = crew_from_json(heavy, Catalog::V1_0).unwrap_err();
+        assert!(e.contains("mass budget is 6000 kg"), "{e}");
+        assert!(read_crew(std::path::Path::new("/nonexistent/crew.json"), c).is_err());
     }
 }

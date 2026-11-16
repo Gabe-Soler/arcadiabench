@@ -22,6 +22,8 @@ def test_the_package_describes_itself():
     assert version("arcadiabench") == arcadiabench.__version__
     assert arcadiabench.CATALOGS == ["1.0", "1.1"]
     assert arcadiabench.DEFAULT_CATALOG == "1.1"
+    assert arcadiabench.MASS_BUDGETS_KG == {"1.0": 6000.0, "1.1": 10000.0}
+    assert json.loads(arcadiabench.CREW_SCHEMA)["title"] == "ArcadiaBench crew"
     assert arcadiabench.PRESETS == ["small", "medium", "large"]
     assert arcadiabench.VARIANTS[0] == "nominal" and "dust_storm" in arcadiabench.VARIANTS
     assert set(arcadiabench.STRESS_VARIANTS) == {"dust_storm", "conjunction", "cascading_faults"}
@@ -160,6 +162,53 @@ def test_suite_reports_resilience(builder_argv, tmp_path):
     assert json.loads((tmp_path / "suite.json").read_text()) == report
     with pytest.raises(TypeError):
         arcadiabench.suite(Coordinator())
+
+
+def test_a_crew_of_your_own_takes_the_place_of_a_preset(builder_module, builder_argv, tmp_path):
+    crew = {"scout": 1, "excavator": 1, "hauler": 1, "compactor_sinterer": 2}
+    hello = arcadiabench.scenario(7, variant="dust_storm", crew=crew)
+    assert hello["scenario"]["scenario_id"] == "landing-pad-1.1-crew.1.1.1.2-dust_storm"
+    ids = [r["robot_id"] for r in hello["scenario"]["robots"]]
+    assert ids == ["sc-1", "ex-1", "hl-1", "cp-1", "cp-2"]
+    # Every crew works from the Medium outpost.
+    medium = arcadiabench.scenario(7, "medium", "dust_storm")["scenario"]
+    assert hello["scenario"]["stations"] == medium["stations"]
+    # A crew file says the same as the mapping.
+    path = tmp_path / "crew.json"
+    path.write_text(json.dumps(crew))
+    assert arcadiabench.scenario(7, variant="dust_storm", crew=path) == hello
+
+    # The builder builds with it on catalog 1.0, scored against the track's
+    # reference of twelve sinterers.
+    result = arcadiabench.run(builder_module.Builder(), seed=1, catalog="1.0", crew=crew)
+    assert result["run_id"] == "landing-pad-crew.1.1.1.2-nominal-1"
+    assert result["reason"] == "goals_complete"
+    assert result["crew"] == crew and result["preset"] is None
+    assert result["reference_sols"] == pytest.approx(400 / (12 * 0.01) / 88775)
+    batch = arcadiabench.bench(builder_argv, "1-2", catalog="1.0", crew=crew, jobs=2)
+    assert batch["scorecard"]["crew"] == crew
+    assert batch["scorecard"]["completion"]["completed"] == 2
+    suite = arcadiabench.suite(builder_argv, seeds=1, catalog="1.0", crew=path,
+                               variants=["nominal", *arcadiabench.STRESS_VARIANTS])
+    [res] = suite["report"]["resilience"]
+    assert res["crew"] == crew and res["presets"][0]["preset"] is None
+    assert res["resilience"] is not None
+
+    # Crews the track does not admit, and things that are not crews.
+    with pytest.raises(ValueError, match="mass budget is 10000 kg"):
+        arcadiabench.scenario(1, crew={"scout": 3, "excavator": 4, "hauler": 3,
+                                       "compactor_sinterer": 10})
+    with pytest.raises(ValueError, match="4 to 20 robots"):
+        arcadiabench.run(Coordinator(), crew={"scout": 1, "excavator": 1, "hauler": 1,
+                                              "compactor_sinterer": 0})
+    with pytest.raises(ValueError, match="not a crew"):
+        arcadiabench.scenario(1, crew={"scout": 1})
+    with pytest.raises(TypeError, match="a crew is"):
+        arcadiabench.scenario(1, crew=[1, 1, 1, 2])
+    with pytest.raises(OSError):
+        arcadiabench.scenario(1, crew=tmp_path / "missing.json")
+    with pytest.raises(ValueError, match="one or the other"):
+        arcadiabench.suite(builder_argv, presets=["small"], crew=crew)
 
 
 class Raises(Coordinator):

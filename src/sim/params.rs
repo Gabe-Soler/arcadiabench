@@ -21,6 +21,10 @@ pub struct Params {
     pub catalog: Catalog,
     /// The crew and the outpost it works from (a Standard track preset).
     pub preset: Preset,
+    /// A crew of the coordinator's own choosing (the fleet design track). It
+    /// replaces the preset's crew; the preset still gives the outpost, and
+    /// the scenario is named after the crew.
+    pub crew: Option<CrewMix>,
     /// The catalog variant these parameters were built from. It names the
     /// scenario (`landing-pad-<preset>-<variant>`); a parameter set edited by
     /// hand keeps the name of the variant it started from.
@@ -374,6 +378,7 @@ impl Params {
         Self {
             catalog: Catalog::V1_0,
             preset: Preset::Small,
+            crew: None,
             variant: Variant::Nominal,
             start_sols: (0.0, 0.0),
             time_limit_sols: 60.0,
@@ -781,6 +786,25 @@ impl Params {
         Self { variant, ..self }
     }
 
+    /// The parameters of a fleet design track scenario: a catalog's variant
+    /// with the crew `crew`, working from the outpost every such crew gets
+    /// ([`FLEET_OUTPOST`]). It does not check the crew against the track's
+    /// rules: [`crate::presets::check_crew`] does.
+    pub fn fleet(catalog: Catalog, crew: CrewMix, variant: Variant) -> Self {
+        Self {
+            crew: Some(crew),
+            ..Self::scenario(catalog, FLEET_OUTPOST, variant)
+        }
+    }
+
+    /// The parameters of a scenario with either kind of crew.
+    pub fn lineup(catalog: Catalog, lineup: Lineup, variant: Variant) -> Self {
+        match lineup {
+            Lineup::Preset(preset) => Self::scenario(catalog, preset, variant),
+            Lineup::Crew(crew) => Self::fleet(catalog, crew, variant),
+        }
+    }
+
     /// The parameters of a scenario: a catalog's variant, with a preset's
     /// crew and outpost. The preset changes nothing else.
     pub fn scenario(catalog: Catalog, preset: Preset, variant: Variant) -> Self {
@@ -839,6 +863,103 @@ impl FromStr for Catalog {
                 let names: Vec<&str> = Catalog::ALL.iter().map(|c| c.name()).collect();
                 format!("unknown catalog '{s}' (expected {})", names.join(", "))
             })
+    }
+}
+
+/// The outpost every fleet design track crew works from: Medium's two charge
+/// stations and two depots, so that entries compete on the crew alone.
+pub const FLEET_OUTPOST: Preset = Preset::Medium;
+
+/// A crew for the fleet design track: how many robots of each of the
+/// catalog's four designs. As text it is the four counts in the order scout,
+/// excavator, hauler, compactor-sinterer, joined by dots: `1.2.1.6`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CrewMix {
+    pub scout: u32,
+    pub excavator: u32,
+    pub hauler: u32,
+    pub compactor_sinterer: u32,
+}
+
+impl CrewMix {
+    /// The counts in design order: scout, excavator, hauler,
+    /// compactor-sinterer.
+    pub fn counts(self) -> [u32; 4] {
+        [
+            self.scout,
+            self.excavator,
+            self.hauler,
+            self.compactor_sinterer,
+        ]
+    }
+
+    /// Robots in the crew.
+    pub fn total(self) -> u32 {
+        self.counts().iter().fold(0, |a, &n| a.saturating_add(n))
+    }
+}
+
+impl fmt::Display for CrewMix {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let [sc, ex, hl, cp] = self.counts();
+        write!(f, "{sc}.{ex}.{hl}.{cp}")
+    }
+}
+
+impl FromStr for CrewMix {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let bad = || format!("bad crew '{s}' (expected four counts such as 1.2.1.6)");
+        let counts: Vec<u32> = s
+            .split('.')
+            .map(|n| {
+                // Plain digits only, so that a crew has one spelling.
+                let plain = !n.is_empty() && n.len() <= 3 && n.bytes().all(|b| b.is_ascii_digit());
+                let canonical = n == "0" || !n.starts_with('0');
+                (plain && canonical).then(|| n.parse().ok()).flatten()
+            })
+            .collect::<Option<_>>()
+            .ok_or_else(bad)?;
+        match counts[..] {
+            [scout, excavator, hauler, compactor_sinterer] => Ok(CrewMix {
+                scout,
+                excavator,
+                hauler,
+                compactor_sinterer,
+            }),
+            _ => Err(bad()),
+        }
+    }
+}
+
+/// Who builds: a Standard track preset, or a crew of the coordinator's own
+/// (the fleet design track).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Lineup {
+    Preset(Preset),
+    Crew(CrewMix),
+}
+
+impl From<Preset> for Lineup {
+    fn from(p: Preset) -> Self {
+        Lineup::Preset(p)
+    }
+}
+
+impl From<CrewMix> for Lineup {
+    fn from(c: CrewMix) -> Self {
+        Lineup::Crew(c)
+    }
+}
+
+impl Params {
+    /// Who builds in this scenario.
+    pub fn who(&self) -> Lineup {
+        match self.crew {
+            Some(crew) => Lineup::Crew(crew),
+            None => Lineup::Preset(self.preset),
+        }
     }
 }
 
@@ -1050,6 +1171,12 @@ mod tests {
         }
         assert!("2.0".parse::<Catalog>().is_err());
         assert!("v1.1".parse::<Catalog>().is_err());
+        // No scenario of a catalog has a crew of its own.
+        for c in Catalog::ALL {
+            for v in Variant::ALL {
+                assert_eq!(Params::scenario(c, Preset::Large, v).crew, None);
+            }
+        }
         // The constructors without a catalog are catalog 1.0's.
         assert_eq!(Params::default().catalog, Catalog::V1_0);
         for v in Variant::ALL {
@@ -1057,6 +1184,58 @@ mod tests {
                 Params::variant(v),
                 Params::scenario(Catalog::V1_0, Preset::Small, v)
             );
+        }
+    }
+
+    #[test]
+    fn crews_have_one_spelling_and_name_fleet_scenarios() {
+        let crew = CrewMix {
+            scout: 1,
+            excavator: 2,
+            hauler: 1,
+            compactor_sinterer: 6,
+        };
+        assert_eq!(crew.to_string(), "1.2.1.6");
+        assert_eq!("1.2.1.6".parse::<CrewMix>().unwrap(), crew);
+        assert_eq!((crew.counts(), crew.total()), ([1, 2, 1, 6], 10));
+        assert_eq!("0.0.0.20".parse::<CrewMix>().unwrap().total(), 20);
+        for bad in [
+            "",
+            "1.2.1",
+            "1.2.1.6.1",
+            "1.2.1.x",
+            "01.2.1.6",
+            "1.2.1.-6",
+            "1..1.6",
+            "1.2.1.6 ",
+            "+1.2.1.6",
+            "1.2.1.6000",
+        ] {
+            assert!(bad.parse::<CrewMix>().is_err(), "{bad:?}");
+        }
+        assert_eq!(
+            serde_json::to_string(&crew).unwrap(),
+            r#"{"scout":1,"excavator":2,"hauler":1,"compactor_sinterer":6}"#
+        );
+        let extra = r#"{"scout":1,"excavator":2,"hauler":1,"compactor_sinterer":6,"drone":1}"#;
+        assert!(serde_json::from_str::<CrewMix>(extra).is_err());
+        assert!(serde_json::from_str::<CrewMix>(r#"{"scout":1}"#).is_err());
+
+        // A fleet scenario is a catalog's variant with the crew swapped in:
+        // nothing else differs from the scenario on the fleet outpost.
+        for c in Catalog::ALL {
+            for v in Variant::ALL {
+                let p = Params::fleet(c, crew, v);
+                assert_eq!(p.who(), Lineup::Crew(crew));
+                assert_eq!(
+                    Params { crew: None, ..p },
+                    Params::scenario(c, FLEET_OUTPOST, v)
+                );
+                assert_eq!(Params::lineup(c, crew.into(), v), Params::fleet(c, crew, v));
+                let preset = Params::lineup(c, Preset::Small.into(), v);
+                assert_eq!(preset, Params::scenario(c, Preset::Small, v));
+                assert_eq!(preset.who(), Lineup::Preset(Preset::Small));
+            }
         }
     }
 }

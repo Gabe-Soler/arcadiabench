@@ -59,15 +59,27 @@ fn catalog_named(catalog: Option<&str>) -> PyResult<Catalog> {
     }
 }
 
+/// The parameters of the scenario named: a catalog's variant with a preset,
+/// or with the crew in `crew` (the JSON of a crew file), checked against the
+/// fleet design track's rules.
 fn scenario_params(
     catalog: Option<&str>,
+    crew: Option<&str>,
     preset: &str,
     variant: &str,
-) -> PyResult<(Catalog, Preset, Variant, Params)> {
+) -> PyResult<Params> {
     let c = catalog_named(catalog)?;
-    let p: Preset = preset.parse().map_err(PyValueError::new_err)?;
     let v: Variant = variant.parse().map_err(PyValueError::new_err)?;
-    Ok((c, p, v, Params::scenario(c, p, v)))
+    Ok(match crew {
+        Some(text) => {
+            let crew = arcadiabench::cli::crew_from_json(text, c).map_err(PyValueError::new_err)?;
+            Params::fleet(c, crew, v)
+        }
+        None => {
+            let p: Preset = preset.parse().map_err(PyValueError::new_err)?;
+            Params::scenario(c, p, v)
+        }
+    })
 }
 
 fn timeout(seconds: f64) -> PyResult<Duration> {
@@ -268,19 +280,20 @@ fn conclude(
 /// Run one seed with a subprocess coordinator. Returns the run record and
 /// the session report's extras.
 #[pyfunction]
-#[pyo3(signature = (argv, seed, catalog, preset, variant, log_path, decision_timeout))]
+#[pyo3(signature = (argv, seed, catalog, crew, preset, variant, log_path, decision_timeout))]
 #[allow(clippy::too_many_arguments)]
 fn run_process(
     py: Python<'_>,
     argv: Vec<String>,
     seed: u64,
     catalog: Option<&str>,
+    crew: Option<&str>,
     preset: &str,
     variant: &str,
     log_path: Option<PathBuf>,
     decision_timeout: f64,
 ) -> PyResult<Py<PyAny>> {
-    let (_, _, _, params) = scenario_params(catalog, preset, variant)?;
+    let params = scenario_params(catalog, crew, preset, variant)?;
     let limit = timeout(decision_timeout)?;
     let (program, args) = argv
         .split_first()
@@ -300,19 +313,20 @@ fn run_process(
 /// Run one seed with an in-process Python coordinator. Returns the run
 /// record and the session report's extras.
 #[pyfunction]
-#[pyo3(signature = (agent, seed, catalog, preset, variant, log_path, decision_timeout))]
+#[pyo3(signature = (agent, seed, catalog, crew, preset, variant, log_path, decision_timeout))]
 #[allow(clippy::too_many_arguments)]
 fn run_agent(
     py: Python<'_>,
     agent: Py<PyAny>,
     seed: u64,
     catalog: Option<&str>,
+    crew: Option<&str>,
     preset: &str,
     variant: &str,
     log_path: Option<PathBuf>,
     decision_timeout: f64,
 ) -> PyResult<Py<PyAny>> {
-    let (_, _, _, params) = scenario_params(catalog, preset, variant)?;
+    let params = scenario_params(catalog, crew, preset, variant)?;
     let limit = timeout(decision_timeout)?;
     let mut link = InProcessJson::new(
         PyAgent {
@@ -352,13 +366,14 @@ fn batch_error(py: Python<'_>, e: bench::Error) -> PyResult<PyErr> {
 
 /// Run a subprocess coordinator over seeds, in parallel.
 #[pyfunction]
-#[pyo3(signature = (argv, seeds, catalog, preset, variant, jobs, out, save_logs, decision_timeout))]
+#[pyo3(signature = (argv, seeds, catalog, crew, preset, variant, jobs, out, save_logs, decision_timeout))]
 #[allow(clippy::too_many_arguments)]
 fn bench_process(
     py: Python<'_>,
     argv: Vec<String>,
     seeds: Vec<u64>,
     catalog: Option<&str>,
+    crew: Option<&str>,
     preset: &str,
     variant: &str,
     jobs: usize,
@@ -366,7 +381,7 @@ fn bench_process(
     save_logs: bool,
     decision_timeout: f64,
 ) -> PyResult<Py<PyAny>> {
-    let (c, p, v, _) = scenario_params(catalog, preset, variant)?;
+    let params = scenario_params(catalog, crew, preset, variant)?;
     let connect = bench::command(argv, timeout(decision_timeout)?);
     let opts = Options {
         jobs: self::jobs(jobs),
@@ -374,9 +389,15 @@ fn bench_process(
         save_logs,
     };
     let (result, interrupt) = interruptible(py, |cancelled| {
-        bench::bench(&connect, c, p, v, &seeds, &opts, &|_, _| {
-            !cancelled.load(Ordering::SeqCst)
-        })
+        bench::bench(
+            &connect,
+            params.catalog,
+            params.who(),
+            params.variant,
+            &seeds,
+            &opts,
+            &|_, _| !cancelled.load(Ordering::SeqCst),
+        )
     });
     if let Some(e) = interrupt {
         return Err(e);
@@ -389,20 +410,21 @@ fn bench_process(
 /// factory makes a fresh coordinator for each run. Coordinator errors are
 /// recorded in the runs, not raised.
 #[pyfunction]
-#[pyo3(signature = (factory, seeds, catalog, preset, variant, out, save_logs, decision_timeout))]
+#[pyo3(signature = (factory, seeds, catalog, crew, preset, variant, out, save_logs, decision_timeout))]
 #[allow(clippy::too_many_arguments)]
 fn bench_agent(
     py: Python<'_>,
     factory: Bound<'_, PyAny>,
     seeds: Vec<u64>,
     catalog: Option<&str>,
+    crew: Option<&str>,
     preset: &str,
     variant: &str,
     out: Option<PathBuf>,
     save_logs: bool,
     decision_timeout: f64,
 ) -> PyResult<Py<PyAny>> {
-    let (c, p, v, params) = scenario_params(catalog, preset, variant)?;
+    let params = scenario_params(catalog, crew, preset, variant)?;
     let limit = timeout(decision_timeout)?;
     let logs = match &out {
         Some(dir) if save_logs => {
@@ -412,7 +434,7 @@ fn bench_agent(
         }
         _ => None,
     };
-    let id = arcadiabench::scenario::scenario_id(c, p, v);
+    let id = arcadiabench::scenario::id_of(&params);
     let mut runs = Vec::with_capacity(seeds.len());
     for &seed in &seeds {
         let mut link = InProcessJson::new(
@@ -461,13 +483,14 @@ fn bench_agent(
 /// Run a subprocess coordinator on every preset × variant of a catalog over
 /// seeds.
 #[pyfunction]
-#[pyo3(signature = (argv, seeds, catalog, presets, variants, jobs, out, save_logs, decision_timeout))]
+#[pyo3(signature = (argv, seeds, catalog, crew, presets, variants, jobs, out, save_logs, decision_timeout))]
 #[allow(clippy::too_many_arguments)]
 fn suite_process(
     py: Python<'_>,
     argv: Vec<String>,
     seeds: Vec<u64>,
     catalog: Option<&str>,
+    crew: Option<&str>,
     presets: Vec<String>,
     variants: Vec<String>,
     jobs: usize,
@@ -476,6 +499,10 @@ fn suite_process(
     decision_timeout: f64,
 ) -> PyResult<Py<PyAny>> {
     let catalog = catalog_named(catalog)?;
+    let crew = crew
+        .map(|text| arcadiabench::cli::crew_from_json(text, catalog))
+        .transpose()
+        .map_err(PyValueError::new_err)?;
     let presets = presets
         .iter()
         .map(|p| p.parse::<Preset>().map_err(PyValueError::new_err))
@@ -491,15 +518,15 @@ fn suite_process(
         save_logs,
     };
     let (result, interrupt) = interruptible(py, |cancelled| {
-        bench::suite(
-            &connect,
-            catalog,
-            &presets,
-            &variants,
-            &seeds,
-            &opts,
-            &|_, _| !cancelled.load(Ordering::SeqCst),
-        )
+        let going = |_, _| !cancelled.load(Ordering::SeqCst);
+        match crew {
+            Some(crew) => {
+                bench::suite_crew(&connect, catalog, crew, &variants, &seeds, &opts, &going)
+            }
+            None => bench::suite(
+                &connect, catalog, &presets, &variants, &seeds, &opts, &going,
+            ),
+        }
     });
     if let Some(e) = interrupt {
         return Err(e);
@@ -531,15 +558,16 @@ fn score(py: Python<'_>, paths: Vec<PathBuf>) -> PyResult<Py<PyAny>> {
 
 /// The `hello` message a coordinator gets for this scenario and seed.
 #[pyfunction]
-#[pyo3(signature = (seed, catalog, preset, variant))]
+#[pyo3(signature = (seed, catalog, crew, preset, variant))]
 fn scenario(
     py: Python<'_>,
     seed: u64,
     catalog: Option<&str>,
+    crew: Option<&str>,
     preset: &str,
     variant: &str,
 ) -> PyResult<Py<PyAny>> {
-    let (_, _, _, params) = scenario_params(catalog, preset, variant)?;
+    let params = scenario_params(catalog, crew, preset, variant)?;
     let hello = SimToCoordinator::Hello(Box::new(session::hello(seed, &params)));
     Ok(to_py(py, &hello)?.unbind())
 }
@@ -580,5 +608,11 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         Variant::STRESS.map(Variant::name).to_vec(),
     )?;
     m.add("SCORECARD_SCHEMA", SCHEMA)?;
+    m.add("CREW_SCHEMA", arcadiabench::presets::CREW_SCHEMA)?;
+    let budgets = PyDict::new(m.py());
+    for c in Catalog::ALL {
+        budgets.set_item(c.name(), arcadiabench::presets::mass_budget_kg(c))?;
+    }
+    m.add("MASS_BUDGETS_KG", budgets)?;
     Ok(())
 }

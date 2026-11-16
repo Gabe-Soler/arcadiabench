@@ -42,10 +42,18 @@
 //!   compactor-sinterers.
 //! - **Stations at 20 kW a slot,** so a sinterer's 100 kWh pack fills in a
 //!   few hours and the slots can together draw more than the plant supplies.
+//!
+//! **The fleet design track** lets a coordinator bring a crew of its own
+//! ([`CrewMix`]): 4 to 20 robots of the catalog's four designs, within a
+//! launch-mass budget ([`mass_budget_kg`]). Every such crew works from the
+//! Medium outpost, and every one is scored against the same reference
+//! ([`fleet_reference_sinterers`]), so entries compete on the crew and on
+//! how it is used.
 
 use crate::scenario::{DEPOT, STATION};
-use crate::sim::params::{Catalog, Preset};
+use crate::sim::params::{Catalog, CrewMix, FLEET_OUTPOST, Lineup, Preset};
 use arcadia_protocol::*;
+use std::fmt;
 
 /// A robot design: what a robot can do, how fast, and at what energy cost.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -291,12 +299,126 @@ pub fn crew(catalog: Catalog, preset: Preset) -> Vec<RobotSpec> {
 /// Where the crew starts: in rows of ten eastward from (12, 10), between
 /// the first charge station and the base station.
 pub fn starts(catalog: Catalog, preset: Preset) -> Vec<GridCoord> {
-    (0..crew_size(catalog, preset))
+    starts_of(crew_size(catalog, preset))
+}
+
+/// Where a crew of `robots` starts, in crew order.
+fn starts_of(robots: u32) -> Vec<GridCoord> {
+    (0..robots)
         .map(|i| GridCoord {
             x: 12 + i % 10,
             y: 10 + i / 10,
         })
         .collect()
+}
+
+/// `schemas/crew.schema.json`: the JSON Schema (draft 2020-12) of a crew
+/// file.
+pub const CREW_SCHEMA: &str = include_str!("../schemas/crew.schema.json");
+
+/// The fewest and the most robots a fleet design track crew may have.
+pub const FLEET_ROBOTS: (u32, u32) = (4, 20);
+
+/// The launch mass a fleet design track crew may have in all, kg: one value
+/// per catalog. It is set a little under the mass of the catalog's Large
+/// crew, so a crew cannot simply be the biggest one: 20 robots fit only if
+/// few of them are the heavy compactor-sinterers.
+pub fn mass_budget_kg(catalog: Catalog) -> f64 {
+    match catalog {
+        Catalog::V1_0 => 6_000.0,
+        Catalog::V1_1 => 10_000.0,
+    }
+}
+
+/// The mass of a crew in `catalog`, kg.
+pub fn crew_mass_kg(catalog: Catalog, crew: CrewMix) -> f64 {
+    Design::ALL
+        .into_iter()
+        .zip(crew.counts())
+        .map(|(d, n)| f64::from(n) * d.spec(catalog, "").mass_kg)
+        .sum()
+}
+
+/// Why a crew may not enter the fleet design track.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CrewError {
+    /// Fewer or more robots than the track allows.
+    Size { robots: u32 },
+    /// Heavier than the catalog's budget.
+    Mass { catalog: Catalog, mass_kg: f64 },
+}
+
+impl fmt::Display for CrewError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            CrewError::Size { robots } => write!(
+                f,
+                "a crew has {} to {} robots; this one has {robots}",
+                FLEET_ROBOTS.0, FLEET_ROBOTS.1
+            ),
+            CrewError::Mass { catalog, mass_kg } => write!(
+                f,
+                "this crew weighs {mass_kg:.0} kg; catalog {catalog}'s mass budget is {:.0} kg",
+                mass_budget_kg(catalog)
+            ),
+        }
+    }
+}
+
+impl std::error::Error for CrewError {}
+
+/// Check a crew against the fleet design track's rules: 4 to 20 robots, and
+/// no more mass than the catalog's budget. A crew may leave a design out,
+/// though a pad needs all four.
+pub fn check_crew(catalog: Catalog, crew: CrewMix) -> Result<(), CrewError> {
+    let robots = crew.total();
+    if !(FLEET_ROBOTS.0..=FLEET_ROBOTS.1).contains(&robots) {
+        return Err(CrewError::Size { robots });
+    }
+    let mass_kg = crew_mass_kg(catalog, crew);
+    if mass_kg > mass_budget_kg(catalog) {
+        return Err(CrewError::Mass { catalog, mass_kg });
+    }
+    Ok(())
+}
+
+/// A fleet design track crew: its robots design by design, with ids numbered
+/// from 1 within each design, as a preset's are.
+pub fn custom_crew(catalog: Catalog, crew: CrewMix) -> Vec<RobotSpec> {
+    Design::ALL
+        .into_iter()
+        .zip(crew.counts())
+        .flat_map(|(d, n)| (1..=n).map(move |k| d.spec(catalog, &format!("{}-{k}", d.prefix()))))
+        .collect()
+}
+
+/// The robots of a scenario, and where each starts.
+pub fn lineup(catalog: Catalog, who: Lineup) -> (Vec<RobotSpec>, Vec<GridCoord>) {
+    let robots = match who {
+        Lineup::Preset(preset) => crew(catalog, preset),
+        Lineup::Crew(mix) => custom_crew(catalog, mix),
+    };
+    let starts = starts_of(robots.len() as u32);
+    (robots, starts)
+}
+
+/// The sinterers the fleet design track's reference build has: as many
+/// compactor-sinterers as the mass budget allows, and no more than a crew
+/// may have robots. Every crew on the track is scored against the time
+/// these would take to sinter the pad (`docs/scoring.md` §1), so a crew
+/// with few sinterers cannot score as well as one with many.
+pub fn fleet_reference_sinterers(catalog: Catalog) -> u32 {
+    let each = Design::CompactorSinterer.spec(catalog, "").mass_kg;
+    ((mass_budget_kg(catalog) / each).floor() as u32).min(FLEET_ROBOTS.1)
+}
+
+/// The outpost of a scenario: the preset's, or the fleet outpost for a crew
+/// of the coordinator's own.
+pub fn outpost(who: Lineup) -> Preset {
+    match who {
+        Lineup::Preset(preset) => preset,
+        Lineup::Crew(_) => FLEET_OUTPOST,
+    }
 }
 
 /// Number of robots in the preset's crew.
@@ -539,5 +661,70 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn the_fleet_track_admits_crews_by_size_and_mass() {
+        let mix = |sc, ex, hl, cp| CrewMix {
+            scout: sc,
+            excavator: ex,
+            hauler: hl,
+            compactor_sinterer: cp,
+        };
+        for c in Catalog::ALL {
+            // Small and Medium fit; the Large crew is over the budget.
+            let of = |p| {
+                let [sc, ex, hl, cp] = super::mix(c, p).map(|(_, n)| n);
+                mix(sc, ex, hl, cp)
+            };
+            assert_eq!(check_crew(c, of(Preset::Small)), Ok(()));
+            assert_eq!(check_crew(c, of(Preset::Medium)), Ok(()));
+            let large = of(Preset::Large);
+            let over = check_crew(c, large).unwrap_err();
+            assert_eq!(
+                over,
+                CrewError::Mass {
+                    catalog: c,
+                    mass_kg: crew_mass_kg(c, large)
+                }
+            );
+            assert!(over.to_string().contains("mass budget"), "{over}");
+            // A preset's crew as a custom crew is the same robots, listed
+            // design by design.
+            for p in [Preset::Small, Preset::Medium] {
+                let (mut robots, starts) = lineup(c, Lineup::Crew(of(p)));
+                let mut preset = crew(c, p);
+                assert_eq!(starts, super::starts(c, p));
+                assert_eq!(lineup(c, Lineup::Preset(p)), (preset.clone(), starts));
+                robots.sort_by(|a, b| a.robot_id.cmp(&b.robot_id));
+                preset.sort_by(|a, b| a.robot_id.cmp(&b.robot_id));
+                assert_eq!(robots, preset);
+            }
+            // Too few and too many robots, whatever they weigh.
+            for (crew, robots) in [(mix(1, 1, 1, 0), 3), (mix(21, 0, 0, 0), 21)] {
+                let e = check_crew(c, crew).unwrap_err();
+                assert_eq!(e, CrewError::Size { robots });
+                assert!(e.to_string().contains("4 to 20 robots"), "{e}");
+            }
+            // Twenty scouts fit in every budget.
+            assert_eq!(check_crew(c, mix(20, 0, 0, 0)), Ok(()));
+            // The reference crew is all sinterers, as many as the budget
+            // carries, and itself fits.
+            let n = fleet_reference_sinterers(c);
+            assert_eq!(check_crew(c, mix(0, 0, 0, n.max(4))), Ok(()));
+            assert!(n == FLEET_ROBOTS.1 || check_crew(c, mix(0, 0, 0, n + 1)).is_err());
+        }
+        assert_eq!(crew_mass_kg(Catalog::V1_1, mix(1, 1, 1, 3)), 3_510.0);
+        assert_eq!(crew_mass_kg(Catalog::V1_1, mix(3, 4, 3, 10)), 11_850.0);
+        assert_eq!(crew_mass_kg(Catalog::V1_0, mix(4, 4, 4, 8)), 7_240.0);
+        assert_eq!(fleet_reference_sinterers(Catalog::V1_1), 11);
+        assert_eq!(fleet_reference_sinterers(Catalog::V1_0), 12);
+        assert_eq!(outpost(Lineup::Crew(mix(1, 1, 1, 1))), Preset::Medium);
+        assert_eq!(outpost(Lineup::Preset(Preset::Large)), Preset::Large);
+        let ids: Vec<String> = custom_crew(Catalog::V1_1, mix(2, 0, 1, 2))
+            .into_iter()
+            .map(|r| r.robot_id)
+            .collect();
+        assert_eq!(ids, ["sc-1", "sc-2", "hl-1", "cp-1", "cp-2"]);
     }
 }

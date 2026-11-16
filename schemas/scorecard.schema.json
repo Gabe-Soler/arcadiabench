@@ -22,8 +22,25 @@
       "description": "The catalog a scenario is in, or null for a scenario outside every catalog. Files written before ArcadiaBench 1.1 leave it out: their catalog scenarios are catalog 1.0's.",
       "anyOf": [{ "$ref": "#/$defs/Catalog" }, { "type": "null" }]
     },
+    "Crew": {
+      "description": "A fleet design track crew: how many robots of each of the catalog's four designs. schemas/crew.schema.json describes a crew file, which has the same shape.",
+      "type": "object",
+      "properties": {
+        "scout": { "$ref": "#/$defs/CrewCount" },
+        "excavator": { "$ref": "#/$defs/CrewCount" },
+        "hauler": { "$ref": "#/$defs/CrewCount" },
+        "compactor_sinterer": { "$ref": "#/$defs/CrewCount" }
+      },
+      "required": ["scout", "excavator", "hauler", "compactor_sinterer"],
+      "additionalProperties": false
+    },
+    "CrewCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 20
+    },
     "Preset": {
-      "description": "A Standard track preset, or null for a scenario outside the catalog.",
+      "description": "A Standard track preset, or null for a fleet design track scenario or one outside every catalog.",
       "enum": ["small", "medium", "large", null]
     },
     "Variant": {
@@ -68,6 +85,10 @@
         "scenario_id": { "$ref": "#/$defs/Id" },
         "catalog": { "$ref": "#/$defs/ScenarioCatalog" },
         "preset": { "$ref": "#/$defs/Preset" },
+        "crew": {
+          "description": "The crew of a fleet design track scenario. Left out otherwise.",
+          "$ref": "#/$defs/Crew"
+        },
         "variant": { "$ref": "#/$defs/Variant" },
         "seed": { "$ref": "#/$defs/Count" },
         "simulator": { "$ref": "#/$defs/SoftwareInfo" },
@@ -212,6 +233,10 @@
         "scenario_id": { "$ref": "#/$defs/Id" },
         "catalog": { "$ref": "#/$defs/ScenarioCatalog" },
         "preset": { "$ref": "#/$defs/Preset" },
+        "crew": {
+          "description": "The crew of a fleet design track scenario. Left out otherwise.",
+          "$ref": "#/$defs/Crew"
+        },
         "variant": { "$ref": "#/$defs/Variant" },
         "coordinator": { "$ref": "#/$defs/SoftwareInfo" },
         "simulator": { "$ref": "#/$defs/SoftwareInfo" },
@@ -237,10 +262,13 @@
       "additionalProperties": false
     },
     "PresetResilience": {
-      "description": "Resilience on one preset. Each stress variant's value is its headline over the nominal headline, capped at 1; null if that variant was not scored or the nominal headline is 0.",
+      "description": "Resilience on one preset, or of one fleet design track crew. Each stress variant's value is its headline over the nominal headline, capped at 1; null if that variant was not scored or the nominal headline is 0.",
       "type": "object",
       "properties": {
-        "preset": { "enum": ["small", "medium", "large"] },
+        "preset": {
+          "description": "The preset, or null for a fleet design track crew.",
+          "enum": ["small", "medium", "large", null]
+        },
         "nominal_headline": { "$ref": "#/$defs/Fraction" },
         "dust_storm": { "$ref": "#/$defs/OptionalFraction" },
         "conjunction": { "$ref": "#/$defs/OptionalFraction" },
@@ -261,6 +289,10 @@
         "catalog": {
           "description": "The catalog compared within. Reports written before ArcadiaBench 1.1 leave it out, and are catalog 1.0's.",
           "$ref": "#/$defs/Catalog"
+        },
+        "crew": {
+          "description": "The crew, for a fleet design track entry: its resilience is its own, and presets then holds one entry with a null preset. Left out for the Standard track.",
+          "$ref": "#/$defs/Crew"
         },
         "resilience": {
           "description": "Mean of the presets' resilience, over the presets where it is known.",

@@ -223,13 +223,21 @@ pub(super) fn report(r: &Report) -> String {
                 rows.push(vec![
                     who.clone(),
                     c.catalog.name().to_string(),
-                    p.preset.name().to_string(),
+                    match (p.preset, c.crew) {
+                        (Some(preset), _) => preset.name().to_string(),
+                        (None, Some(crew)) => format!("crew {crew}"),
+                        (None, None) => "-".into(),
+                    },
                     format!("{:.3}", p.nominal_headline),
                     opt(p.dust_storm, 3),
                     opt(p.conjunction, 3),
                     opt(p.cascading_faults, 3),
                     opt(p.resilience, 3),
                 ]);
+            }
+            // A crew of the coordinator's own is one line already.
+            if c.crew.is_some() {
+                continue;
             }
             rows.push(vec![
                 who,
