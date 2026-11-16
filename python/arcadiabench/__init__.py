@@ -18,7 +18,7 @@ Scenarios are named by a preset (``small``, ``medium``, ``large``) and a
 variant (``nominal``, ``dust_storm``, ``conjunction``, ``cascading_faults``,
 ``solar_only``, ``nuclear_heavy``), in a catalog (:data:`CATALOGS`). A
 catalog fixes the robots, the crews and every parameter, so results on it
-stay comparable; ``catalog=None`` means :data:`DEFAULT_CATALOG`.
+stay comparable; ``catalog=None`` means :data:`DEFAULT_CATALOG`, the newest.
 """
 
 from __future__ import annotations

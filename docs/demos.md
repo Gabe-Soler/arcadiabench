@@ -73,14 +73,14 @@ cargo build --release
 scripts/demos.sh
 ```
 
-The script runs these four commands, with `O` the ArcadiaOS binary (`$ARCADIAOS`, by default `../arcadiaos/target/release/arcadiaos`), and moves the logs into `results/v1.0/replays/` once all four are done (or into the directory it is given):
+The replays are runs on catalog 1.0, written by ArcadiaBench 1.0.0. The script runs these four commands, with `O` the ArcadiaOS binary (`$ARCADIAOS`, by default `../arcadiaos/target/release/arcadiaos`), and moves the logs into `results/v1.0/replays/` once all four are done (or into the directory it is given):
 
 ```sh
 B=./target/release
-$B/arcadiabench run --seed 1  --preset large  --variant nominal          --log landing-pad-large-nominal-1.jsonl.gz -- $O
-$B/arcadiabench run --seed 15 --preset small  --variant dust_storm       --log landing-pad-small-dust_storm-15.jsonl.gz -- $O
-$B/arcadiabench run --seed 1  --preset medium --variant conjunction      --log landing-pad-medium-conjunction-1.jsonl.gz -- $O
-$B/arcadiabench run --seed 13 --preset medium --variant cascading_faults --log landing-pad-medium-cascading_faults-13.jsonl.gz -- $O
+$B/arcadiabench run --catalog 1.0 --seed 1  --preset large  --variant nominal          --log landing-pad-large-nominal-1.jsonl.gz -- $O
+$B/arcadiabench run --catalog 1.0 --seed 15 --preset small  --variant dust_storm       --log landing-pad-small-dust_storm-15.jsonl.gz -- $O
+$B/arcadiabench run --catalog 1.0 --seed 1  --preset medium --variant conjunction      --log landing-pad-medium-conjunction-1.jsonl.gz -- $O
+$B/arcadiabench run --catalog 1.0 --seed 13 --preset medium --variant cascading_faults --log landing-pad-medium-cascading_faults-13.jsonl.gz -- $O
 ```
 
 Runs are deterministic and the gzip stream carries no time or name, so the script rewrites the four files byte for byte.

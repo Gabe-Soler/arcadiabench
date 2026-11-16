@@ -811,8 +811,9 @@ pub enum Catalog {
 impl Catalog {
     pub const ALL: [Catalog; 2] = [Catalog::V1_0, Catalog::V1_1];
     /// The catalog a run is on when none is named, on the command line and
-    /// in Python.
-    pub const DEFAULT: Catalog = Catalog::V1_0;
+    /// in Python: the newest. The Rust constructors that take no catalog
+    /// ([`Params::default`], [`Params::variant`]) stay catalog 1.0's.
+    pub const DEFAULT: Catalog = Catalog::V1_1;
 
     pub fn name(self) -> &'static str {
         match self {

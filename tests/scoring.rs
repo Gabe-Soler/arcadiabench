@@ -285,8 +285,11 @@ fn the_command_line_benches_scores_and_suites() {
     let dir = support::scratch_dir("cli");
     let out = dir.join("bench");
     let o = out.to_str().unwrap();
+    // Catalog 1.0, named: its ids and directories are as published.
     let (code, stdout, stderr) = cli(&[
         "bench",
+        "--catalog",
+        "1.0",
         "--preset",
         "medium",
         "--variant",
@@ -327,6 +330,8 @@ fn the_command_line_benches_scores_and_suites() {
     let suite = dir.join("suite");
     let (code, stdout, stderr) = cli(&[
         "suite",
+        "--catalog",
+        "1.0",
         "--presets",
         "small",
         "--variants",
@@ -355,6 +360,8 @@ fn the_command_line_benches_scores_and_suites() {
         "run",
         "--seed",
         "3",
+        "--catalog",
+        "1.0",
         "--preset",
         "large",
         "--variant",
@@ -368,18 +375,19 @@ fn the_command_line_benches_scores_and_suites() {
     assert!(stdout.contains("[large/solar_only]: FleetLost"), "{stdout}");
     let record = &logs::read_logs(&[log]).unwrap()[0];
     assert_eq!(record.scenario_id, "landing-pad-large-solar_only");
+    assert_eq!(record.catalog, Some(Catalog::V1_0));
     assert_eq!(record.reason, EndReason::FleetLost);
-    let (code, _, _) = cli(&["run", "--seed", "1", "--", NULL]);
-    assert_eq!(code, 0);
 
-    // Another catalog: its own ids, and its own directories in a suite.
+    // No catalog named: the newest, with its own ids, and its own
+    // directories in a suite.
+    let (code, stdout, stderr) = cli(&["run", "--seed", "1", "--", NULL]);
+    assert_eq!(code, 0, "{stderr}");
+    assert!(stdout.contains("[1.1 small/nominal]: "), "{stdout}");
     let log = dir.join("run-1.1.jsonl");
     let (code, stdout, stderr) = cli(&[
         "run",
         "--seed",
         "3",
-        "--catalog",
-        "1.1",
         "--preset",
         "large",
         "--variant",
@@ -396,8 +404,6 @@ fn the_command_line_benches_scores_and_suites() {
     assert_eq!(record.catalog, Some(Catalog::V1_1));
     let (code, stdout, stderr) = cli(&[
         "suite",
-        "--catalog",
-        "1.1",
         "--presets",
         "small",
         "--variants",

@@ -21,7 +21,7 @@ def test_the_package_describes_itself():
     # The package's version (python/Cargo.toml) is the simulator's (Cargo.toml).
     assert version("arcadiabench") == arcadiabench.__version__
     assert arcadiabench.CATALOGS == ["1.0", "1.1"]
-    assert arcadiabench.DEFAULT_CATALOG in arcadiabench.CATALOGS
+    assert arcadiabench.DEFAULT_CATALOG == "1.1"
     assert arcadiabench.PRESETS == ["small", "medium", "large"]
     assert arcadiabench.VARIANTS[0] == "nominal" and "dust_storm" in arcadiabench.VARIANTS
     assert set(arcadiabench.STRESS_VARIANTS) == {"dust_storm", "conjunction", "cascading_faults"}
@@ -31,31 +31,31 @@ def test_the_package_describes_itself():
 
 
 def test_scenario_is_the_hello_of_every_preset_and_variant():
-    sizes = {"small": 4, "medium": 10, "large": 20}
-    for preset in arcadiabench.PRESETS:
-        for variant in arcadiabench.VARIANTS:
-            hello = arcadiabench.scenario(7, preset, variant)
-            assert hello["type"] == "hello"
-            assert hello["protocol_version"] == arcadiabench.PROTOCOL_VERSION
-            assert hello["run_id"] == f"landing-pad-{preset}-{variant}-7"
-            assert hello["seed"] == 7
-            s = hello["scenario"]
-            assert s["scenario_id"] == f"landing-pad-{preset}-{variant}"
-            assert len(s["robots"]) == sizes[preset]
-            assert s["base_station"]["position"] == {"x": 30, "y": 8}
+    # Catalog 1.0's ids are bare; a later catalog puts its name in them.
+    crews = {"1.0": ("landing-pad-", {"small": 4, "medium": 10, "large": 20}),
+             "1.1": ("landing-pad-1.1-", {"small": 6, "medium": 12, "large": 20})}
+    assert set(crews) == set(arcadiabench.CATALOGS)
+    for catalog, (prefix, sizes) in crews.items():
+        for preset in arcadiabench.PRESETS:
+            for variant in arcadiabench.VARIANTS:
+                hello = arcadiabench.scenario(7, preset, variant, catalog=catalog)
+                assert hello["type"] == "hello"
+                assert hello["protocol_version"] == arcadiabench.PROTOCOL_VERSION
+                assert hello["run_id"] == f"{prefix}{preset}-{variant}-7"
+                assert hello["seed"] == 7
+                s = hello["scenario"]
+                assert s["scenario_id"] == f"{prefix}{preset}-{variant}"
+                assert len(s["robots"]) == sizes[preset]
+                assert s["base_station"]["position"] == {"x": 30, "y": 8}
+                assert s["constants"]["grade_window_m"] == 0.15
+    # No catalog named: the newest.
+    assert arcadiabench.scenario(3) == arcadiabench.scenario(3, catalog="1.1")
+    assert arcadiabench.scenario(3) != arcadiabench.scenario(3, catalog="1.0")
     # One seed is one site, whatever the preset.
     a, b = arcadiabench.scenario(3, "small"), arcadiabench.scenario(3, "large", "solar_only")
     assert a["scenario"]["site"] == b["scenario"]["site"]
     assert a["scenario"]["power"]["mode"] == "hybrid"
     assert b["scenario"]["power"]["mode"] == "solar_only"
-    # A catalog after 1.0 puts its name in the id.
-    for preset in arcadiabench.PRESETS:
-        hello = arcadiabench.scenario(7, preset, "conjunction", catalog="1.1")
-        assert hello["scenario"]["scenario_id"] == f"landing-pad-1.1-{preset}-conjunction"
-        assert hello["run_id"] == f"landing-pad-1.1-{preset}-conjunction-7"
-    first = arcadiabench.scenario(3, catalog="1.0")
-    assert first["scenario"]["scenario_id"] == "landing-pad-small-nominal"
-    assert arcadiabench.scenario(3, catalog=arcadiabench.DEFAULT_CATALOG) == arcadiabench.scenario(3)
     with pytest.raises(ValueError, match="unknown catalog"):
         arcadiabench.scenario(1, catalog="2.0")
     with pytest.raises(ValueError, match="unknown preset"):
@@ -66,7 +66,7 @@ def test_scenario_is_the_hello_of_every_preset_and_variant():
 
 def test_an_in_process_coordinator_builds_the_pad(builder_module, tmp_path):
     log = tmp_path / "run.jsonl.gz"
-    result = arcadiabench.run(builder_module.Builder(), seed=1, log_path=log)
+    result = arcadiabench.run(builder_module.Builder(), seed=1, log_path=log, catalog="1.0")
     assert result["run_id"] == "landing-pad-small-nominal-1"
     assert result["coordinator"] == {"name": "python-builder", "version": "1.0.0"}
     assert result["reason"] == "goals_complete" and result["error"] is None
@@ -87,7 +87,7 @@ def test_an_in_process_coordinator_builds_the_pad(builder_module, tmp_path):
 
 def test_an_external_coordinator_runs_from_its_command_line(builder_argv, tmp_path):
     log = tmp_path / "run.jsonl"
-    result = arcadiabench.run(builder_argv, seed=2, preset="medium", log_path=log)
+    result = arcadiabench.run(builder_argv, seed=2, preset="medium", log_path=log, catalog="1.0")
     assert result["scenario_id"] == "landing-pad-medium-nominal"
     assert result["reason"] == "goals_complete"
     assert json.loads(log.read_text().splitlines()[-1])["kind"] == "run_end"
@@ -98,15 +98,16 @@ def test_an_external_coordinator_runs_from_its_command_line(builder_argv, tmp_pa
         import builder
     finally:
         sys.path.pop(0)
-    again = arcadiabench.run(builder.Builder(), seed=2, preset="medium", log_path=in_process)
+    again = arcadiabench.run(builder.Builder(), seed=2, preset="medium", log_path=in_process,
+                             catalog="1.0")
     assert again == result
     assert in_process.read_bytes() == log.read_bytes()
 
 
 def test_serve_runs_under_the_real_command_line(builder_argv, tmp_path):
     log = tmp_path / "cli.jsonl"
-    cmd = [sys.executable, "-m", "arcadiabench", "run", "--seed", "3", "--variant", "dust_storm",
-           "--log", str(log), "--", *builder_argv]
+    cmd = [sys.executable, "-m", "arcadiabench", "run", "--catalog", "1.0", "--seed", "3",
+           "--variant", "dust_storm", "--log", str(log), "--", *builder_argv]
     # From a neutral directory: `-m` puts the working directory first on the path.
     done = subprocess.run(cmd, capture_output=True, text=True, timeout=300, cwd=tmp_path)
     assert done.returncode == 0, done.stderr
@@ -121,8 +122,8 @@ def test_serve_runs_under_the_real_command_line(builder_argv, tmp_path):
 
 def test_bench_scores_a_batch_whatever_the_jobs(builder_argv, tmp_path):
     one, many = tmp_path / "one", tmp_path / "many"
-    a = arcadiabench.bench(builder_argv, "1-3", jobs=1, out=one, save_logs=True)
-    b = arcadiabench.bench(builder_argv, [3, 2, 1], jobs=3, out=many, save_logs=True)
+    a = arcadiabench.bench(builder_argv, "1-3", catalog="1.0", jobs=1, out=one, save_logs=True)
+    b = arcadiabench.bench(builder_argv, [3, 2, 1], catalog="1.0", jobs=3, out=many, save_logs=True)
     assert a == b
     card = a["scorecard"]
     assert card["seeds"] == [1, 2, 3]
@@ -139,14 +140,14 @@ def test_bench_scores_a_batch_whatever_the_jobs(builder_argv, tmp_path):
 
 
 def test_bench_runs_in_process_coordinators_one_after_another(builder_module):
-    fresh = arcadiabench.bench(builder_module.Builder, seeds=[4, 5])
-    reused = arcadiabench.bench(builder_module.Builder(), seeds="4-5")
+    fresh = arcadiabench.bench(builder_module.Builder, seeds=[4, 5], catalog="1.0")
+    reused = arcadiabench.bench(builder_module.Builder(), seeds="4-5", catalog="1.0")
     assert fresh == reused
     assert fresh["scorecard"]["completion"]["completed"] == 2
 
 
 def test_suite_reports_resilience(builder_argv, tmp_path):
-    result = arcadiabench.suite(builder_argv, seeds=1, presets=["small"],
+    result = arcadiabench.suite(builder_argv, seeds=1, presets=["small"], catalog="1.0",
                                 variants=["nominal", *arcadiabench.STRESS_VARIANTS], out=tmp_path)
     report = result["report"]
     assert [c["variant"] for c in report["scorecards"]] == ["nominal", *arcadiabench.STRESS_VARIANTS]
@@ -154,7 +155,7 @@ def test_suite_reports_resilience(builder_argv, tmp_path):
     small = res["presets"][0]
     assert small["preset"] == "small" and small["resilience"] is not None
     assert 0 <= res["resilience"] <= 1
-    assert res["catalog"] == arcadiabench.DEFAULT_CATALOG
+    assert res["catalog"] == "1.0"
     assert all(c["catalog"] == res["catalog"] for c in report["scorecards"])
     assert json.loads((tmp_path / "suite.json").read_text()) == report
     with pytest.raises(TypeError):

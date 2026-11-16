@@ -34,11 +34,14 @@ Here:
 
 `T_ref` is how long the crew would need to give the whole pad its slowest treatment, with every robot that can do it working at once at its nominal rate, and nothing else: no travel, charging, waiting, wear or other work. For every preset that treatment is sintering, so `T_ref = A / R_sinter`:
 
-| Preset | Sinterers | `R_sinter` | `T_ref` |
-|---|---|---|---|
-| `small` | 1 | 0.01 m²/s | 40,000 s = 0.451 sols |
-| `medium` | 4 | 0.04 m²/s | 10,000 s = 0.113 sols |
-| `large` | 8 | 0.08 m²/s | 5,000 s = 0.056 sols |
+| Catalog | Preset | Sinterers | `R_sinter` | `T_ref` |
+|---|---|---|---|---|
+| 1.1 | `small` | 3 | 0.00012 m²/s | 3,333,333 s = 37.5 sols |
+| 1.1 | `medium` | 6 | 0.00024 m²/s | 1,666,667 s = 18.8 sols |
+| 1.1 | `large` | 10 | 0.00040 m²/s | 1,000,000 s = 11.3 sols |
+| 1.0 | `small` | 1 | 0.01 m²/s | 40,000 s = 0.451 sols |
+| 1.0 | `medium` | 4 | 0.04 m²/s | 10,000 s = 0.113 sols |
+| 1.0 | `large` | 8 | 0.08 m²/s | 5,000 s = 0.056 sols |
 
 `T_ref` is computed from the scenario the coordinator receives, so it is defined for any crew, including crews outside the catalog. If the crew lacks a treatment the pad needs, no run can finish, and `T_ref` is null.
 
@@ -55,9 +58,9 @@ speed = min(1, T_ref / sols)
 - **Scale-free.** Twice as fast is twice the speed, at any scale, so ratios of speeds are ratios of build rates. That is what lets resilience (§4) compare a slowed-down run with its nominal one fairly on every preset.
 - **Comparable across presets.** `T_ref` shrinks in proportion as a preset adds sinterers, so speed measures how well a coordinator uses the crew it has, not how big that crew is. A coordinator that keeps a Large crew as busy as a Small one gets the same speed on both.
 
-`T_ref` is a lower bound on any real build, apart from duration noise: a step's duration carries ±15% lognormal noise, so a perfect coordinator might beat `T_ref` by a few percent, and the cap absorbs that. No real build comes close. The pipeline has to fill before sintering can start, the Small compactor-sinterer needs about 5 hours of charging, and robots must drive. On seeds 1–50 of the nominal variant, ArcadiaOS reaches a mean speed of 0.56 on Small, 0.75 on Medium and 0.71 on Large, and the greedy baseline 0.50, 0.68 and 0.59 ([`results/v1.0/RESULTS.md`](../results/v1.0/RESULTS.md)).
+`T_ref` is a lower bound on any real build, apart from duration noise: a step's duration carries lognormal noise (±15% on catalog 1.0, ±25% on 1.1), so a perfect coordinator might beat `T_ref` by a few percent, and the cap absorbs that. No real build comes close. The pipeline has to fill before sintering can start, sinterers have to charge, and robots must drive. On catalog 1.1 the greedy baseline reaches a mean speed of 0.69 on Small, 0.68 on Medium and 0.63 on Large on seeds 1–50 of the nominal variant: its sinterers spend a fifth of their time charging, and on Large they also wait for power. On catalog 1.0, where the Small compactor-sinterer needs about 5 hours of charging, on seeds 1–50 of the nominal variant, ArcadiaOS reaches a mean speed of 0.56 on Small, 0.75 on Medium and 0.71 on Large, and the greedy baseline 0.50, 0.68 and 0.59 ([`results/v1.0/RESULTS.md`](../results/v1.0/RESULTS.md)).
 
-**Why not the time limit?** Speed could be measured against the 60-sol time limit, for example `1 − sols / 60`. That is comparable across presets, but builds take 0.1 to 2 sols, so every competent coordinator would score between 0.97 and 1.00, and a coordinator twice as fast as another would gain only about 1%. The headline would be the success rate in disguise. The outline's typical result, "finishes the pad X% faster than greedy", needs a speed that resolves those differences.
+**Why not the time limit?** Speed could be measured against the time limit, for example `1 − sols / 60` on catalog 1.0. That is comparable across presets, but catalog 1.0's builds take 0.1 to 2 sols of its 60, so every competent coordinator would score between 0.97 and 1.00, and a coordinator twice as fast as another would gain only about 1%. The headline would be the success rate in disguise. The outline's typical result, "finishes the pad X% faster than greedy", needs a speed that resolves those differences.
 
 **Why not a fixed time scale?** A form such as `1 / (1 + sols)` resolves differences, but it is not scale-free. Halving a Large crew's pace would cost it a different fraction of its score than halving a Small crew's, and Large would score higher just for being bigger.
 
@@ -121,7 +124,7 @@ Compare headlines between coordinators on the same scenario and seeds. Across pr
 
 Statistics that only make sense for a finished pad, such as sols, speed and pad error, are taken over completed runs. Everything else is over all runs, because a coordinator's failures are part of its behaviour.
 
-A run that fails and goes on to the time limit accumulates idle drain and robot-hours lost for up to 60 sols. That is what the metrics mean (semantics §11), and it shows up in `energy_per_pad_wh` and `mean_robot_hours_lost`.
+A run that fails and goes on to the time limit accumulates idle drain and robot-hours lost up to the time limit (100 sols on catalog 1.1, 60 on catalog 1.0). That is what the metrics mean (semantics §11), and it shows up in `energy_per_pad_wh` and `mean_robot_hours_lost`.
 
 ## 4. Resilience
 
@@ -134,7 +137,7 @@ resilience = mean of resilience(preset) over the presets where it is known
 ```
 
 - **The stress variants** are the outline's three adversities. `solar_only` and `nuclear_heavy` are alternative power architectures, with nuclear-heavy the outline's "easy" mode, so they are scored but are not stresses.
-- **Every preset is stressed.** The dust storm and the blackout begin within the first 0.03 sol, so they cover most of even a Large crew's build, which takes under 0.1 sol ([`simulator.md`](simulator.md) §1, stress timing). With later onsets a fast Medium or Large crew could finish before the stress arrived, which would inflate its resilience.
+- **Every preset is stressed.** The dust storm and the blackout begin early enough to cover most of even a Large crew's build. On catalog 1.0 that is within the first 0.03 sol of a build that takes under 0.1 sol ([`simulator.md`](simulator.md) §1, stress timing); on catalog 1.1, within the first four sols of a build that takes about 18 (§19). With later onsets a fast Medium or Large crew could finish before the stress arrived, which would inflate its resilience.
 - **Retention is capped at 1.** A coordinator gains nothing from a stress variant that happens to go better than nominal; on a handful of seeds that is noise.
 - **Unknown cases.** A retention is null when that variant was not scored or the nominal headline is 0. A preset's resilience is null unless all three retentions are known.
 - **Scale-free.** Because speed is scale-free (§1), a run slowed to half its pace keeps half its score on every preset, so retentions are comparable across presets.
@@ -144,7 +147,7 @@ resilience = mean of resilience(preset) over the presets where it is known
 
 ## 5. Seeds, determinism and files
 
-- **Seeds.** Every scenario reproduces bit for bit from its seed, and every coordinator on a seed faces the same terrain, weather and Earth link. Leaderboard results use seeds 1–50, the default of `bench` and `suite`.
+- **Seeds.** Every scenario reproduces bit for bit from its seed, and every coordinator on a seed faces the same terrain, weather and Earth link. Leaderboard results use seeds 1–50, the default of `bench` and `suite`, and say which catalog they are on.
 - **Determinism.** What a batch writes depends only on the coordinator and the seeds, never on `--jobs`: runs are independent and are written and aggregated in seed order. Saved logs are gzipped with a fixed header. A deterministic coordinator therefore gives byte-identical `metrics.jsonl`, `scorecard.json` and logs at any `--jobs`, and `tests/scoring.rs` checks this. The per-decision timeout is wall-clock, so keep `--jobs` at or below the number of CPUs.
 - **Files.** `arcadiabench bench` writes into its output directory:
   - `metrics.jsonl`: one run record per line, in seed order (`#/$defs/RunRecord`).

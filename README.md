@@ -4,7 +4,7 @@ ArcadiaBench: an open, seeded benchmark for coordinating robot crews building on
 
 ArcadiaBench is a fast, headless simulator of a construction site at Arcadia Planitia. Any team can plug in a coordinator and compare results. Coordinators connect through [arcadia-protocol](https://github.com/Gabe-Soler/arcadia-protocol), newline-delimited JSON over stdio, so they can be written in any language. [ArcadiaOS](https://github.com/Gabe-Soler/arcadiaos) is the reference coordinator.
 
-**Version 1.1.0, in development on `main`**, speaking arcadia-protocol 1.1.0. The latest release is 1.0.1 (`pip install arcadiabench`, tag `v1.0.1`), which speaks protocol 1.0.0; the two protocol versions do not work together, so use the release with a 1.0 coordinator such as ArcadiaOS 1.0. A coordinator builds a landing pad end to end while robots wear out, break down and get stuck, on a choice of power systems, with Earth minutes away behind a link that drops out, and authority rules that Earth enforces and updates. Crews come in three sizes, every scenario runs across seeds in parallel, and scorecards rank coordinators by success rate × speed. Three baseline coordinators ship with the benchmark, the [v1.0 results](results/v1.0/RESULTS.md) compare them with ArcadiaOS across the whole catalog, a [replay viewer](viewer/README.md) turns any run into a shareable visual demo, and Python researchers can drive it all through the [`arcadiabench` package](python/README.md).
+**Version 1.1.0, in development on `main`**, speaking arcadia-protocol 1.1.0. The latest release is 1.0.1 (`pip install arcadiabench`, tag `v1.0.1`), which speaks protocol 1.0.0; the two protocol versions do not work together, so use the release with a 1.0 coordinator such as ArcadiaOS 1.0. A coordinator builds a landing pad end to end while robots wear out, break down and get stuck, on a choice of power systems, with Earth minutes away behind a link that drops out, and authority rules that Earth enforces and updates. Crews come in three sizes, every scenario runs across seeds in parallel, and scorecards rank coordinators by success rate × speed. Scenarios come in two catalogs: 1.1, the default, on sourced rates where the pad takes weeks, and 1.0, where it takes hours. Three baseline coordinators ship with the benchmark, the [v1.0 results](results/v1.0/RESULTS.md) compare them with ArcadiaOS across the whole of catalog 1.0, a [replay viewer](viewer/README.md) turns any run into a shareable visual demo, and Python researchers can drive it all through the [`arcadiabench` package](python/README.md).
 
 ## Quickstart
 
@@ -13,21 +13,26 @@ With Rust (stable) installed, from the repository root:
 ```sh
 cargo build --release
 
-# The null coordinator does nothing: its robots drain and the run ends fleet_lost after about 17 sols.
+# The null coordinator does nothing: its robots drain and the run ends fleet_lost after about 58 sols.
 ./target/release/arcadiabench run --seed 42 --log run.jsonl -- ./target/release/null-coordinator
 
-# The greedy baseline builds the pad on the Medium crew through a dust storm.
+# The greedy baseline builds the pad on the Medium crew through a dust storm: about 30 sols, simulated in a second or two.
 ./target/release/arcadiabench run --seed 42 --preset medium --variant dust_storm -- ./target/release/baseline-greedy
 
 # Ten seeds in parallel, scored: a scorecard and a readable table.
 ./target/release/arcadiabench bench --preset small --variant nominal --seeds 1-10 --out runs/greedy-small -- ./target/release/baseline-greedy
+
+# The same on catalog 1.0, the one the published v1.0 results are on: builds of hours.
+./target/release/arcadiabench bench --catalog 1.0 --preset small --variant nominal --seeds 1-10 --out runs/greedy-small-1.0 -- ./target/release/baseline-greedy
 ```
 
 Each run prints a one-line summary, and `bench` prints its scorecard. To benchmark ArcadiaOS, check it out beside this repository, build it with `cargo build --release`, and pass `../arcadiaos/target/release/arcadiaos` as the coordinator. To watch a run, open its log in the [replay viewer](#replay-viewer).
 
 ## What it simulates
 
-- **Scenario catalog:** `landing-pad-<preset>-<variant>`. Three Standard track presets: Small (4 robots), Medium (10) and Large (20). Six variants: `nominal`, `dust_storm`, `conjunction`, `cascading_faults`, `solar_only` and `nuclear_heavy`. Every preset combines with every variant (see [Presets and variants](#presets-and-variants)). This is catalog 1.0, the default. `--catalog 1.1` selects the harder catalog being built on `main` (`landing-pad-1.1-<preset>-<variant>`): sourced rates, crews of 6, 12 and 20, a pad that takes weeks, an Earth link in pass windows and a 100-sol limit ([`docs/simulator.md`](docs/simulator.md) §19). It is not final until 1.1.0 is released.
+- **Scenario catalogs:** a scenario is a preset (the crew and its outpost) under a variant (what the run throws at it), in a catalog (the robots, crews and every parameter). There are three Standard track presets, Small, Medium and Large, and six variants: `nominal`, `dust_storm`, `conjunction`, `cascading_faults`, `solar_only` and `nuclear_heavy`. Every preset combines with every variant (see [Catalogs, presets and variants](#catalogs-presets-and-variants)).
+  - **Catalog 1.1,** the default (`landing-pad-1.1-<preset>-<variant>`): sourced, realistic rates. Crews of 6, 12 and 20; a pad that takes 18 to 55 sols; an Earth link that works in pass windows; answers from Earth in hours; a 100-sol limit. It is being calibrated on `main` and is not final until 1.1.0 is released.
+  - **Catalog 1.0** (`--catalog 1.0`, `landing-pad-<preset>-<variant>`): the catalog of the 1.0 release and its published results. Crews of 4, 10 and 20; a pad that takes hours; a continuous link; a 60-sol limit. It is frozen.
 - **The site:** a seeded 60 × 60 m site (1 m cells) on a gently tilted plain, with variable regolith and a sparse boulder field. The goal is a 20 × 20 m pad with a 12 m blast berm. Crews are defined purely by capabilities and work from charge stations, depots and a comms base station. The coordinator starts with noisy orbital elevation data; scans reveal the ground truth, with sensor noise.
 - **Wear and faults:** every robot carries hidden wear on six components (wheels, drive motor, joints, tool, sensors, battery).
   - Wear grows with distance, work and dust, faster in storms, and makes a robot slower and hungrier.
@@ -41,8 +46,8 @@ Each run prints a one-line summary, and `bench` prints its scorecard. To benchma
   - `cannibalize`: strip a dead robot for parts; it is lost for good.
 
   Cold nights add heater drain that can leave idle robots offline, and an offline robot can be recharged where it stands by a mobile charger. The run ends `fleet_lost` when no robot can ever act again.
-- **The Earth link:** a one-way delay of 4–24 minutes from a smooth orbital model (about 12 minutes and slowly growing by default), seeded unplanned outages lasting hours, and in the `conjunction` variant a 14-sol solar-conjunction blackout. Messages are stored and forwarded both ways, with exact delivery times in the log, and `comms` events report every change of link state and every 60 s of drift in the delay.
-- **Scripted mission control:** it answers every approval request after a human response time of about 20 minutes, approving with odds that depend on the action, and replies even when its answer will be too late. A deterministic trust script updates the authority policy: it loosens towing and replanning after two incident-free sols, and tightens cannibalizing to level 4 once a robot is lost.
+- **The Earth link:** a one-way delay of minutes from a smooth orbital model (about 12 minutes and slowly growing by default), seeded unplanned outages lasting hours, and in the `conjunction` variant a 14-sol solar-conjunction blackout. In catalog 1.1 the link works in pass windows: a direct window of a few hours and three to five short relay passes each sol, with the link down for about 21 hours in between. Messages are stored and forwarded both ways, with exact delivery times in the log, and `comms` events report every change of link state and every 60 s of drift in the delay.
+- **Scripted mission control:** it answers every approval request after a human response time of about 4 hours (about 20 minutes in catalog 1.0), approving with odds that depend on the action, and replies even when its answer will be too late. A deterministic trust script updates the authority policy: it loosens towing and replanning after a run of incident-free sols, and tightens cannibalizing to level 4 once a robot is lost.
 - **Authority enforcement:** level-3 and level-4 commands need an approval Earth has granted (or, at level 3, a request whose deadline passed with fallback `proceed`); otherwise they are rejected `approval_required` or `vetoed`. Level-2 commands without a timely `notify` count as policy violations.
 - **Coverage and relays:** the base station covers the outpost and the pad but not the blast berm. Relays extend coverage transitively. Robots out of coverage:
   - reject new commands;
@@ -75,30 +80,30 @@ Each run prints a one-line summary, and `bench` prints its scorecard. To benchma
 - **Coordinator harness:** every message is schema-validated, there's a per-decision wall-clock timeout (`--decision-timeout`, default 10 s), and a guard ends the run if a coordinator freezes sim time.
 - **Run event log:** JSONL (`event_log.schema.json`) with ground-truth robot snapshots, changed cells and site state at every decision point and at the very end. It is the input for scoring and for the replay viewer.
 
-All tunables live in `src/sim/params.rs`, and [`docs/simulator.md`](docs/simulator.md) explains each one. They are plausible placeholders; sourcing realistic values is an open question in the project outline. The interface semantics the simulator implements are in [arcadia-protocol's `docs/semantics.md`](https://github.com/Gabe-Soler/arcadia-protocol/blob/v1.0.0/docs/semantics.md), whose appendix lists the values a coordinator has to assume because no message carries them.
+All tunables live in `src/sim/params.rs`, and [`docs/simulator.md`](docs/simulator.md) explains each one. Catalog 1.0's values are plausible placeholders. Catalog 1.1 uses a published value wherever one exists, and §19 of that document cites each. The interface semantics the simulator implements are in [arcadia-protocol's `docs/semantics.md`](https://github.com/Gabe-Soler/arcadia-protocol/blob/v1.1.0/docs/semantics.md). The constants a coordinator plans with, such as the grade window and the compaction settlement, arrive in `hello` as `scenario.constants`.
 
-## Presets and variants
+## Catalogs, presets and variants
 
-Every scenario has the same site, pad and base station, and a seed gives the same terrain, weather and Earth link in every scenario.
+Every scenario has the same site, pad and base station, and within a catalog a seed gives the same terrain, weather and Earth link in every scenario. `--catalog` chooses the catalog; without it a run is on 1.1.
 
-| Preset | Crew | Outpost |
-|---|---|---|
-| `small` | 4: one scout, excavator, hauler and compactor-sinterer | 1 charge station (2 slots), 1 depot |
-| `medium` | 10: 2 scouts, 2 excavators, 2 haulers, 4 compactor-sinterers | 2 stations, 2 depots |
-| `large` | 20: 4 scouts, 4 excavators, 4 haulers, 8 compactor-sinterers | 4 stations, 4 depots |
+| Preset | Catalog 1.1 crew | Catalog 1.0 crew | Outpost |
+|---|---|---|---|
+| `small` | 6: a scout, an excavator, a hauler and 3 compactor-sinterers | 4: one of each design | 1 charge station (2 slots), 1 depot |
+| `medium` | 12: 2 scouts, 2 excavators, 2 haulers, 6 compactor-sinterers | 10: 2, 2, 2 and 4 | 2 stations, 2 depots |
+| `large` | 20: 3 scouts, 4 excavators, 3 haulers, 10 compactor-sinterers | 20: 4, 4, 4 and 8 | 4 stations, 4 depots |
 
-Every robot is one of the same four designs, so results differ only by crew size and coordination. Sintering dominates the work, so beyond Small the compactor-sinterers make up 40% of the crew. Medium and Large carry every capability on at least two robots. The crews nest: Medium is the Small crew plus six robots, and Large is the Medium crew plus ten.
+Within a catalog every robot is one of the same four designs, so results differ only by crew size and coordination. Sintering dominates the work: in catalog 1.1 a square metre takes about 7 hours and 37 kWh, so half of every crew sinters and a sinterer spends a fifth of its time charging. Medium and Large carry every capability on at least two robots.
 
 | Variant | What it throws at the crew |
 |---|---|
 | `nominal` | Hybrid power and the nominal fault model. |
-| `dust_storm` | A severe regional storm from the start: its front arrives in the first half hour and peaks within the next hour. Sensor faults, faster wear, days of dim sun. |
-| `conjunction` | A 14-sol blackout of the Earth link starting 15–45 minutes into the run, with the delay at its longest. |
+| `dust_storm` | A severe regional storm early in the run. In catalog 1.1 its front arrives in the first three sols, takes two sols to peak and stays for weeks; in catalog 1.0 it arrives in the first half hour and lasts days. Sensor faults, faster wear, dim sun. |
+| `conjunction` | A 14-sol blackout of the Earth link, with the delay at its longest. It starts one to four sols into the run in catalog 1.1, and 15–45 minutes in on catalog 1.0. |
 | `cascading_faults` | Four to five times the wear and failure rates, and fewer faults fixable in the field. |
 | `solar_only` | No fission: day-night swings and storms, with banking and rationing. |
 | `nuclear_heavy` | Mostly fission: steady supply against a fixed capacity limit. |
 
-[`docs/simulator.md`](docs/simulator.md) §1 gives every preset's crew and outpost, the reasoning behind the capability mix, and every variant's parameters.
+[`docs/simulator.md`](docs/simulator.md) §1 gives catalog 1.0's crews, outposts and variants and the reasoning behind them; §19 gives everything catalog 1.1 changes, with its sources.
 
 ## Run
 
@@ -108,7 +113,7 @@ cargo build --release
 ./target/release/arcadiabench run --seed 42 --preset medium --variant solar_only --log run.jsonl.gz -- path/to/arcadiaos
 ```
 
-Everything after `--` is the coordinator command line. The coordinator's stderr is passed through. A log whose name ends in `.gz` is gzipped. A full 60-sol run takes well under a second in release builds. The null coordinator never charges, so its idle robots drain and its run ends `fleet_lost` after about 17 sols.
+Everything after `--` is the coordinator command line. The coordinator's stderr is passed through. A log whose name ends in `.gz` is gzipped. In release builds a full 60-sol run on catalog 1.0 takes well under a second, and a whole build of weeks on catalog 1.1 a second or two. The null coordinator never charges, so its idle robots drain and its run ends `fleet_lost`, after about 58 sols on catalog 1.1 and 17 on catalog 1.0.
 
 ## Benchmark
 
@@ -118,10 +123,10 @@ arcadiabench bench --preset small --variant nominal --seeds 1-50 --save-logs -- 
 # Every preset × variant, with resilience.
 arcadiabench suite --seeds 1-50 -- path/to/coordinator
 # Scorecards from saved logs (files or directories); --json for the report.
-arcadiabench score results/small-nominal/logs
+arcadiabench score results/1.1-small-nominal/logs
 ```
 
-- **`bench`** writes `results/<preset>-<variant>/` (or `--out DIR`; on a catalog after 1.0 the default is `results/<catalog>-<preset>-<variant>/`):
+- **`bench`** writes `results/<catalog>-<preset>-<variant>/` (or `--out DIR`). Catalog 1.0's directories have no catalog in their name: `results/<preset>-<variant>/`.
   - `metrics.jsonl`: one run record per seed.
   - `scorecard.json`.
   - With `--save-logs`, every event log as `logs/<run_id>.jsonl.gz`.
@@ -133,7 +138,7 @@ arcadiabench score results/small-nominal/logs
 
 The leaderboard ranks by one headline metric, **success rate × speed**, with a full scorecard beside it.
 
-- **Speed** of a completed run is `min(1, T_ref / sols)`. `T_ref` is the scenario's reference build time: how long the crew's sinterers would take to sinter the pad, all working at once with nothing else to do. It is 0.451 sols on Small, 0.113 on Medium and 0.056 on Large. Speed is in (0, 1], twice as fast is twice the speed, and it is comparable across presets because the reference scales with the crew.
+- **Speed** of a completed run is `min(1, T_ref / sols)`. `T_ref` is the scenario's reference build time: how long the crew's sinterers would take to sinter the pad, all working at once with nothing else to do. On catalog 1.1 it is 37.5 sols on Small, 18.8 on Medium and 11.3 on Large; on catalog 1.0, 0.451, 0.113 and 0.056. Speed is in (0, 1], twice as fast is twice the speed, and it is comparable across presets because the reference scales with the crew.
 - **The headline** is success rate × mean speed, which is the mean over seeds of each run's score (its speed, or 0 if the pad was not finished).
 - **The scorecard** adds:
   - completion: success rate, mean and median sols;
@@ -142,7 +147,7 @@ The leaderboard ranks by one headline metric, **success rate × speed**, with a 
   - fleet health: faults, robot-hours lost, robots lost;
   - autonomy: approval requests, time waiting for Earth, policy violations;
   - the conditions the runs met.
-- **Resilience** is, per preset, the mean over `dust_storm`, `conjunction` and `cascading_faults` of each one's headline over the nominal headline, capped at 1. A suite averages it over presets.
+- **Resilience** is, per preset, the mean over `dust_storm`, `conjunction` and `cascading_faults` of each one's headline over the nominal headline, capped at 1. A suite averages it over presets. It is worked out within one catalog, never across two.
 
 [`docs/scoring.md`](docs/scoring.md) gives every formula and the reasoning behind it. [`schemas/scorecard.schema.json`](schemas/scorecard.schema.json) (draft 2020-12) describes run records, scorecards and reports.
 
@@ -172,14 +177,16 @@ Priority order is rescans and surveys, then verification scans, then the pad pip
 
 ## Results
 
-[`results/v1.0/RESULTS.md`](results/v1.0/RESULTS.md) has the benchmark results of ArcadiaBench 1.0: ArcadiaOS 1.0 and the three baselines on all 18 scenarios over seeds 1–50, 3,600 runs, with the headline table, every scorecard, resilience and the scripts that reproduce them byte for byte. In short, ArcadiaOS finishes the pad 15% faster than greedy on the nominal build and has the best headline in every scenario.
+[`results/v1.0/RESULTS.md`](results/v1.0/RESULTS.md) has the benchmark results of ArcadiaBench 1.0, on catalog 1.0: ArcadiaOS 1.0 and the three baselines on all 18 scenarios over seeds 1–50, 3,600 runs, with the headline table, every scorecard, resilience and the scripts that reproduce them byte for byte. In short, ArcadiaOS finishes the pad 15% faster than greedy on the nominal build and has the best headline in every scenario.
 
-| Nominal headline | Small (4 robots) | Medium (10) | Large (20) |
+| Nominal headline, catalog 1.0 | Small (4 robots) | Medium (10) | Large (20) |
 |---|---|---|---|
 | ArcadiaOS | **0.559** | **0.753** | **0.710** |
 | greedy | 0.501 | 0.681 | 0.585 |
 | random | 0.499 | 0.677 | 0.587 |
 | first come, first served | 0.385 | 0.419 | 0.362 |
+
+Results on catalog 1.1 will be published with the 1.1.0 release, once ArcadiaOS has run on it. With the baselines alone on seeds 1–50, Small takes about 55 sols, Medium 28 and Large 18, and their nominal headlines are 0.61 to 0.69.
 
 [`docs/demos.md`](docs/demos.md) describes the four demo replays (a nominal build, a dust storm, a conjunction blackout and cascading faults) and how to open them in the replay viewer. `scripts/results.sh` and `scripts/demos.sh` regenerate the results and the replays.
 
@@ -232,7 +239,8 @@ print(batch["scorecard"]["headline"])
 ## Develop
 
 ```sh
-cargo test     # unit tests, the scripted builder, the baselines, faults and repair, energy, comms and authority, coverage, the catalog, scoring and batches, the published results, determinism, regression, harness robustness
+cargo test     # unit tests, the scripted builder, the baselines, faults and repair, energy, comms and authority, coverage, the catalogs, scoring and batches, the published results, determinism, regression, harness robustness
+cargo test --release --test baselines    # also a whole catalog 1.1 build, which the debug run skips
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features
@@ -248,7 +256,7 @@ cd python && ~/.local/bin/uv venv .venv && ~/.local/bin/uv pip install --python 
 
 CI runs all of these on every push and pull request. The **Python release** workflow (`.github/workflows/release-python.yml`) builds the wheels and the source distribution on every push that changes the package's sources, and installs and tests each on its own platform; a pushed `v*` tag that matches the version also publishes them to PyPI.
 
-The baselines are the proof that the default parameters make the mission buildable: each of them finishes all 50 seeds of every scenario in the catalog. `tests/support/builder.rs` is an older, naive scripted coordinator that builds the pad one task at a time, in about 2 sols, using only what it observes and repairing, towing, servicing and recharging robots as faults strike. The regression tests pin its runs. With faults turned off it takes about 1.7 sols.
+The baselines are the proof that the parameters make the mission buildable. On catalog 1.0 each of them finishes all 50 seeds of every scenario. On catalog 1.1 they finish all but one of their 2,700 runs: the greedy baseline loses its whole fleet once, under `cascading_faults` on Small. `tests/support/builder.rs` is an older, naive scripted coordinator that builds the pad one task at a time, in about 2 sols, using only what it observes and repairing, towing, servicing and recharging robots as faults strike. The regression tests pin its runs. With faults turned off it takes about 1.7 sols.
 
 ## License
 

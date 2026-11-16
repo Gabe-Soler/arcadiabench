@@ -31,14 +31,14 @@ usage:
                      -- <coordinator> [args...]
   arcadiabench score [--json] <log, metrics.jsonl or directory>...
 
-  catalog   1.0, 1.1 (default 1.0)
+  catalog   1.1 (default), 1.0
   presets   small, medium, large (default small; suite: all)
   variants  nominal, dust_storm, conjunction, cascading_faults, solar_only,
             nuclear_heavy (default nominal; suite: all)
   seeds     seeds and ranges, such as 1-50 or 1,4,10-20 (default 1-50)
   jobs      runs at once (default: the number of CPUs)
-  out       bench: results/<preset>-<variant>, or on a catalog after 1.0
-            results/<catalog>-<preset>-<variant>; suite: results";
+  out       bench: results/<catalog>-<preset>-<variant>, or on catalog 1.0
+            results/<preset>-<variant>; suite: results";
 
 /// The exit code for bad usage.
 const USAGE_ERROR: u8 = 2;

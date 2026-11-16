@@ -19,6 +19,9 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test --all-features
+      # A whole catalog 1.1 build is too slow unoptimized, so the debug run
+      # above skips it; this runs the baselines' tests in a release build.
+      - run: cargo test --release --all-features --test baselines
       - run: cargo doc --no-deps --all-features
         env:
           RUSTDOCFLAGS: -D warnings

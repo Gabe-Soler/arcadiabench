@@ -1,12 +1,14 @@
 """A simple coordinator that builds the landing pad, one task at a time.
 
-Run it in process, through the Python bindings::
+It was written for scenario catalog 1.0, where a build takes hours, and
+its examples name that catalog. Run it in process, through the Python
+bindings::
 
     python examples/builder.py --seed 1 --preset small --variant nominal
 
 or as a subprocess of the command line, speaking newline-delimited JSON::
 
-    arcadiabench run --seed 1 -- python examples/builder.py --serve
+    arcadiabench run --catalog 1.0 --seed 1 -- python examples/builder.py --serve
 
 The plan, after the scripted builder in ArcadiaBench's tests: survey the pad;
 dig every row down to the target level, with the spoil sent to a stockpile;
@@ -327,10 +329,13 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--preset", default="small", choices=arcadiabench.PRESETS)
     parser.add_argument("--variant", default="nominal", choices=arcadiabench.VARIANTS)
+    parser.add_argument("--catalog", default="1.0", choices=arcadiabench.CATALOGS,
+                        help="the scenario catalog (default 1.0, which this builder was written for)")
     args = parser.parse_args()
     if args.serve:
         return arcadiabench.serve(Builder())
-    result = arcadiabench.run(Builder(), seed=args.seed, preset=args.preset, variant=args.variant)
+    result = arcadiabench.run(Builder(), seed=args.seed, preset=args.preset, variant=args.variant,
+                              catalog=args.catalog)
     m = result["metrics"]
     print(json.dumps({
         "run_id": result["run_id"], "reason": result["reason"], "sols": round(m["sols"], 3),

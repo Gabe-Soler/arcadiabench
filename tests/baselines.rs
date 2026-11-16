@@ -185,6 +185,47 @@ fn faults_are_handled_and_tows_notified() {
     }
 }
 
+/// A whole build on catalog 1.1: weeks of sim time and thousands of
+/// decisions. Optimized it takes a second or two, unoptimized far longer,
+/// so the ordinary debug run skips it and CI runs it in a release build
+/// (`cargo test --release --test baselines`).
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "a full catalog 1.1 build: run with --release"
+)]
+fn greedy_builds_the_pad_on_catalog_1_1_large() {
+    let params = Params::scenario(Catalog::V1_1, Preset::Large, Variant::Nominal);
+    let greedy = InProc(Baseline::new(Allocation::Greedy));
+    let (report, text, _) = support::run_raw(greedy, 1, &params);
+    let m = &report.metrics;
+    assert_eq!(
+        report.end_reason,
+        EndReason::GoalsComplete,
+        "ended at sol {:.2} with {} of {} cells in spec",
+        m.sols,
+        m.quality.cells_in_spec,
+        m.quality.cells_total
+    );
+    assert!(m.completed && m.quality.verified && m.quality.berm_complete);
+    // Ten sinterers at their nominal rate would take 11.3 sols with no
+    // charging, travel or faults. The crew takes about half as long again.
+    assert!(m.sols > 11.3 && m.sols < 25.0, "{:.2} sols", m.sols);
+    // Sintering 400 m² at 37 kWh/m² is nearly all of the energy.
+    let pad_wh = 400.0 * 37_000.0;
+    assert!(
+        m.energy.robot_energy_wh > pad_wh && m.energy.robot_energy_wh < 1.3 * pad_wh,
+        "{}",
+        m.energy.robot_energy_wh
+    );
+    // The crew wants more than the plant gives: the bank runs down.
+    assert!(m.energy.min_storage_fraction < 0.2);
+    assert_eq!(m.autonomy.policy_violations, 0);
+    // A decision when something happens, not every ten minutes.
+    assert!(m.decisions < 6_000, "{} decisions", m.decisions);
+    support::assert_valid_log(&text);
+}
+
 #[test]
 fn the_binaries_speak_the_protocol() {
     for (how, program) in [
