@@ -19,17 +19,26 @@ variant (``nominal``, ``dust_storm``, ``conjunction``, ``cascading_faults``,
 ``solar_only``, ``nuclear_heavy``), in a catalog (:data:`CATALOGS`). A
 catalog fixes the robots, the crews and every parameter, so results on it
 stay comparable; ``catalog=None`` means :data:`DEFAULT_CATALOG`, the newest.
+
+The fleet design track swaps the preset for a crew of your own: pass
+``crew=`` a mapping of design to count, such as ``{"scout": 1, "excavator":
+2, "hauler": 1, "compactor_sinterer": 6}``, or the path of a JSON file
+holding one. A crew has 4 to 20 robots and weighs no more than the catalog's
+budget (:data:`MASS_BUDGETS_KG`); otherwise ``ValueError`` is raised.
 """
 
 from __future__ import annotations
 
+import json
 import os
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Union
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Union
 
 from . import _native
 from ._native import (
     CATALOGS,
+    CREW_SCHEMA,
     DEFAULT_CATALOG,
+    MASS_BUDGETS_KG,
     PRESETS,
     PROTOCOL_VERSION,
     SCORECARD_SCHEMA,
@@ -43,7 +52,9 @@ __version__: str = _native.VERSION
 
 __all__ = [
     "CATALOGS",
+    "CREW_SCHEMA",
     "DEFAULT_CATALOG",
+    "MASS_BUDGETS_KG",
     "PRESETS",
     "PROTOCOL_VERSION",
     "SCORECARD_SCHEMA",
@@ -62,6 +73,22 @@ __all__ = [
 
 PathLike = Union[str, "os.PathLike[str]"]
 Seeds = Union[str, int, Iterable[int]]
+Crew = Union[Mapping[str, int], PathLike]
+
+
+def _crew(crew: Optional[Crew]) -> Optional[str]:
+    """A crew as the JSON text of a crew file, or None for a preset."""
+    if crew is None:
+        return None
+    if isinstance(crew, (str, os.PathLike)):
+        with open(crew, encoding="utf-8") as f:
+            return f.read()
+    if isinstance(crew, Mapping):
+        return json.dumps(dict(crew))
+    raise TypeError(
+        f"a crew is a mapping of design to count or the path of a crew file, "
+        f"not {type(crew).__name__}"
+    )
 
 
 def _argv(coordinator: Any) -> Optional[List[str]]:
@@ -112,10 +139,12 @@ def run(
     decision_timeout: float = 10.0,
     *,
     catalog: Optional[str] = None,
+    crew: Optional[Crew] = None,
 ) -> Dict[str, Any]:
     """Run one seed of a scenario with a coordinator: the catalog's
     ``landing-pad-<preset>-<variant>`` (a catalog after 1.0 puts its name
-    before the preset, as in ``landing-pad-1.1-small-nominal``).
+    before the preset, as in ``landing-pad-1.1-small-nominal``). With
+    ``crew``, the crew takes the preset's place (the fleet design track).
 
     ``coordinator`` is a command line (a list of strings, or one path), run
     as a subprocess, or an object with ``welcome``, ``decide`` and ``end``,
@@ -136,10 +165,17 @@ def run(
     argv = _argv(coordinator)
     if argv is not None:
         return _native.run_process(
-            argv, seed, catalog, preset, variant, _path(log_path), decision_timeout
+            argv, seed, catalog, _crew(crew), preset, variant, _path(log_path), decision_timeout
         )
     return _native.run_agent(
-        _check_agent(coordinator), seed, catalog, preset, variant, _path(log_path), decision_timeout
+        _check_agent(coordinator),
+        seed,
+        catalog,
+        _crew(crew),
+        preset,
+        variant,
+        _path(log_path),
+        decision_timeout,
     )
 
 
@@ -150,12 +186,14 @@ def bench(
     variant: str = "nominal",
     *,
     catalog: Optional[str] = None,
+    crew: Optional[Crew] = None,
     jobs: Optional[int] = None,
     out: Optional[PathLike] = None,
     save_logs: bool = False,
     decision_timeout: float = 10.0,
 ) -> Dict[str, Any]:
     """Run a coordinator over seeds of one scenario and score the batch.
+    With ``crew``, the crew takes the preset's place.
 
     ``seeds`` is a list such as ``"1-50"`` or ``"1,4,10-20"``, an int, or
     any iterable of ints. A command-line coordinator runs ``jobs`` seeds at
@@ -179,6 +217,7 @@ def bench(
             argv,
             seed_list,
             catalog,
+            _crew(crew),
             preset,
             variant,
             jobs or 0,
@@ -197,7 +236,15 @@ def bench(
 
         factory = reuse
     return _native.bench_agent(
-        factory, seed_list, catalog, preset, variant, _path(out), save_logs, decision_timeout
+        factory,
+        seed_list,
+        catalog,
+        _crew(crew),
+        preset,
+        variant,
+        _path(out),
+        save_logs,
+        decision_timeout,
     )
 
 
@@ -208,13 +255,15 @@ def suite(
     variants: Optional[Iterable[str]] = None,
     *,
     catalog: Optional[str] = None,
+    crew: Optional[Crew] = None,
     jobs: Optional[int] = None,
     out: Optional[PathLike] = None,
     save_logs: bool = False,
     decision_timeout: float = 10.0,
 ) -> Dict[str, Any]:
     """Run a command-line coordinator on every preset × variant of a
-    catalog over seeds.
+    catalog over seeds, or with ``crew`` on every variant with that crew
+    (the fleet design track), whose resilience the report then gives.
 
     Defaults to every preset and every variant. With ``out``, each scenario's
     results go to ``out/<preset>-<variant>/`` (on a catalog after 1.0,
@@ -225,10 +274,13 @@ def suite(
     argv = _argv(coordinator)
     if argv is None:
         raise TypeError("suite() runs a command-line coordinator; use bench() for objects")
+    if crew is not None and presets is not None:
+        raise ValueError("a crew takes the place of the presets: give one or the other")
     return _native.suite_process(
         argv,
         _seeds(seeds),
         catalog,
+        _crew(crew),
         list(PRESETS if presets is None else presets),
         list(VARIANTS if variants is None else variants),
         jobs or 0,
@@ -257,9 +309,10 @@ def scenario(
     variant: str = "nominal",
     *,
     catalog: Optional[str] = None,
+    crew: Optional[Crew] = None,
 ) -> Dict[str, Any]:
     """The ``hello`` message a coordinator gets for this scenario and seed:
     the protocol version, the simulator, the run id, the seed, and the
     ``scenario`` (site prior, crew, stations, depots, power, base station,
     policy, constants)."""
-    return _native.scenario(seed, catalog, preset, variant)
+    return _native.scenario(seed, catalog, _crew(crew), preset, variant)

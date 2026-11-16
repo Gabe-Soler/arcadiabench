@@ -16,7 +16,7 @@ use crate::log::EventLog;
 use crate::scenario;
 use crate::score::{Report, RunRecord, ScoreError, Scorecard};
 use crate::session::{Outcome, run_session_outcome};
-use crate::sim::params::{Catalog, Params, Preset, Variant};
+use crate::sim::params::{Catalog, CrewMix, Lineup, Params, Preset, Variant};
 use crate::software_info;
 use flate2::write::GzEncoder;
 use flate2::{Compression, GzBuilder};
@@ -149,7 +149,11 @@ pub struct Options {
 #[derive(Debug, Clone)]
 pub struct CellResult {
     pub catalog: Catalog,
+    /// The preset, which for a fleet design track crew is the outpost it
+    /// works from.
     pub preset: Preset,
+    /// The crew, on the fleet design track.
+    pub crew: Option<CrewMix>,
     pub variant: Variant,
     /// In seed order.
     pub runs: Vec<RunRecord>,
@@ -342,34 +346,38 @@ pub fn to_pretty<T: serde::Serialize>(value: &T) -> String {
 /// 1.0 and `<catalog>-<preset>-<variant>` on a later one, so two catalogs
 /// never share a directory.
 pub fn cell_dir(out: &Path, catalog: Catalog, preset: Preset, variant: Variant) -> PathBuf {
-    let id = scenario::scenario_id(catalog, preset, variant);
+    cell_dir_of(out, &Params::scenario(catalog, preset, variant))
+}
+
+/// [`cell_dir`] for any scenario, a fleet design track one included: there
+/// the crew stands where the preset would, as `crew.1.2.1.6`.
+pub fn cell_dir_of(out: &Path, params: &Params) -> PathBuf {
+    let id = scenario::id_of(params);
     out.join(id.strip_prefix(scenario::ID_PREFIX).unwrap_or(&id))
 }
 
-/// Run every seed of every scenario of `catalog`, each scenario's results
-/// going to `dir(preset, variant)` when writing.
+/// Run every seed of every scenario in `cells`, each scenario's results
+/// going to `dir(out, scenario)` when writing.
 fn run_cells(
     connect: &Connect,
-    catalog: Catalog,
-    cells: &[(Preset, Variant)],
+    cells: &[Params],
     seeds: &[u64],
     opts: &Options,
-    dir: impl Fn(&Path, Preset, Variant) -> PathBuf,
+    dir: impl Fn(&Path, &Params) -> PathBuf,
     progress: &(dyn Fn(usize, usize) -> bool + Sync),
 ) -> Result<Vec<CellResult>, Error> {
     let mut jobs = Vec::new();
-    for &(preset, variant) in cells {
-        let params = Params::scenario(catalog, preset, variant);
+    for params in cells {
         let logs = match &opts.out {
             Some(out) if opts.save_logs => {
-                let logs = dir(out, preset, variant).join("logs");
+                let logs = dir(out, params).join("logs");
                 create_dir(&logs)?;
                 Some(logs)
             }
             _ => None,
         };
+        let id = scenario::id_of(params);
         for &seed in seeds {
-            let id = scenario::scenario_id(catalog, preset, variant);
             jobs.push(Job {
                 params: params.clone(),
                 seed,
@@ -381,16 +389,17 @@ fn run_cells(
     }
     let records = run_jobs(connect, &jobs, opts.jobs, progress)?;
     let mut out = Vec::new();
-    for (k, &(preset, variant)) in cells.iter().enumerate() {
+    for (k, params) in cells.iter().enumerate() {
         let runs = records[k * seeds.len()..(k + 1) * seeds.len()].to_vec();
         let scorecard = Scorecard::from_runs(&runs).map_err(Error::Score)?;
         if let Some(root) = &opts.out {
-            write_cell(&dir(root, preset, variant), &runs, &scorecard)?;
+            write_cell(&dir(root, params), &runs, &scorecard)?;
         }
         out.push(CellResult {
-            catalog,
-            preset,
-            variant,
+            catalog: params.catalog,
+            preset: params.preset,
+            crew: params.crew,
+            variant: params.variant,
             runs,
             scorecard,
         });
@@ -399,22 +408,24 @@ fn run_cells(
 }
 
 /// Run a coordinator on one scenario over `seeds`, writing into `opts.out`.
+/// `lineup` is a preset, or a crew for the fleet design track; this does not
+/// check a crew against the track's rules ([`crate::presets::check_crew`]).
 pub fn bench(
     connect: &Connect,
     catalog: Catalog,
-    preset: Preset,
+    lineup: impl Into<Lineup>,
     variant: Variant,
     seeds: &[u64],
     opts: &Options,
     progress: &(dyn Fn(usize, usize) -> bool + Sync),
 ) -> Result<CellResult, Error> {
+    let cell = Params::lineup(catalog, lineup.into(), variant);
     let mut cells = run_cells(
         connect,
-        catalog,
-        &[(preset, variant)],
+        &[cell],
         seeds,
         opts,
-        |out, _, _| out.to_path_buf(),
+        |out, _| out.to_path_buf(),
         progress,
     )?;
     Ok(cells.remove(0))
@@ -439,12 +450,46 @@ pub fn suite(
     opts: &Options,
     progress: &(dyn Fn(usize, usize) -> bool + Sync),
 ) -> Result<SuiteResult, Error> {
-    let cells: Vec<(Preset, Variant)> = presets
+    let cells: Vec<Params> = presets
         .iter()
-        .flat_map(|&p| variants.iter().map(move |&v| (p, v)))
+        .flat_map(|&p| {
+            variants
+                .iter()
+                .map(move |&v| Params::scenario(catalog, p, v))
+        })
         .collect();
-    let dir = |out: &Path, p, v| cell_dir(out, catalog, p, v);
-    let cells = run_cells(connect, catalog, &cells, seeds, opts, dir, progress)?;
+    suite_of(connect, &cells, seeds, opts, progress)
+}
+
+/// The fleet design track's suite: run a coordinator with its own crew on
+/// every variant of `catalog` in `variants` over `seeds`, writing as
+/// [`suite`] does. The report gives the crew's resilience. This does not
+/// check the crew against the track's rules
+/// ([`crate::presets::check_crew`]).
+pub fn suite_crew(
+    connect: &Connect,
+    catalog: Catalog,
+    crew: CrewMix,
+    variants: &[Variant],
+    seeds: &[u64],
+    opts: &Options,
+    progress: &(dyn Fn(usize, usize) -> bool + Sync),
+) -> Result<SuiteResult, Error> {
+    let cells: Vec<Params> = variants
+        .iter()
+        .map(|&v| Params::fleet(catalog, crew, v))
+        .collect();
+    suite_of(connect, &cells, seeds, opts, progress)
+}
+
+fn suite_of(
+    connect: &Connect,
+    cells: &[Params],
+    seeds: &[u64],
+    opts: &Options,
+    progress: &(dyn Fn(usize, usize) -> bool + Sync),
+) -> Result<SuiteResult, Error> {
+    let cells = run_cells(connect, cells, seeds, opts, cell_dir_of, progress)?;
     let runs: Vec<RunRecord> = cells.iter().flat_map(|c| c.runs.iter().cloned()).collect();
     let report = Report::from_runs(&runs).map_err(Error::Score)?;
     if let Some(out) = &opts.out {
@@ -477,5 +522,18 @@ mod tests {
         let dir = |c| cell_dir(out, c, Preset::Medium, Variant::DustStorm);
         assert_eq!(dir(Catalog::V1_0), out.join("medium-dust_storm"));
         assert_eq!(dir(Catalog::V1_1), out.join("1.1-medium-dust_storm"));
+        // A crew stands where the preset would.
+        let crew = CrewMix {
+            scout: 1,
+            excavator: 2,
+            hauler: 1,
+            compactor_sinterer: 6,
+        };
+        let fleet = |c| cell_dir_of(out, &Params::fleet(c, crew, Variant::DustStorm));
+        assert_eq!(fleet(Catalog::V1_0), out.join("crew.1.2.1.6-dust_storm"));
+        assert_eq!(
+            fleet(Catalog::V1_1),
+            out.join("1.1-crew.1.2.1.6-dust_storm")
+        );
     }
 }

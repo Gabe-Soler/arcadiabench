@@ -25,6 +25,7 @@ There are two scenario catalogs (§1). Sections 2 to 18 give catalog 1.0's value
 17. [Session limits and the event log](#17-session-limits-and-the-event-log)
 18. [Calibration](#18-calibration)
 19. [Catalog 1.1](#19-catalog-11)
+20. [The fleet design track](#20-the-fleet-design-track)
 
 ## 1. The scenario catalog
 
@@ -33,6 +34,7 @@ A scenario is a **preset** (the crew and its outpost) combined with a **variant*
 - **Command line:** `arcadiabench run --preset <name> --variant <name>`. `bench`, `suite` and the Python package take the same names.
 - **Rust:** `Params::scenario(Catalog::…, Preset::…, Variant::…)`. `Params::variant(Variant::…)` and the constructors `Params::nominal()`, `Params::dust_storm()`, `Params::conjunction()`, `Params::cascading_faults()`, `Params::solar_only()` and `Params::nuclear_heavy()` give catalog 1.0's Small preset.
 - **Defaults:** `small` and `nominal`, on the newest catalog.
+- **A crew of the coordinator's own** can take the preset's place: the fleet design track (§20).
 
 **Catalogs.** The presets and variants belong to a catalog: a fixed set of robot designs, crews, outposts and parameters. A catalog never changes once it is released, so results on it stay comparable, and a harder one is added beside it.
 
@@ -649,3 +651,21 @@ Catalog 1.1 keeps the site, the goal, the four robot designs and every rule of t
 - Schuler, J. M. et al. (2024). ISRU Pilot Excavator (IPEx) TRL 5 design overview. ASCEND. <https://ntrs.nasa.gov/api/citations/20240008162/downloads/ASCEND24_IPEx%20TRL%205%20Design%20Overview.pdf>
 - VIPER mobility hardware (NASA, 2024). <https://ntrs.nasa.gov/api/citations/20240013903/downloads/LSIC_2024-Tech%20Infusion_Panel-VIPER_Mob-HW.pdf>
 - Wang, H., Richardson, M. I. (2015). The origin, evolution, and trajectory of large dust storms on Mars. Icarus. <https://lweb.cfa.harvard.edu/~hwang/publication/Wang15_dustseq.pdf>
+
+## 20. The fleet design track
+
+On the Standard track a preset gives the crew. On the fleet design track the coordinator chooses it: `--crew FILE` on the command line, `crew=` in Python, or `Params::fleet(catalog, crew, variant)` in Rust takes the place of the preset. [`src/presets.rs`](../src/presets.rs) holds the rules.
+
+- **The crew** is a count for each of the catalog's four designs, in a JSON file that [`schemas/crew.schema.json`](../schemas/crew.schema.json) describes: `{"scout": 1, "excavator": 2, "hauler": 1, "compactor_sinterer": 6}`. The robots are the catalog's own designs, unchanged, with ids numbered from 1 within each design and listed design by design: `sc-1`, `ex-1`, `ex-2`, `hl-1`, `cp-1` to `cp-6`. They start in the same rows as a preset's crew.
+- **Two rules.** A crew has 4 to 20 robots, and its mass is within the catalog's budget. A crew that breaks either is refused before anything runs, with the reason. A crew may leave a design out, though a pad needs all four capabilities, so such a crew cannot finish.
+
+  | Catalog | Design masses (`sc`, `ex`, `hl`, `cp`) | Mass budget | Its Large crew, for scale |
+  |---|---|---|---|
+  | 1.1 | 90, 420, 300, 900 kg | 10,000 kg | 11,850 kg |
+  | 1.0 | 90, 420, 300, 500 kg | 6,000 kg | 7,240 kg |
+
+  The budget is calibrated: a little under the mass of the catalog's Large crew, so the biggest crew is not simply the best entry and mass has to be spent where it helps.
+- **The outpost** is Medium's for every crew: 2 charge stations and 2 depots. Entries then compete on the crew and how it is used, not on charge slots.
+- **Everything else** is the variant's, exactly as a preset meets it: the site, the goal, the power plant, the policy, the constants, and the seeded weather, start time and Earth link. `tests/fleet.rs` checks that an idle crew of its own meets the same storm as the Small preset on the same seed.
+- **The name** is the catalog's id with `crew.<sc>.<ex>.<hl>.<cp>` where the preset would be: `landing-pad-1.1-crew.1.2.1.6-dust_storm`, or `landing-pad-crew.1.2.1.6-dust_storm` on catalog 1.0. A suite writes it to `1.1-crew.1.2.1.6-dust_storm/`.
+- **Scoring** uses one reference for every crew ([`scoring.md`](scoring.md) §1), and each crew has its own resilience (§4 there).

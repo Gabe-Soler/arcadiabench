@@ -11,14 +11,18 @@
 //! - **Resilience** ([`Resilience`]) compares a coordinator's headlines under
 //!   the stress variants with its own nominal headline, preset by preset,
 //!   within one catalog.
+//! - **The fleet design track** scores a crew of the coordinator's own
+//!   against one reference for every crew ([`fleet_reference_sols`]), and
+//!   gives each crew its own resilience.
 //!
 //! `schemas/scorecard.schema.json` describes the JSON of all three.
 
 pub mod logs;
 mod render;
 
-use crate::scenario::parse_scenario_id;
-use crate::sim::params::{Catalog, Preset, Variant};
+use crate::presets::{self, Design};
+use crate::scenario::parse_id;
+use crate::sim::params::{Catalog, CrewMix, Lineup, Preset, Variant};
 use arcadia_protocol::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -38,8 +42,12 @@ pub struct RunRecord {
     /// ArcadiaBench 1.1 do not say: [`catalog_of`] reads it from the id.
     #[serde(default)]
     pub catalog: Option<Catalog>,
-    /// The preset, when the scenario is in a catalog.
+    /// The preset, when the scenario is a catalog's Standard track one.
     pub preset: Option<Preset>,
+    /// The crew, when the scenario is a fleet design track one. Left out
+    /// otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crew: Option<CrewMix>,
     /// The variant, when the scenario is in a catalog.
     pub variant: Option<Variant>,
     pub seed: u64,
@@ -71,8 +79,20 @@ impl RunRecord {
         error: Option<String>,
         metrics: RunMetrics,
     ) -> Self {
-        let named = parse_scenario_id(&scenario.scenario_id);
-        let reference = reference_sols(scenario, pad);
+        let named = parse_id(&scenario.scenario_id);
+        let (preset, crew) = match named {
+            Some((_, Lineup::Preset(p), _)) => (Some(p), None),
+            Some((_, Lineup::Crew(c), _)) => (None, Some(c)),
+            None => (None, None),
+        };
+        // A crew of the coordinator's own is measured against the track's
+        // one reference, not against itself.
+        let reference = match named {
+            Some((catalog, Lineup::Crew(_), _)) if pad.stabilize => {
+                fleet_reference_sols(catalog, scenario, pad)
+            }
+            _ => reference_sols(scenario, pad),
+        };
         let speed = match (metrics.completed, reference) {
             (true, Some(r)) => Some(speed(metrics.sols, r)),
             _ => None,
@@ -81,7 +101,8 @@ impl RunRecord {
             run_id: format!("{}-{seed}", scenario.scenario_id),
             scenario_id: scenario.scenario_id.clone(),
             catalog: named.map(|(c, _, _)| c),
-            preset: named.map(|(_, p, _)| p),
+            preset,
+            crew,
             variant: named.map(|(_, _, v)| v),
             seed,
             simulator,
@@ -100,7 +121,7 @@ impl RunRecord {
 /// its scenario id names. Files written before ArcadiaBench 1.1 name none,
 /// and their ids are catalog 1.0's.
 pub fn catalog_of(named: Option<Catalog>, scenario_id: &str) -> Option<Catalog> {
-    named.or_else(|| parse_scenario_id(scenario_id).map(|(c, _, _)| c))
+    named.or_else(|| parse_id(scenario_id).map(|(c, _, _)| c))
 }
 
 /// The per-area treatments every pad cell needs before the pad is done:
@@ -144,6 +165,28 @@ pub fn reference_sols(scenario: &Scenario, pad: &LandingPadSpec) -> Option<f64> 
     (scenario.sol_length_s > 0.0).then(|| slowest_s / scenario.sol_length_s)
 }
 
+/// The fleet design track's reference build time, in sols: how long the
+/// pad would take to sinter with as many of the catalog's compactor-sinterers
+/// as the track's mass budget allows ([`presets::fleet_reference_sinterers`]),
+/// all working at once at their nominal rate. It is the same for every crew,
+/// so a crew that brings few sinterers scores lower than one that brings
+/// many: on this track the choice of crew is part of what is scored.
+pub fn fleet_reference_sols(
+    catalog: Catalog,
+    scenario: &Scenario,
+    pad: &LandingPadSpec,
+) -> Option<f64> {
+    let side = |lo: u32, hi: u32| f64::from(hi.saturating_sub(lo)) + 1.0;
+    let cells = side(pad.area.min.x, pad.area.max.x) * side(pad.area.min.y, pad.area.max.y);
+    let area_m2 = cells * scenario.site.cell_size_m * scenario.site.cell_size_m;
+    let each = Design::CompactorSinterer
+        .spec(catalog, "")
+        .capability(CapabilityName::Sinter)?
+        .rate;
+    let rate = f64::from(presets::fleet_reference_sinterers(catalog)) * each;
+    (rate > 0.0 && scenario.sol_length_s > 0.0).then(|| area_m2 / rate / scenario.sol_length_s)
+}
+
 /// The speed of a run that finished the pad in `sols`: the reference build
 /// time over the time taken, capped at 1. In (0, 1], and twice as fast is
 /// twice the speed until the cap.
@@ -164,6 +207,9 @@ pub struct Scorecard {
     #[serde(default)]
     pub catalog: Option<Catalog>,
     pub preset: Option<Preset>,
+    /// The crew of a fleet design track scenario. Left out otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crew: Option<CrewMix>,
     pub variant: Option<Variant>,
     pub coordinator: SoftwareInfo,
     pub simulator: SoftwareInfo,
@@ -400,6 +446,7 @@ impl Scorecard {
             scenario_id: first.scenario_id.clone(),
             catalog: catalog_of(first.catalog, &first.scenario_id),
             preset: first.preset,
+            crew: first.crew,
             variant: first.variant,
             coordinator: first.coordinator.clone(),
             simulator: first.simulator.clone(),
@@ -491,15 +538,21 @@ pub struct Resilience {
     /// do not say, and are catalog 1.0's.
     #[serde(default = "catalog_1_0")]
     pub catalog: Catalog,
+    /// The crew, for a fleet design track entry: its resilience is its own,
+    /// and `presets` then holds one entry, with no preset. Left out for the
+    /// Standard track.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crew: Option<CrewMix>,
     /// Mean of the presets' resilience, over the presets where it is known.
     pub resilience: Option<f64>,
     pub presets: Vec<PresetResilience>,
 }
 
-/// Resilience on one preset.
+/// Resilience on one preset, or of one fleet design track crew.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresetResilience {
-    pub preset: Preset,
+    /// The preset; `None` for a crew of the coordinator's own.
+    pub preset: Option<Preset>,
     pub nominal_headline: f64,
     /// Each stress variant's headline over the nominal headline, capped at
     /// 1; `None` if that variant was not scored or the nominal headline is 0.
@@ -523,7 +576,8 @@ pub struct Report {
     /// Sorted by coordinator, then catalog, then preset and variant in
     /// catalog order.
     pub scorecards: Vec<Scorecard>,
-    /// Sorted by coordinator, then catalog.
+    /// Sorted by coordinator, then catalog, the Standard track before the
+    /// fleet design track's crews.
     pub resilience: Vec<Resilience>,
 }
 
@@ -533,12 +587,23 @@ fn coordinator_key(c: &SoftwareInfo) -> CoordinatorKey {
     (c.name.clone(), c.version.clone())
 }
 
-/// Catalog scenarios first, catalog by catalog and in catalog order, then
-/// the rest by id.
-fn scenario_order(s: &Scorecard) -> (u8, Option<Catalog>, Option<Preset>, Option<Variant>, String) {
+/// Catalog scenarios first: catalog by catalog, the presets in catalog
+/// order and then the fleet design track's crews. Then the rest, by id.
+type ScenarioOrder = (
+    u8,
+    Option<Catalog>,
+    Option<CrewMix>,
+    Option<Preset>,
+    Option<Variant>,
+    String,
+);
+
+fn scenario_order(s: &Scorecard) -> ScenarioOrder {
+    let named = s.variant.is_some() && (s.preset.is_some() || s.crew.is_some());
     (
-        u8::from(s.preset.is_none() || s.variant.is_none()),
+        u8::from(!named),
         catalog_of(s.catalog, &s.scenario_id),
+        s.crew,
         s.preset,
         s.variant,
         s.scenario_id.clone(),
@@ -580,28 +645,36 @@ impl Report {
 }
 
 /// The resilience of every coordinator on every catalog where it has at
-/// least one nominal scorecard. Headlines are only ever compared within a
-/// catalog: the same variant is a different test in each.
+/// least one nominal scorecard, and of every fleet design track crew it ran
+/// there. Headlines are only ever compared within a catalog, and a crew's
+/// only with its own: the same variant is a different test in each.
 pub fn resilience(scorecards: &[Scorecard]) -> Vec<Resilience> {
-    let mut groups: BTreeMap<(CoordinatorKey, Catalog), Vec<&Scorecard>> = BTreeMap::new();
+    type Key = (CoordinatorKey, Catalog, Option<CrewMix>);
+    let mut groups: BTreeMap<Key, Vec<&Scorecard>> = BTreeMap::new();
     for s in scorecards {
         let Some(catalog) = catalog_of(s.catalog, &s.scenario_id) else {
             continue;
         };
         groups
-            .entry((coordinator_key(&s.coordinator), catalog))
+            .entry((coordinator_key(&s.coordinator), catalog, s.crew))
             .or_default()
             .push(s);
     }
     let mut out = Vec::new();
-    for ((_, catalog), cards) in &groups {
-        let headline = |p: Preset, v: Variant| {
+    for ((_, catalog, crew), cards) in &groups {
+        // The Standard track is compared preset by preset; a crew of the
+        // coordinator's own is one line-up, with no preset.
+        let lineups: Vec<Option<Preset>> = match crew {
+            Some(_) => vec![None],
+            None => Preset::ALL.map(Some).to_vec(),
+        };
+        let headline = |p: Option<Preset>, v: Variant| {
             cards
                 .iter()
-                .find(|s| s.preset == Some(p) && s.variant == Some(v))
+                .find(|s| s.preset == p && s.variant == Some(v))
                 .map(|s| s.headline)
         };
-        let presets: Vec<PresetResilience> = Preset::ALL
+        let presets: Vec<PresetResilience> = lineups
             .into_iter()
             .filter_map(|p| {
                 let nominal = headline(p, Variant::Nominal)?;
@@ -634,6 +707,7 @@ pub fn resilience(scorecards: &[Scorecard]) -> Vec<Resilience> {
         out.push(Resilience {
             coordinator: cards[0].coordinator.clone(),
             catalog: *catalog,
+            crew: *crew,
             resilience: mean(presets.iter().filter_map(|p| p.resilience)),
             presets,
         });

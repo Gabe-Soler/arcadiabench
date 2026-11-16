@@ -8,7 +8,7 @@
 
 use crate::presets;
 use crate::sim::mission::Mission;
-use crate::sim::params::{Catalog, Params, Preset, Variant};
+use crate::sim::params::{Catalog, CrewMix, Lineup, Params, Preset, Variant};
 use crate::sim::rng::Rng;
 use crate::sim::terrain::{Terrain, rect_cells};
 use crate::sim::time::{SOL_MS, ms, secs};
@@ -47,9 +47,30 @@ pub fn scenario_id(catalog: Catalog, preset: Preset, variant: Variant) -> String
     }
 }
 
-/// The catalog, preset and variant a scenario id names, if it is one of
-/// [`scenario_id`]'s.
-pub fn parse_scenario_id(id: &str) -> Option<(Catalog, Preset, Variant)> {
+/// What marks a fleet design track id, before the crew.
+const CREW_MARK: &str = "crew.";
+
+/// The id of a fleet design track scenario: the catalog's id with
+/// `crew.<scouts>.<excavators>.<haulers>.<compactor-sinterers>` where the
+/// preset would be, as in `landing-pad-1.1-crew.1.2.1.6-dust_storm`.
+pub fn fleet_scenario_id(catalog: Catalog, crew: CrewMix, variant: Variant) -> String {
+    match catalog {
+        Catalog::V1_0 => format!("{ID_PREFIX}{CREW_MARK}{crew}-{variant}"),
+        Catalog::V1_1 => format!("{ID_PREFIX}{catalog}-{CREW_MARK}{crew}-{variant}"),
+    }
+}
+
+/// The id of the scenario these parameters describe.
+pub fn id_of(p: &Params) -> String {
+    match p.who() {
+        Lineup::Preset(preset) => scenario_id(p.catalog, preset, p.variant),
+        Lineup::Crew(crew) => fleet_scenario_id(p.catalog, crew, p.variant),
+    }
+}
+
+/// The catalog, the crew or preset, and the variant a scenario id names, if
+/// it is one of [`scenario_id`]'s or [`fleet_scenario_id`]'s.
+pub fn parse_id(id: &str) -> Option<(Catalog, Lineup, Variant)> {
     let rest = id.strip_prefix(ID_PREFIX)?;
     // No preset's name starts like a catalog's, so a later catalog's id
     // cannot be read as catalog 1.0's.
@@ -58,8 +79,21 @@ pub fn parse_scenario_id(id: &str) -> Option<(Catalog, Preset, Variant)> {
         .filter(|&c| c != Catalog::V1_0)
         .find_map(|c| Some((c, rest.strip_prefix(c.name())?.strip_prefix('-')?)))
         .unwrap_or((Catalog::V1_0, rest));
-    let (preset, variant) = rest.split_once('-')?;
-    Some((catalog, preset.parse().ok()?, variant.parse().ok()?))
+    let (who, variant) = rest.split_once('-')?;
+    let who = match who.strip_prefix(CREW_MARK) {
+        Some(crew) => Lineup::Crew(crew.parse().ok()?),
+        None => Lineup::Preset(who.parse().ok()?),
+    };
+    Some((catalog, who, variant.parse().ok()?))
+}
+
+/// The catalog, preset and variant a Standard track scenario id names
+/// ([`scenario_id`]'s). `None` for a fleet design track id.
+pub fn parse_scenario_id(id: &str) -> Option<(Catalog, Preset, Variant)> {
+    match parse_id(id)? {
+        (catalog, Lineup::Preset(preset), variant) => Some((catalog, preset, variant)),
+        _ => None,
+    }
 }
 
 /// Everything a run needs: what the coordinator is told, and the ground truth.
@@ -134,22 +168,22 @@ pub fn generate(seed: u64, p: &Params) -> Generated {
             .collect(),
     };
 
-    let robots = presets::crew(p.catalog, p.preset);
-    let starts = presets::starts(p.catalog, p.preset);
+    let (robots, starts) = presets::lineup(p.catalog, p.who());
+    let outpost = presets::outpost(p.who());
     // When the run starts: a seeded time after the midnight at t = 0. The
     // time limit counts from there. Both are whole milliseconds.
     let (first, last) = p.start_sols;
     let start = ms(Rng::stream(seed, "start").range(first, last) * secs(SOL_MS));
     let limit = ms(p.time_limit_sols * secs(SOL_MS));
     let scenario = Scenario {
-        scenario_id: scenario_id(p.catalog, p.preset, p.variant),
+        scenario_id: id_of(p),
         start_t: secs(start),
         time_limit_t: secs(start + limit),
         sol_length_s: secs(SOL_MS),
         site: prior,
         robots,
-        stations: presets::stations(p.catalog, p.preset),
-        depots: presets::depots(p.preset),
+        stations: presets::stations(p.catalog, outpost),
+        depots: presets::depots(outpost),
         power: PowerSystem {
             mode: p.power_mode,
             fission_w: p.fission_w,
@@ -397,6 +431,80 @@ mod tests {
                     assert_eq!(g.goal, first.goal);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn a_fleet_scenario_is_a_variant_with_the_crew_swapped_in() {
+        let crew = CrewMix {
+            scout: 1,
+            excavator: 2,
+            hauler: 1,
+            compactor_sinterer: 6,
+        };
+        for catalog in Catalog::ALL {
+            for variant in Variant::ALL {
+                let p = Params::fleet(catalog, crew, variant);
+                let g = generate(4, &p);
+                let id = &g.scenario.scenario_id;
+                match catalog {
+                    Catalog::V1_0 => assert_eq!(*id, format!("landing-pad-crew.1.2.1.6-{variant}")),
+                    Catalog::V1_1 => {
+                        assert_eq!(*id, format!("landing-pad-1.1-crew.1.2.1.6-{variant}"))
+                    }
+                }
+                assert_eq!(*id, id_of(&p));
+                assert_eq!(parse_id(id), Some((catalog, Lineup::Crew(crew), variant)));
+                assert_eq!(parse_scenario_id(id), None, "not a Standard track id");
+                // The crew, design by design, on the Medium outpost.
+                let ids: Vec<&str> = g
+                    .scenario
+                    .robots
+                    .iter()
+                    .map(|r| r.robot_id.as_str())
+                    .collect();
+                assert_eq!(
+                    ids,
+                    [
+                        "sc-1", "ex-1", "ex-2", "hl-1", "cp-1", "cp-2", "cp-3", "cp-4", "cp-5",
+                        "cp-6"
+                    ]
+                );
+                assert_eq!(g.starts.len(), 10);
+                let medium = generate(4, &Params::scenario(catalog, Preset::Medium, variant));
+                assert_eq!(g.scenario.stations, medium.scenario.stations);
+                assert_eq!(g.scenario.depots, medium.scenario.depots);
+                // Everything else is the variant's: the same world, power
+                // and rules as any preset meets on this seed.
+                assert_eq!(g.terrain, medium.terrain);
+                assert_eq!(g.goal, medium.goal);
+                assert_eq!(g.scenario.site, medium.scenario.site);
+                assert_eq!(g.scenario.power, medium.scenario.power);
+                assert_eq!(g.scenario.policy, medium.scenario.policy);
+                assert_eq!(g.scenario.constants, medium.scenario.constants);
+                assert_eq!(
+                    (g.scenario.start_t, g.scenario.time_limit_t),
+                    (medium.scenario.start_t, medium.scenario.time_limit_t)
+                );
+            }
+        }
+        // A preset's id reads as a preset, and a crew's spelling is strict.
+        assert_eq!(
+            parse_id("landing-pad-1.1-large-nominal"),
+            Some((
+                Catalog::V1_1,
+                Lineup::Preset(Preset::Large),
+                Variant::Nominal
+            ))
+        );
+        for id in [
+            "landing-pad-crew.1.2.1-nominal",
+            "landing-pad-crew.01.2.1.6-nominal",
+            "landing-pad-1.1-crew1.2.1.6-nominal",
+            "landing-pad-1.1-crew.1.2.1.6",
+            "landing-pad-1.1-crew.1.2.1.6-sandstorm",
+        ] {
+            assert_eq!(parse_id(id), None, "{id}");
         }
     }
 

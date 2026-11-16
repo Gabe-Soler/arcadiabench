@@ -105,6 +105,22 @@ Within a catalog every robot is one of the same four designs, so results differ 
 
 [`docs/simulator.md`](docs/simulator.md) §1 gives catalog 1.0's crews, outposts and variants and the reasoning behind them; §19 gives everything catalog 1.1 changes, with its sources.
 
+### The fleet design track
+
+On the Standard track the crew is given. On the fleet design track the coordinator brings its own: a crew file with a count for each of the catalog's four designs takes the place of the preset.
+
+```sh
+echo '{"scout": 1, "excavator": 2, "hauler": 1, "compactor_sinterer": 6}' > crew.json
+arcadiabench suite --crew crew.json --seeds 1-50 -- path/to/coordinator
+```
+
+- **The rules:** 4 to 20 robots, and no more launch mass than the catalog's budget: 10 t on catalog 1.1, where a compactor-sinterer weighs 900 kg, and 6 t on catalog 1.0. A crew outside them is refused with the reason. Each budget is a little under the mass of its catalog's Large crew.
+- **The same for everyone:** every crew works from the Medium outpost (2 charge stations, 2 depots) and meets the same site, weather and Earth link as the presets do on that seed.
+- **One reference for every crew:** speed is measured against the time the pad would take with as many sinterers as the budget carries (11 on catalog 1.1, which is 10.2 sols), not against the crew's own. A crew with few sinterers therefore scores lower than one with many, and the choice of crew is part of what is scored.
+- **Names:** the scenario is `landing-pad-1.1-crew.1.2.1.6-<variant>`, the counts in the order scout, excavator, hauler, compactor-sinterer. Scorecards carry the crew, and each crew has its own resilience.
+
+[`schemas/crew.schema.json`](schemas/crew.schema.json) describes the crew file.
+
 ## Run
 
 ```sh
@@ -131,6 +147,7 @@ arcadiabench score results/1.1-small-nominal/logs
   - `scorecard.json`.
   - With `--save-logs`, every event log as `logs/<run_id>.jsonl.gz`.
 - **`suite`** writes one such directory per scenario under `results/` (or `--out DIR`), plus `suite.json` with every scorecard and the coordinator's resilience.
+- **`--crew FILE`** on `run`, `bench` or `suite` takes the place of the preset: [the fleet design track](#the-fleet-design-track). A suite then runs every variant with that crew.
 - **Parallelism.** Runs go `--jobs` at a time (default: one per CPU), each with a fresh coordinator process. The outputs are byte-identical at any `--jobs`.
 - **`score`** reads `.jsonl` and `.jsonl.gz` event logs, and skips other files in a directory. Named as a file, a bench's `metrics.jsonl` is read too, so runs from several benches can be scored together without their logs.
 
@@ -147,7 +164,7 @@ The leaderboard ranks by one headline metric, **success rate × speed**, with a 
   - fleet health: faults, robot-hours lost, robots lost;
   - autonomy: approval requests, time waiting for Earth, policy violations;
   - the conditions the runs met.
-- **Resilience** is, per preset, the mean over `dust_storm`, `conjunction` and `cascading_faults` of each one's headline over the nominal headline, capped at 1. A suite averages it over presets. It is worked out within one catalog, never across two.
+- **Resilience** is, per preset, the mean over `dust_storm`, `conjunction` and `cascading_faults` of each one's headline over the nominal headline, capped at 1. A suite averages it over presets. It is worked out within one catalog, never across two, and a fleet design track crew has its own.
 
 [`docs/scoring.md`](docs/scoring.md) gives every formula and the reasoning behind it. [`schemas/scorecard.schema.json`](schemas/scorecard.schema.json) (draft 2020-12) describes run records, scorecards and reports.
 
@@ -239,7 +256,7 @@ print(batch["scorecard"]["headline"])
 ## Develop
 
 ```sh
-cargo test     # unit tests, the scripted builder, the baselines, faults and repair, energy, comms and authority, coverage, the catalogs, scoring and batches, the published results, determinism, regression, harness robustness
+cargo test     # unit tests, the scripted builder, the baselines, faults and repair, energy, comms and authority, coverage, the catalogs, the fleet design track, scoring and batches, the published results, determinism, regression, harness robustness
 cargo test --release --test baselines    # also a whole catalog 1.1 build, which the debug run skips
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check

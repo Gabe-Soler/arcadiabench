@@ -77,14 +77,15 @@ While it serves, anything the coordinator prints goes to stderr, where it cannot
 
 | Function | Returns |
 |---|---|
-| `run(coordinator, seed=0, preset="small", variant="nominal", log_path=None, decision_timeout=10.0, *, catalog=None)` | The run record: run id, scenario, seed, coordinator, end reason, `reference_sols`, `speed`, `score`, and `metrics` (`run_end.metrics`), plus the report's `end_t`, `progress` and `lost_link_returns`. `log_path` saves the event log, gzipped if it ends in `.gz`. |
-| `bench(coordinator, seeds="1-50", preset="small", variant="nominal", *, catalog=None, jobs=None, out=None, save_logs=False, decision_timeout=10.0)` | `{"scorecard": ..., "runs": [...]}` for a seeded batch. |
-| `suite(coordinator, seeds="1-50", presets=None, variants=None, *, catalog=None, jobs=None, out=None, save_logs=False, decision_timeout=10.0)` | `{"report": ..., "runs": [...]}` across a catalog's presets × variants (default: all), with resilience. |
+| `run(coordinator, seed=0, preset="small", variant="nominal", log_path=None, decision_timeout=10.0, *, catalog=None, crew=None)` | The run record: run id, scenario, seed, coordinator, end reason, `reference_sols`, `speed`, `score`, and `metrics` (`run_end.metrics`), plus the report's `end_t`, `progress` and `lost_link_returns`. `log_path` saves the event log, gzipped if it ends in `.gz`. |
+| `bench(coordinator, seeds="1-50", preset="small", variant="nominal", *, catalog=None, crew=None, jobs=None, out=None, save_logs=False, decision_timeout=10.0)` | `{"scorecard": ..., "runs": [...]}` for a seeded batch. |
+| `suite(coordinator, seeds="1-50", presets=None, variants=None, *, catalog=None, crew=None, jobs=None, out=None, save_logs=False, decision_timeout=10.0)` | `{"report": ..., "runs": [...]}` across a catalog's presets × variants (default: all), with resilience. |
 | `score(paths)` | `{"scorecards": [...], "resilience": [...]}` from saved event logs and directories of them, and from a bench's `metrics.jsonl` named as a file. |
-| `scenario(seed=0, preset="small", variant="nominal", *, catalog=None)` | The `hello` message a coordinator gets for that run. |
+| `scenario(seed=0, preset="small", variant="nominal", *, catalog=None, crew=None)` | The `hello` message a coordinator gets for that run. |
 
 Arguments:
 
+- **`crew`**, a keyword of `run`, `bench`, `suite` and `scenario`, puts a crew of your own in the preset's place: the fleet design track. It is a mapping of design to count, such as `{"scout": 1, "excavator": 2, "hauler": 1, "compactor_sinterer": 6}`, or the path of a JSON file holding one. A crew has 4 to 20 robots and weighs no more than the catalog's budget; otherwise `ValueError` says why. `suite(..., crew=...)` runs every variant with that crew and reports its resilience.
 - **`catalog`**, a keyword of `run`, `bench`, `suite` and `scenario`, names the scenario catalog: one of `CATALOGS`. Left out, it is `DEFAULT_CATALOG`, the newest. Catalog `"1.0"` is the one the published v1.0 results are on, where a build takes hours; on `"1.1"` it takes weeks of simulated time.
 
 - **`seeds`** is a list such as `"1-50"` or `"1,4,10-20"`, an int, or an iterable of ints.
@@ -106,6 +107,8 @@ When a coordinator fails, times out or breaks the protocol, `run()` raises `arca
 Constants:
 
 - `CATALOGS` and `DEFAULT_CATALOG`: the scenario catalogs, and the one a run is on when none is named.
+- `MASS_BUDGETS_KG`: each catalog's mass budget for a crew of your own, kg.
+- `CREW_SCHEMA`: the JSON Schema of a crew.
 - `PRESETS` and `VARIANTS`: a catalog's presets and variants.
 - `STRESS_VARIANTS`: the variants resilience is measured against.
 - `PROTOCOL_VERSION`.

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Gabe-Soler/arcadiabench/v1.1.0/schemas/crew.schema.json",
+  "title": "ArcadiaBench crew",
+  "description": "A crew for the fleet design track (--crew FILE, or crew= in Python): how many robots of each of the catalog's four designs. Two rules are checked beyond this schema: a crew has 4 to 20 robots in all, and it weighs no more than the catalog's mass budget (docs/simulator.md, the fleet design track).",
+  "type": "object",
+  "properties": {
+    "scout": {
+      "description": "Scouts: survey and verify the pad, and repair robots in the field.",
+      "$ref": "#/$defs/Count"
+    },
+    "excavator": {
+      "description": "Excavators: dig, grade and carry regolith.",
+      "$ref": "#/$defs/Count"
+    },
+    "hauler": {
+      "description": "Haulers: move regolith in bulk, recharge robots from a tank, and relay comms.",
+      "$ref": "#/$defs/Count"
+    },
+    "compactor_sinterer": {
+      "description": "Compactor-sinterers: compact the graded surface, then sinter it.",
+      "$ref": "#/$defs/Count"
+    }
+  },
+  "required": [
+    "scout",
+    "excavator",
+    "hauler",
+    "compactor_sinterer"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 20
+    }
+  }
+}

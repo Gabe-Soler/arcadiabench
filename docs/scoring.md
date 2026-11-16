@@ -45,6 +45,15 @@ Here:
 
 `T_ref` is computed from the scenario the coordinator receives, so it is defined for any crew, including crews outside the catalog. If the crew lacks a treatment the pad needs, no run can finish, and `T_ref` is null.
 
+**The fleet design track has one reference for every crew.** There the coordinator chooses the crew ([`simulator.md`](simulator.md) §20), so measuring a crew against its own sinterers would reward bringing few of them: two slow sinterers would earn the same speed as ten fast ones. Instead `T_ref` is the time the pad would take with as many of the catalog's compactor-sinterers as the track's mass budget carries, all sintering at once:
+
+| Catalog | Mass budget | Sinterers it carries | `T_ref` on the fleet design track |
+|---|---|---|---|
+| 1.1 | 10,000 kg | 11 at 900 kg | 400 m² / (11 × 0.00004 m²/s) = 909,091 s = 10.2 sols |
+| 1.0 | 6,000 kg | 12 at 500 kg | 400 m² / (12 × 0.01 m²/s) = 3,333 s = 0.038 sols |
+
+No crew the track admits can sinter faster than that, so speed stays in (0, 1]. A crew with fewer sinterers has a lower ceiling: on catalog 1.1 a crew of six sinterers cannot exceed a speed of 6/11. The choice of crew is part of what the headline measures. Fleet design track headlines are therefore not comparable with Standard track ones, and a leaderboard keeps the two apart.
+
 ### Speed
 
 A run that completes the pad in `sols` has
@@ -98,6 +107,7 @@ Compare headlines between coordinators on the same scenario and seeds. Across pr
 | Group | Field | Definition |
 |---|---|---|
 | | `scenario_id`, `catalog`, `preset`, `variant` | The scenario. `catalog`, `preset` and `variant` are null for a scenario outside every catalog. Scorecards written by ArcadiaBench 1.0 have no `catalog`: theirs is catalog 1.0. |
+| | `crew` | On the fleet design track, the crew: the count of each design. `preset` is then null. Left out on the Standard track. |
 | | `coordinator`, `simulator` | Name and version of each. |
 | | `seeds` | The seeds scored, ascending. |
 | | `reference_sols`, `headline` | §1 and §2. |
@@ -142,6 +152,7 @@ resilience = mean of resilience(preset) over the presets where it is known
 - **Unknown cases.** A retention is null when that variant was not scored or the nominal headline is 0. A preset's resilience is null unless all three retentions are known.
 - **Scale-free.** Because speed is scale-free (§1), a run slowed to half its pace keeps half its score on every preset, so retentions are comparable across presets.
 - **One catalog at a time.** A report gives one resilience for each coordinator on each catalog it ran, and names the `catalog`. A variant is a different test in each catalog, so a stress headline is never set against another catalog's nominal one.
+- **A crew of its own.** On the fleet design track each crew a coordinator ran has its own resilience, named by its `crew`: its stress headlines over its own nominal headline. Its `presets` list then has one entry, with a null `preset`.
 
 `arcadiabench suite` computes resilience for its coordinator. `arcadiabench score` computes it for every coordinator whose logs include a nominal scenario.
 

@@ -6,6 +6,8 @@ PROTOCOL_VERSION: str
 VERSION: str
 CATALOGS: List[str]
 DEFAULT_CATALOG: str
+MASS_BUDGETS_KG: Dict[str, float]
+CREW_SCHEMA: str
 PRESETS: List[str]
 VARIANTS: List[str]
 STRESS_VARIANTS: List[str]
@@ -22,6 +24,7 @@ def run_process(
     argv: List[str],
     seed: int,
     catalog: Optional[str],
+    crew: Optional[str],
     preset: str,
     variant: str,
     log_path: Optional[str],
@@ -31,6 +34,7 @@ def run_agent(
     agent: Any,
     seed: int,
     catalog: Optional[str],
+    crew: Optional[str],
     preset: str,
     variant: str,
     log_path: Optional[str],
@@ -40,6 +44,7 @@ def bench_process(
     argv: List[str],
     seeds: List[int],
     catalog: Optional[str],
+    crew: Optional[str],
     preset: str,
     variant: str,
     jobs: int,
@@ -51,6 +56,7 @@ def bench_agent(
     factory: Any,
     seeds: List[int],
     catalog: Optional[str],
+    crew: Optional[str],
     preset: str,
     variant: str,
     out: Optional[str],
@@ -61,6 +67,7 @@ def suite_process(
     argv: List[str],
     seeds: List[int],
     catalog: Optional[str],
+    crew: Optional[str],
     presets: List[str],
     variants: List[str],
     jobs: int,
@@ -70,7 +77,7 @@ def suite_process(
 ) -> Dict[str, Any]: ...
 def score(paths: List[str]) -> Dict[str, Any]: ...
 def scenario(
-    seed: int, catalog: Optional[str], preset: str, variant: str
+    seed: int, catalog: Optional[str], crew: Optional[str], preset: str, variant: str
 ) -> Dict[str, Any]: ...
 def parse_seeds(spec: str) -> List[int]: ...
 def cli(args: List[str]) -> int: ...
