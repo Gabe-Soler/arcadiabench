@@ -14,6 +14,14 @@
     "Id": {
       "$ref": "https://raw.githubusercontent.com/Gabe-Soler/arcadia-protocol/v1.1.0/schemas/common.schema.json#/$defs/Id"
     },
+    "Catalog": {
+      "description": "A version of the scenario catalog: the robot designs, the crews and outposts of the presets, and the parameters of every variant. Catalog 1.0's scenarios are landing-pad-<preset>-<variant>; a later catalog's are landing-pad-<catalog>-<preset>-<variant>.",
+      "enum": ["1.0", "1.1"]
+    },
+    "ScenarioCatalog": {
+      "description": "The catalog a scenario is in, or null for a scenario outside every catalog. Files written before ArcadiaBench 1.1 leave it out: their catalog scenarios are catalog 1.0's.",
+      "anyOf": [{ "$ref": "#/$defs/Catalog" }, { "type": "null" }]
+    },
     "Preset": {
       "description": "A Standard track preset, or null for a scenario outside the catalog.",
       "enum": ["small", "medium", "large", null]
@@ -58,6 +66,7 @@
       "properties": {
         "run_id": { "$ref": "#/$defs/Id" },
         "scenario_id": { "$ref": "#/$defs/Id" },
+        "catalog": { "$ref": "#/$defs/ScenarioCatalog" },
         "preset": { "$ref": "#/$defs/Preset" },
         "variant": { "$ref": "#/$defs/Variant" },
         "seed": { "$ref": "#/$defs/Count" },
@@ -201,6 +210,7 @@
       "type": "object",
       "properties": {
         "scenario_id": { "$ref": "#/$defs/Id" },
+        "catalog": { "$ref": "#/$defs/ScenarioCatalog" },
         "preset": { "$ref": "#/$defs/Preset" },
         "variant": { "$ref": "#/$defs/Variant" },
         "coordinator": { "$ref": "#/$defs/SoftwareInfo" },
@@ -244,10 +254,14 @@
       "additionalProperties": false
     },
     "Resilience": {
-      "description": "How much of its nominal headline a coordinator keeps under the stress variants.",
+      "description": "How much of its nominal headline a coordinator keeps under the stress variants of one catalog. Headlines are never compared across catalogs.",
       "type": "object",
       "properties": {
         "coordinator": { "$ref": "#/$defs/SoftwareInfo" },
+        "catalog": {
+          "description": "The catalog compared within. Reports written before ArcadiaBench 1.1 leave it out, and are catalog 1.0's.",
+          "$ref": "#/$defs/Catalog"
+        },
         "resilience": {
           "description": "Mean of the presets' resilience, over the presets where it is known.",
           "$ref": "#/$defs/OptionalFraction"
@@ -262,7 +276,7 @@
       "additionalProperties": false
     },
     "Report": {
-      "description": "Scorecards for every coordinator and scenario among some runs, and the resilience of every coordinator with nominal scorecards.",
+      "description": "Scorecards for every coordinator and scenario among some runs, and the resilience of every coordinator on every catalog where it has nominal scorecards.",
       "type": "object",
       "properties": {
         "scorecards": {

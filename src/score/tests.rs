@@ -28,9 +28,21 @@ fn metrics(completed: bool, sols: f64) -> RunMetrics {
     m
 }
 
-/// A record of `coordinator` on Small under `variant`, from the real scenario.
+/// A record of `coordinator` on catalog 1.0's Small under `variant`, from
+/// the real scenario.
 fn record(coordinator: &str, variant: Variant, seed: u64, completed: bool, sols: f64) -> RunRecord {
-    let p = Params::scenario(Preset::Small, variant);
+    record_on(Catalog::V1_0, coordinator, variant, seed, completed, sols)
+}
+
+fn record_on(
+    catalog: Catalog,
+    coordinator: &str,
+    variant: Variant,
+    seed: u64,
+    completed: bool,
+    sols: f64,
+) -> RunRecord {
+    let p = Params::scenario(catalog, Preset::Small, variant);
     let g = scenario::generate(seed, &p);
     let Uplink::Goal {
         objective: Objective::LandingPad { pad },
@@ -80,7 +92,8 @@ fn the_reference_is_the_crews_sintering_time() {
         (Preset::Medium, 4.0),
         (Preset::Large, 8.0),
     ] {
-        let g = scenario::generate(1, &Params::scenario(preset, Variant::Nominal));
+        let p = Params::scenario(Catalog::V1_0, preset, Variant::Nominal);
+        let g = scenario::generate(1, &p);
         let Uplink::Goal {
             objective: Objective::LandingPad { pad },
             ..
@@ -97,22 +110,77 @@ fn the_reference_is_the_crews_sintering_time() {
             .retain(|r| r.capability(CapabilityName::Sinter).is_none());
         assert_eq!(reference_sols(&s, pad), None);
     }
-    assert_eq!(presets::crew(Preset::Large).len(), 20);
+    assert_eq!(presets::crew(Catalog::V1_0, Preset::Large).len(), 20);
 }
 
 #[test]
-fn scenario_ids_name_their_preset_and_variant() {
-    assert_eq!(
-        parse_scenario_id("landing-pad-medium-cascading_faults"),
-        Some((Preset::Medium, Variant::CascadingFaults))
-    );
-    assert_eq!(parse_scenario_id("landing-pad-small"), None);
-    assert_eq!(parse_scenario_id("landing-pad-huge-nominal"), None);
+fn records_name_their_catalog_preset_and_variant() {
     let r = record("x", Variant::DustStorm, 7, true, 1.0);
     assert_eq!(r.run_id, "landing-pad-small-dust_storm-7");
     assert_eq!(
-        (r.preset, r.variant),
-        (Some(Preset::Small), Some(Variant::DustStorm))
+        (r.catalog, r.preset, r.variant),
+        (
+            Some(Catalog::V1_0),
+            Some(Preset::Small),
+            Some(Variant::DustStorm)
+        )
+    );
+    let r = record_on(Catalog::V1_1, "x", Variant::DustStorm, 7, true, 1.0);
+    assert_eq!(r.run_id, "landing-pad-1.1-small-dust_storm-7");
+    assert_eq!(
+        (r.catalog, r.preset, r.variant),
+        (
+            Some(Catalog::V1_1),
+            Some(Preset::Small),
+            Some(Variant::DustStorm)
+        )
+    );
+    let json = serde_json::to_value(&r).unwrap();
+    assert_eq!(json["catalog"], "1.1");
+    assert_eq!(serde_json::from_value::<RunRecord>(json).unwrap(), r);
+}
+
+#[test]
+fn files_from_before_1_1_name_no_catalog_and_are_catalog_1_0s() {
+    // A record, a scorecard and a report as ArcadiaBench 1.0 wrote them.
+    let strip = |mut v: serde_json::Value| {
+        v.as_object_mut().unwrap().remove("catalog").unwrap();
+        v
+    };
+    let runs: Vec<RunRecord> = Variant::ALL
+        .into_iter()
+        .map(|v| {
+            let old = strip(serde_json::to_value(record("x", v, 1, true, 1.0)).unwrap());
+            serde_json::from_value(old).unwrap()
+        })
+        .collect();
+    assert!(runs.iter().all(|r| r.catalog.is_none()));
+    let report = Report::from_runs(&runs).unwrap();
+    assert!(
+        report
+            .scorecards
+            .iter()
+            .all(|s| s.catalog == Some(Catalog::V1_0))
+    );
+    assert_eq!(report.resilience.len(), 1);
+    assert_eq!(report.resilience[0].catalog, Catalog::V1_0);
+
+    let mut old = serde_json::to_value(&report).unwrap();
+    for part in ["scorecards", "resilience"] {
+        for item in old[part].as_array_mut().unwrap() {
+            *item = strip(item.take());
+        }
+    }
+    let read: Report = serde_json::from_value(old).unwrap();
+    assert!(read.scorecards.iter().all(|s| s.catalog.is_none()));
+    assert_eq!(read.resilience, report.resilience);
+    // Scored again, the old scorecards land where the new ones do.
+    assert_eq!(resilience(&read.scorecards), report.resilience);
+    // A scenario outside every catalog has none.
+    assert_eq!(catalog_of(None, "my-own-scenario"), None);
+    assert_eq!(
+        catalog_of(Some(Catalog::V1_1), "my-own-scenario"),
+        Some(Catalog::V1_1)
     );
 }
 
@@ -235,6 +303,70 @@ fn resilience_compares_stress_headlines_with_nominal() {
     assert_eq!(y.resilience, None);
     let text = report.render();
     assert!(text.contains("resilience"), "{text}");
+}
+
+#[test]
+fn resilience_never_compares_across_catalogs() {
+    let mut runs = Vec::new();
+    for seed in 1..=2 {
+        // Catalog 1.0: nominal and every stress variant at full speed.
+        for v in [Variant::Nominal].into_iter().chain(Variant::STRESS) {
+            runs.push(record("x", v, seed, true, 1.0));
+        }
+        // Catalog 1.1, where a build takes weeks: half as fast as its own
+        // nominal in a storm, and the other stress variants not run.
+        runs.push(record_on(
+            Catalog::V1_1,
+            "x",
+            Variant::Nominal,
+            seed,
+            true,
+            45.0,
+        ));
+        runs.push(record_on(
+            Catalog::V1_1,
+            "x",
+            Variant::DustStorm,
+            seed,
+            true,
+            90.0,
+        ));
+    }
+    let report = Report::from_runs(&runs).unwrap();
+    // Catalog by catalog, each in its own order.
+    let ids: Vec<&str> = report
+        .scorecards
+        .iter()
+        .map(|s| s.scenario_id.as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            "landing-pad-small-nominal",
+            "landing-pad-small-dust_storm",
+            "landing-pad-small-conjunction",
+            "landing-pad-small-cascading_faults",
+            "landing-pad-1.1-small-nominal",
+            "landing-pad-1.1-small-dust_storm",
+        ]
+    );
+    let [old, new] = report.resilience.as_slice() else {
+        panic!("one resilience per catalog: {:?}", report.resilience);
+    };
+    assert_eq!((old.catalog, new.catalog), (Catalog::V1_0, Catalog::V1_1));
+    assert_eq!(old.coordinator, new.coordinator);
+    assert_eq!(old.presets[0].dust_storm, Some(1.0));
+    assert_eq!(old.resilience, Some(1.0));
+    // Its storm is set against its own nominal, not catalog 1.0's.
+    assert!((new.presets[0].dust_storm.unwrap() - 0.5).abs() < 1e-12);
+    assert_ne!(
+        new.presets[0].nominal_headline,
+        old.presets[0].nominal_headline
+    );
+    assert_eq!(new.presets[0].conjunction, None);
+    assert_eq!(new.resilience, None);
+    let text = report.render();
+    assert!(text.contains("catalog"), "{text}");
 }
 
 #[test]

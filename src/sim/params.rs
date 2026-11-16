@@ -15,6 +15,10 @@ use std::str::FromStr;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Params {
     // --- the scenario catalog ---
+    /// The catalog these parameters belong to. It picks the robot designs,
+    /// the crews and the outposts (`src/presets.rs`), and is part of the
+    /// scenario's name.
+    pub catalog: Catalog,
     /// The crew and the outpost it works from (a Standard track preset).
     pub preset: Preset,
     /// The catalog variant these parameters were built from. It names the
@@ -25,6 +29,8 @@ pub struct Params {
     /// t = 0 (uniform, from the `start` stream). `(0, 0)` starts every run
     /// at midnight.
     pub start_sols: (f64, f64),
+    /// The time limit, in sols from the start of the run.
+    pub time_limit_sols: f64,
 
     // --- terrain (Arcadia Planitia: smooth, low rock abundance) ---
     /// Mean surface elevation of the site, m (MOLA datum).
@@ -185,6 +191,9 @@ pub struct Params {
     pub trust_incident_free_sols: f64,
     /// Time Earth takes to issue a policy update once it learns what prompts it, s.
     pub policy_reaction_s: f64,
+    /// The scenario policy's `level3.max_wait_s`: the longest a level-3
+    /// request may wait for Earth before its fallback applies, s.
+    pub level3_max_wait_s: f64,
 
     // --- wear: growth (wear is in [0, 1] per component) ---
     /// Master switch for wear growth and every random failure process (wear,
@@ -357,12 +366,17 @@ impl Default for Params {
 }
 
 impl Params {
-    /// The default variant: hybrid power and the nominal fault model.
+    /// Catalog 1.0's default variant on its Small preset: hybrid power and
+    /// the nominal fault model. This, [`Params::default`], [`Params::variant`]
+    /// and the constructors named after a variant are all catalog 1.0;
+    /// [`Params::scenario`] takes the catalog.
     pub fn nominal() -> Self {
         Self {
+            catalog: Catalog::V1_0,
             preset: Preset::Small,
             variant: Variant::Nominal,
             start_sols: (0.0, 0.0),
+            time_limit_sols: 60.0,
 
             base_elevation_m: -4102.0,
             tilt_sigma: 0.004,
@@ -442,6 +456,7 @@ impl Params {
             earth_reserve_low_frac: 0.25,
             trust_incident_free_sols: 2.0,
             policy_reaction_s: 3600.0,
+            level3_max_wait_s: 3600.0,
 
             faults_enabled: true,
             wear_wheels_per_km: 0.08,
@@ -584,7 +599,7 @@ impl Params {
         }
     }
 
-    /// The parameters of a variant, for the Small preset.
+    /// The parameters of a catalog 1.0 variant, for the Small preset.
     pub fn variant(v: Variant) -> Self {
         match v {
             Variant::Nominal => Self::nominal(),
@@ -596,13 +611,234 @@ impl Params {
         }
     }
 
-    /// The parameters of a scenario in the catalog: a preset's crew and
-    /// outpost, under a variant.
-    pub fn scenario(preset: Preset, variant: Variant) -> Self {
+    /// Catalog 1.1's default variant on its Small preset. Where a value has a
+    /// published source it is the sourced one, and `docs/simulator.md` (§19)
+    /// gives the citation for every line below; the rest are calibrated so
+    /// that the pad takes weeks, power and the Earth link matter, and a
+    /// careful coordinator still finishes. A field not listed keeps catalog
+    /// 1.0's value.
+    fn nominal_1_1() -> Self {
+        Self {
+            catalog: Catalog::V1_1,
+            // A run starts at a seeded time of the sol, and has 100 sols.
+            start_sols: (0.0, 1.0),
+            time_limit_sols: 100.0,
+
+            // Terrain: Bramson 2015 (elevation), Kirk 2008 (1 m slopes of
+            // about 2°), Herkenhoff 2008 (density, cohesion), Golombek 2021
+            // (rock abundance of 2-3%), Macke 2011 (rock density). Ice lies
+            // within a metre of the surface (Dundas 2014).
+            base_elevation_m: -3950.0,
+            noise_octaves: [(16.0, 0.35), (8.0, 0.20), (4.0, 0.12)],
+            regolith_depth_m: (0.1, 1.5),
+            regolith_density_kg_m3: (1150.0, 1600.0),
+            regolith_cohesion_kpa: (0.2, 3.0),
+            boulders_per_cell: 0.5,
+            boulder_alpha: 3.0,
+            rock_density_kg_m3: 3000.0,
+
+            // Actions: Buckles 2022 and Rankin 2021 (how much work and drive
+            // times vary); settlement from loose and compacted densities
+            // (Metzger & Autry 2022).
+            work_duration_sigma: 0.25,
+            travel_duration_sigma: 0.10,
+            min_work_s: 30.0,
+            dig_cut_noise_m: 0.03,
+            grade_noise_m: 0.006,
+            compact_settle_m: 0.04,
+            compact_settle_noise_m: 0.005,
+
+            // Sensing: RIMFAX depth resolution (Hamran 2020); density to
+            // about 10% (Herkenhoff 2008).
+            scan_depth_noise_m: 0.07,
+            scan_density_noise_frac: 0.10,
+
+            // Power: a 40 kWe Fission Surface Power unit (Oleson 2022), with
+            // a 20 kW array and a 200 kWh bank. The outpost's own load is
+            // calibrated at 8 kW, so that a Large crew's sinterers want more
+            // than the plant gives at night.
+            fission_w: 40_000.0,
+            solar_peak_w: 20_000.0,
+            bank_capacity_wh: 200_000.0,
+            essential_load_w: 8_000.0,
+
+            // Dust: Battalio & Wang 2021 (how often and how long), Lemmon
+            // 2015 (opacity), Appelbaum & Flood 1991 (extinction). The
+            // variant's regional storm follows Guzewich 2019 and Wang &
+            // Richardson 2015: it rises over two sols and lasts weeks.
+            storm_chance_per_sol: 0.02,
+            storm_sols: (1.0, 10.0),
+            storm_peak_tau: (1.5, 3.5),
+            dust_extinction: 0.30,
+            dust_storm_start_sols: (0.5, 3.0),
+            dust_storm_rise_sols: 2.0,
+            dust_storm_sols: (15.0, 60.0),
+
+            // Earth link: light time from the real range of distances
+            // (NSSDC), outages from DSN availability (Rankin 2021), and pass
+            // windows instead of a continuous link (Gaines, JPL D-97908).
+            delay_min_s: 182.0,
+            delay_max_s: 1339.0,
+            conjunction_start_sols: (1.0, 4.0),
+            outage_per_sol: 0.03,
+            outage_hours: (1.0, 12.0),
+            pass_windows: true,
+
+            // Site comms: an Electra-Lite class radio.
+            relay_radio_w: 20.0,
+
+            // Mission control answers in hours and changes policy the next
+            // sol (Hazelrig 2025, Rankin 2021). A level-3 request therefore
+            // waits up to a sol before its fallback applies.
+            earth_response_mean_s: 14_400.0,
+            earth_response_sigma: 0.8,
+            trust_incident_free_sols: 10.0,
+            policy_reaction_s: 88_775.0,
+            level3_max_wait_s: 88_775.0,
+
+            // Wear: wheels and drive motors qualified for about 25 km (Rankin
+            // 2021, 2022; VIPER). Tools, joints and batteries are sized for
+            // the hours and energy of a build that lasts weeks: a magnetron
+            // of some 2,000 h (industrial tubes run 5,000 h), and a pack of
+            // 1,000 full cycles (Preger 2020).
+            wear_wheels_per_km: 0.04,
+            wear_drive_motor_per_km: 0.04,
+            wear_tool_per_work_h: 0.0005,
+            wear_joints_per_work_h: 0.0005,
+            wear_joints_per_dust_h: 0.0002,
+            wear_sensors_per_dust_h: 0.0004,
+            wear_battery_per_kwh: 1e-5,
+            wear_speed_loss: 0.1,
+            wear_energy_gain: 0.25,
+
+            // Failures: the random hazard stays at a fault every 125 exposed
+            // hours, between flight rovers and field robots (Carlson & Murphy
+            // 2005, Rankin 2021). Embedding starts at decimetres of loose
+            // regolith (Opportunity at Purgatory).
+            soft_depth_m: 0.3,
+            soft_depth_span_m: 0.5,
+
+            // Health telemetry: Curiosity's mean slip (Rankin 2021).
+            slip_base: 0.06,
+            ..Self::nominal()
+        }
+    }
+
+    /// The parameters of a catalog 1.1 variant, for the Small preset.
+    fn variant_1_1(v: Variant) -> Self {
+        let n = Self::nominal_1_1();
+        match v {
+            Variant::Nominal => n,
+            // A severe regional storm whose front arrives in the first sols
+            // of the run and stays for weeks.
+            Variant::DustStorm => Self {
+                dust_storm: true,
+                ..n
+            },
+            // A two-week blackout that begins in the first sols of the run.
+            Variant::Conjunction => Self {
+                conjunction: true,
+                ..n
+            },
+            // Faster wear and far more failures, fewer of them repairable
+            // in the field.
+            Variant::CascadingFaults => Self {
+                wear_wheels_per_km: n.wear_wheels_per_km * 4.0,
+                wear_drive_motor_per_km: n.wear_drive_motor_per_km * 4.0,
+                wear_tool_per_work_h: n.wear_tool_per_work_h * 4.0,
+                wear_joints_per_work_h: n.wear_joints_per_work_h * 4.0,
+                wear_joints_per_dust_h: n.wear_joints_per_dust_h * 4.0,
+                wear_sensors_per_dust_h: n.wear_sensors_per_dust_h * 4.0,
+                wear_battery_per_kwh: n.wear_battery_per_kwh * 4.0,
+                wear_hazard_per_h: n.wear_hazard_per_h * 4.0,
+                random_fault_per_h: n.random_fault_per_h * 5.0,
+                storm_sensor_fault_per_h: n.storm_sensor_fault_per_h * 3.0,
+                stuck_per_km: n.stuck_per_km * 3.0,
+                p_field_repairable: 0.4,
+                ..n
+            },
+            // Arrays and storage only (SAWS: 1000 m² gives about 130 kW).
+            Variant::SolarOnly => Self {
+                power_mode: PowerMode::SolarOnly,
+                fission_w: 0.0,
+                solar_peak_w: 100_000.0,
+                bank_capacity_wh: 400_000.0,
+                ..n
+            },
+            // Two fission units and a small array: the easy variant.
+            Variant::NuclearHeavy => Self {
+                power_mode: PowerMode::NuclearHeavy,
+                fission_w: 80_000.0,
+                solar_peak_w: 5_000.0,
+                bank_capacity_wh: 100_000.0,
+                ..n
+            },
+        }
+        .named(v)
+    }
+
+    fn named(self, variant: Variant) -> Self {
+        Self { variant, ..self }
+    }
+
+    /// The parameters of a scenario: a catalog's variant, with a preset's
+    /// crew and outpost. The preset changes nothing else.
+    pub fn scenario(catalog: Catalog, preset: Preset, variant: Variant) -> Self {
         Self {
             preset,
-            ..Self::variant(variant)
+            ..match catalog {
+                Catalog::V1_0 => Self::variant(variant),
+                Catalog::V1_1 => Self::variant_1_1(variant),
+            }
         }
+    }
+}
+
+/// A version of the scenario catalog: the robot designs, the crews and
+/// outposts of the presets, and the parameters of every variant. A catalog
+/// never changes once it is released, so results on it stay comparable; a
+/// new one is added beside it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum Catalog {
+    /// The catalog ArcadiaBench 1.0 shipped with.
+    #[serde(rename = "1.0")]
+    V1_0,
+    /// The harder catalog of ArcadiaBench 1.1.
+    #[serde(rename = "1.1")]
+    V1_1,
+}
+
+impl Catalog {
+    pub const ALL: [Catalog; 2] = [Catalog::V1_0, Catalog::V1_1];
+    /// The catalog a run is on when none is named, on the command line and
+    /// in Python: the newest. The Rust constructors that take no catalog
+    /// ([`Params::default`], [`Params::variant`]) stay catalog 1.0's.
+    pub const DEFAULT: Catalog = Catalog::V1_1;
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Catalog::V1_0 => "1.0",
+            Catalog::V1_1 => "1.1",
+        }
+    }
+}
+
+impl fmt::Display for Catalog {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+impl FromStr for Catalog {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Catalog::ALL
+            .into_iter()
+            .find(|c| c.name() == s)
+            .ok_or_else(|| {
+                let names: Vec<&str> = Catalog::ALL.iter().map(|c| c.name()).collect();
+                format!("unknown catalog '{s}' (expected {})", names.join(", "))
+            })
     }
 }
 
@@ -774,7 +1010,7 @@ mod tests {
         for p in Preset::ALL {
             assert_eq!(p.name().parse::<Preset>().unwrap(), p);
             for v in Variant::ALL {
-                let params = Params::scenario(p, v);
+                let params = Params::scenario(Catalog::V1_0, p, v);
                 assert_eq!((params.preset, params.variant), (p, v));
                 assert_eq!(
                     Params {
@@ -783,9 +1019,44 @@ mod tests {
                     },
                     Params::variant(v)
                 );
+                // In every catalog, a preset changes the crew and nothing else.
+                for c in Catalog::ALL {
+                    assert_eq!(
+                        Params {
+                            preset: Preset::Small,
+                            ..Params::scenario(c, p, v)
+                        },
+                        Params::scenario(c, Preset::Small, v)
+                    );
+                }
             }
         }
         assert!("huge".parse::<Preset>().is_err());
         assert_eq!(Params::default().preset, Preset::Small);
+    }
+
+    #[test]
+    fn catalogs_parse_and_label_their_scenarios() {
+        for c in Catalog::ALL {
+            assert_eq!(c.name().parse::<Catalog>().unwrap(), c);
+            assert_eq!(serde_json::to_value(c).unwrap(), c.name());
+            for v in Variant::ALL {
+                let params = Params::scenario(c, Preset::Medium, v);
+                assert_eq!(
+                    (params.catalog, params.preset, params.variant),
+                    (c, Preset::Medium, v)
+                );
+            }
+        }
+        assert!("2.0".parse::<Catalog>().is_err());
+        assert!("v1.1".parse::<Catalog>().is_err());
+        // The constructors without a catalog are catalog 1.0's.
+        assert_eq!(Params::default().catalog, Catalog::V1_0);
+        for v in Variant::ALL {
+            assert_eq!(
+                Params::variant(v),
+                Params::scenario(Catalog::V1_0, Preset::Small, v)
+            );
+        }
     }
 }

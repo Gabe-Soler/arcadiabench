@@ -3,7 +3,7 @@
 mod support;
 
 use arcadia_protocol::*;
-use arcadiabench::sim::params::{Params, Variant};
+use arcadiabench::sim::params::{Catalog, Params, Preset, Variant};
 use support::*;
 
 const SOL_S: f64 = 88_775.0;
@@ -143,4 +143,189 @@ fn site_truth_agrees_with_power_events_and_charging_is_counted() {
     // Every robot ends the run empty, so all it drew is its capacity plus what it received.
     let capacity = 1500.0 + 6000.0 + 12000.0 + 10000.0;
     assert!(m.robot_energy_wh >= capacity, "{}", m.robot_energy_wh);
+}
+
+#[test]
+fn sintering_a_cell_in_catalog_1_1_takes_hours_and_a_third_of_a_pack() {
+    // Three cells beside the outpost are prepared and sintered one at a
+    // time: the first in full, the second cancelled early and then redone,
+    // and the third with too little left in the pack.
+    let p = Params {
+        faults_enabled: false,
+        ..Params::scenario(Catalog::V1_1, Preset::Small, Variant::Nominal)
+    };
+    let cells = [15, 16, 17].map(|x| GridCoord { x, y: 12 });
+    let one = |c: GridCoord| GridRect { min: c, max: c };
+    let mut level: Vec<f64> = Vec::new();
+    let (mut step, mut busy, mut cancel_at) = (0usize, false, None::<f64>);
+    let script = Script::new(|obs: &Observation, d: &mut Decision| {
+        for e in &obs.events {
+            match &e.kind {
+                // Cut each cell a little below where it was scanned.
+                EventKind::ScanResult { cells: seen, .. } => {
+                    level = cells
+                        .iter()
+                        .map(|c| {
+                            let o = seen.iter().find(|o| o.at == *c).expect("scanned");
+                            o.cell.elevation_m.expect("an elevation") - 0.06
+                        })
+                        .collect();
+                }
+                EventKind::CommandCompleted { command_id, .. }
+                | EventKind::CommandFailed { command_id, .. }
+                | EventKind::CommandRejected { command_id, .. }
+                    if command_id.starts_with('s') =>
+                {
+                    busy = false;
+                }
+                _ => {}
+            }
+        }
+        if let Some(t) = cancel_at {
+            if obs.t >= t {
+                cancel_at = None;
+                let target_command = "s11".into();
+                d.commands
+                    .push(cmd("cancel", "cp-1", Action::Cancel { target_command }));
+            } else {
+                d.wake_at = Some(t);
+            }
+            return;
+        }
+        if busy {
+            return;
+        }
+        let k = step.saturating_sub(1) % 3;
+        let (robot, action) = match step {
+            0 => (
+                "sc-1",
+                Action::Scan {
+                    area: GridRect {
+                        min: cells[0],
+                        max: cells[2],
+                    },
+                },
+            ),
+            1..=3 => (
+                "ex-1",
+                Action::Dig {
+                    area: one(cells[k]),
+                    target_elevation_m: level[k],
+                    spoil_to: Some(GridCoord { x: 16, y: 14 }),
+                },
+            ),
+            4..=6 => (
+                "ex-1",
+                Action::Grade {
+                    area: one(cells[k]),
+                    target_elevation_m: level[k],
+                },
+            ),
+            7..=9 => (
+                "cp-1",
+                Action::Compact {
+                    area: one(cells[k]),
+                },
+            ),
+            10 => (
+                "cp-1",
+                Action::Sinter {
+                    area: one(cells[0]),
+                },
+            ),
+            11 | 12 => (
+                "cp-1",
+                Action::Sinter {
+                    area: one(cells[1]),
+                },
+            ),
+            13 => (
+                "cp-1",
+                Action::Sinter {
+                    area: one(cells[2]),
+                },
+            ),
+            _ => return,
+        };
+        d.commands.push(cmd(&format!("s{step}"), robot, action));
+        if step == 11 {
+            cancel_at = Some(obs.t + 2_500.0);
+            d.wake_at = cancel_at;
+        }
+        busy = true;
+        step += 1;
+    });
+    let (_, records, agent) = run(script, 2, &p);
+    let events: Vec<&Event> = events(&agent.observations).collect();
+    let rejected: Vec<&&Event> = events
+        .iter()
+        .filter(|e| matches!(e.kind, EventKind::CommandRejected { .. }))
+        .collect();
+    assert!(rejected.is_empty(), "{rejected:?}");
+    let ended = |id: &str| {
+        events
+            .iter()
+            .find_map(|e| match &e.kind {
+                EventKind::CommandCompleted {
+                    command_id,
+                    energy_used_wh,
+                    ..
+                } if command_id == id => Some((e.t, None, *energy_used_wh)),
+                EventKind::CommandFailed {
+                    command_id,
+                    reason,
+                    energy_used_wh,
+                    ..
+                } if command_id == id => Some((e.t, Some(*reason), *energy_used_wh)),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{id} never ended"))
+    };
+    let accepted = |id: &str| {
+        events
+            .iter()
+            .find_map(|e| match &e.kind {
+                EventKind::CommandAccepted { command_id, .. } if command_id == id => Some(e.t),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{id} was not accepted"))
+    };
+    let battery = |t: f64| {
+        let cp = truth_at(&records, t);
+        let cp = cp.iter().find(|r| r.robot_id == "cp-1").expect("cp-1");
+        (cp.battery_wh, cp.status)
+    };
+
+    // One square metre: 37 kWh for the sinter and about seven hours, with
+    // the robot's own draw on top. The pack starts at 100 kWh.
+    let (done, reason, used) = ended("s10");
+    assert_eq!(reason, None);
+    let hours = (done - accepted("s10")) / 3600.0;
+    assert!((3.0..16.0).contains(&hours), "{hours} h");
+    let own = hours * 50.0;
+    assert!(
+        used > 37_000.0 && used < 37_000.0 + 1.5 * own + 50.0,
+        "{used}"
+    );
+    assert!((battery(done).0 - (100_000.0 - used)).abs() < 600.0);
+
+    // Cancelled 2,500 s into a step of hours: the unused part of what the
+    // step drew comes back, and the cell is not sintered.
+    let (stopped, reason, part) = ended("s11");
+    assert_eq!(reason, Some(FailReason::Cancelled));
+    assert!(part > 500.0 && part < 0.5 * 37_000.0, "{part}");
+    assert!((stopped - accepted("s11") - 2_500.0).abs() < 600.0);
+
+    // Done again in full, then a third cell with a quarter of a pack left:
+    // the step cannot be paid for, and the robot goes offline with an empty
+    // battery (semantics: a shortfall drains the pack).
+    let (again, reason, used_again) = ended("s12");
+    assert_eq!(reason, None);
+    assert!(used_again > 37_000.0, "{used_again}");
+    let (left, _) = battery(again);
+    assert!(left > 15_000.0 && left < 30_000.0, "{left}");
+    let (failed, reason, _) = ended("s13");
+    assert_eq!(reason, Some(FailReason::InsufficientEnergy));
+    let (empty, status) = battery(failed + 1.0);
+    assert_eq!((empty, status), (0.0, RobotStatus::Offline));
 }

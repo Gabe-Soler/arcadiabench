@@ -13,7 +13,7 @@ use crate::log::EventLog;
 use crate::run::DEFAULT_DECISION_TIMEOUT;
 use crate::score::{Report, logs};
 use crate::session::run_session_outcome;
-use crate::sim::params::{Params, Preset, Variant};
+use crate::sim::params::{Catalog, Params, Preset, Variant};
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -21,20 +21,24 @@ use std::time::{Duration, Instant};
 /// How to use the command line.
 pub const USAGE: &str = "\
 usage:
-  arcadiabench run   [--seed N] [--preset P] [--variant V] [--log FILE]
+  arcadiabench run   [--seed N] [--catalog C] [--preset P] [--variant V] [--log FILE]
                      [--decision-timeout SECS] -- <coordinator> [args...]
-  arcadiabench bench [--preset P] [--variant V] [--seeds LIST] [--jobs N] [--out DIR]
-                     [--save-logs] [--decision-timeout SECS] -- <coordinator> [args...]
-  arcadiabench suite [--presets LIST] [--variants LIST] [--seeds LIST] [--jobs N] [--out DIR]
-                     [--save-logs] [--decision-timeout SECS] -- <coordinator> [args...]
+  arcadiabench bench [--catalog C] [--preset P] [--variant V] [--seeds LIST] [--jobs N]
+                     [--out DIR] [--save-logs] [--decision-timeout SECS]
+                     -- <coordinator> [args...]
+  arcadiabench suite [--catalog C] [--presets LIST] [--variants LIST] [--seeds LIST]
+                     [--jobs N] [--out DIR] [--save-logs] [--decision-timeout SECS]
+                     -- <coordinator> [args...]
   arcadiabench score [--json] <log, metrics.jsonl or directory>...
 
+  catalog   1.1 (default), 1.0
   presets   small, medium, large (default small; suite: all)
   variants  nominal, dust_storm, conjunction, cascading_faults, solar_only,
             nuclear_heavy (default nominal; suite: all)
   seeds     seeds and ranges, such as 1-50 or 1,4,10-20 (default 1-50)
   jobs      runs at once (default: the number of CPUs)
-  out       bench: results/<preset>-<variant>; suite: results";
+  out       bench: results/<catalog>-<preset>-<variant>, or on catalog 1.0
+            results/<preset>-<variant>; suite: results";
 
 /// The exit code for bad usage.
 const USAGE_ERROR: u8 = 2;
@@ -44,6 +48,7 @@ struct Args {
     command: String,
     seed: Option<u64>,
     seeds: Option<Vec<u64>>,
+    catalog: Option<Catalog>,
     presets: Option<Vec<Preset>>,
     variants: Option<Vec<Variant>>,
     log: Option<PathBuf>,
@@ -74,12 +79,14 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let allowed: &[&str] = match a.command.as_str() {
         "run" => &[
             "--seed",
+            "--catalog",
             "--preset",
             "--variant",
             "--log",
             "--decision-timeout",
         ],
         "bench" => &[
+            "--catalog",
             "--preset",
             "--variant",
             "--seeds",
@@ -89,6 +96,7 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             "--decision-timeout",
         ],
         "suite" => &[
+            "--catalog",
             "--presets",
             "--variants",
             "--seeds",
@@ -118,6 +126,7 @@ fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                 a.seed = Some(v.parse().map_err(|_| format!("bad seed '{v}'"))?);
             }
             "--seeds" => a.seeds = Some(bench::parse_seeds(&value()?)?),
+            "--catalog" => a.catalog = Some(value()?.parse()?),
             "--preset" => a.presets = Some(vec![value()?.parse()?]),
             "--variant" => a.variants = Some(vec![value()?.parse()?]),
             "--presets" => a.presets = Some(list(&value()?)?),
@@ -187,7 +196,17 @@ fn one<T: Copy + Default>(xs: &Option<Vec<T>>) -> T {
         .unwrap_or_default()
 }
 
+/// A scenario in a few words: `<preset>/<variant>` on catalog 1.0, with the
+/// catalog in front on a later one, as in its id.
+fn label(catalog: Catalog, preset: Preset, variant: Variant) -> String {
+    match catalog {
+        Catalog::V1_0 => format!("{preset}/{variant}"),
+        Catalog::V1_1 => format!("{catalog} {preset}/{variant}"),
+    }
+}
+
 fn run(a: &Args) -> Result<(), String> {
+    let catalog = a.catalog.unwrap_or(Catalog::DEFAULT);
     let (preset, variant) = (one(&a.presets), one(&a.variants));
     let seed = a.seed.unwrap_or(0);
     let file = match &a.log {
@@ -197,7 +216,7 @@ fn run(a: &Args) -> Result<(), String> {
         None => None,
     };
     let (program, rest) = a.coordinator.split_first().expect("checked by parse");
-    let params = Params::scenario(preset, variant);
+    let params = Params::scenario(catalog, preset, variant);
     let timeout = a.timeout.unwrap_or(DEFAULT_DECISION_TIMEOUT);
     let mut link = CoordinatorProcess::spawn(program, rest, timeout).map_err(|e| e.to_string())?;
     let outcome = match file {
@@ -219,9 +238,10 @@ fn run(a: &Args) -> Result<(), String> {
     let m = &r.metrics;
     // Sols since the start of the run, which need not be t = 0.
     println!(
-        "{} {} [{preset}/{variant}]: {:?} after {:.2} sols, speed {} | pad {:.0}% | {} decisions, {} commands | {} faults, {} lost | {} to Earth, {} violations | link down {:.1} h",
+        "{} {} [{}]: {:?} after {:.2} sols, speed {} | pad {:.0}% | {} decisions, {} commands | {} faults, {} lost | {} to Earth, {} violations | link down {:.1} h",
         r.coordinator.name,
         r.coordinator.version,
+        label(catalog, preset, variant),
         r.reason,
         m.sols,
         r.speed.map_or_else(|| "-".into(), |s| format!("{s:.3}")),
@@ -260,6 +280,7 @@ fn batch(a: &Args, is_suite: bool) -> Result<(), String> {
         .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get()));
     let timeout = a.timeout.unwrap_or(DEFAULT_DECISION_TIMEOUT);
     let connect = bench::command(a.coordinator.clone(), timeout);
+    let catalog = a.catalog.unwrap_or(Catalog::DEFAULT);
     let started = Instant::now();
     let (runs, out) = if is_suite {
         let presets = a.presets.clone().unwrap_or_else(|| Preset::ALL.to_vec());
@@ -270,23 +291,24 @@ fn batch(a: &Args, is_suite: bool) -> Result<(), String> {
             out: Some(out.clone()),
             save_logs: a.save_logs,
         };
-        let result = bench::suite(&connect, &presets, &variants, &seeds, &opts, &progress)
-            .map_err(|e| e.to_string())?;
+        let result = bench::suite(
+            &connect, catalog, &presets, &variants, &seeds, &opts, &progress,
+        )
+        .map_err(|e| e.to_string())?;
         print!("{}", result.report.render());
         let runs: Vec<_> = result.cells.into_iter().flat_map(|c| c.runs).collect();
         (runs, out)
     } else {
         let (preset, variant) = (one(&a.presets), one(&a.variants));
-        let out = a
-            .out
-            .clone()
-            .unwrap_or_else(|| bench::cell_dir(&PathBuf::from("results"), preset, variant));
+        let out = a.out.clone().unwrap_or_else(|| {
+            bench::cell_dir(&PathBuf::from("results"), catalog, preset, variant)
+        });
         let opts = Options {
             jobs,
             out: Some(out.clone()),
             save_logs: a.save_logs,
         };
-        let result = bench::bench(&connect, preset, variant, &seeds, &opts, &progress)
+        let result = bench::bench(&connect, catalog, preset, variant, &seeds, &opts, &progress)
             .map_err(|e| e.to_string())?;
         print!("{}", result.scorecard.render());
         (result.runs, out)
@@ -342,6 +364,11 @@ mod tests {
             (Some(4), Preset::Large, Variant::DustStorm)
         );
         assert_eq!(a.coordinator, ["coord", "--x"]);
+        assert_eq!(a.catalog, None, "the default catalog");
+        for command in ["run", "bench", "suite"] {
+            let a = parse(args(&format!("{command} --catalog 1.1 -- c"))).unwrap();
+            assert_eq!(a.catalog, Some(Catalog::V1_1), "{command}");
+        }
         let a = parse(args("bench --seeds 1-3,9 --jobs 2 --save-logs -- c")).unwrap();
         assert_eq!(a.seeds.unwrap(), [1, 2, 3, 9]);
         assert_eq!((a.jobs, a.save_logs), (Some(2), true));
@@ -373,6 +400,9 @@ mod tests {
             "run --seed 1",
             "run --seeds 1-3 -- c",
             "bench --preset huge -- c",
+            "bench --catalog 2.0 -- c",
+            "run --catalog -- c",
+            "score --catalog 1.1 x",
             "bench --jobs 0 -- c",
             "suite --variant nominal -- c",
             "score",
@@ -382,5 +412,12 @@ mod tests {
             assert!(parse(args(bad)).is_err(), "{bad}");
         }
         assert_eq!(main(args("bench --seeds 3-1 -- c")), USAGE_ERROR);
+    }
+
+    #[test]
+    fn a_run_is_labelled_with_its_catalog_after_1_0() {
+        let (p, v) = (Preset::Large, Variant::SolarOnly);
+        assert_eq!(label(Catalog::V1_0, p, v), "large/solar_only");
+        assert_eq!(label(Catalog::V1_1, p, v), "1.1 large/solar_only");
     }
 }

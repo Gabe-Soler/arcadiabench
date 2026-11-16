@@ -4,7 +4,6 @@
 mod support;
 
 use arcadia_protocol::*;
-use arcadiabench::scenario::TIME_LIMIT_SOLS;
 use arcadiabench::sim::faults::Comp;
 use arcadiabench::sim::link::{Down, EarthLink};
 use arcadiabench::sim::params::{Incident, Params, ScriptedIncident};
@@ -13,8 +12,9 @@ use support::*;
 
 const SOL_S: f64 = 88_775.0;
 
+/// Catalog 1.0's time limit.
 fn limit() -> u64 {
-    TIME_LIMIT_SOLS * SOL_MS
+    ms(Params::default().time_limit_sols * secs(SOL_MS))
 }
 
 fn link_of(seed: u64, p: &Params) -> EarthLink {
@@ -677,7 +677,7 @@ fn a_run_with_pass_windows_starts_mid_sol_and_follows_its_schedule() {
         start > SOL_MS * 3 / 10 && start < SOL_MS * 9 / 10,
         "{start}"
     );
-    assert_eq!(limit - start, TIME_LIMIT_SOLS * SOL_MS);
+    assert_eq!(limit - start, 60 * SOL_MS);
     assert_eq!(records[0].t, scenario.start_t);
     let first = &agent.observations[0];
     assert_eq!(first.t, scenario.start_t);

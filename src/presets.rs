@@ -1,7 +1,12 @@
-//! The Standard track presets: Small (4 robots), Medium (10) and Large (20).
-//! Each is a crew with a defined capability mix plus the outpost it works
-//! from. Every preset has the same site and the same landing-pad goal, and
-//! the base station is the same in every one.
+//! The Standard track presets: Small, Medium and Large. Each is a crew with
+//! a defined capability mix plus the outpost it works from. Every preset has
+//! the same site and the same landing-pad goal, and the base station is the
+//! same in every one.
+//!
+//! All of this belongs to a [`Catalog`]: each catalog has its own designs,
+//! crews and station power, and every function here takes the catalog
+//! first. What follows describes catalog 1.0 (4, 10 and 20 robots); the
+//! catalog 1.1 section comes after it.
 //!
 //! - **Four designs.** Every robot is one of the Small crew's four designs,
 //!   with unchanged specs. A rate, a battery or a speed therefore means the
@@ -24,9 +29,22 @@
 //!   keeps the Small station's 3 kW per slot. Everything stands inside the
 //!   base station's coverage. The power plant is the variant's in every
 //!   preset, so a bigger crew must share the same supply.
+//!
+//! **Catalog 1.1** keeps the four designs, the nesting and the outposts'
+//! layout, and changes the numbers:
+//!
+//! - **Sourced rates.** The designs work at published rates
+//!   (`docs/simulator.md` §19). A square metre takes about seven hours and
+//!   37 kWh to sinter, so the pad takes weeks and sintering is nearly all of
+//!   the work.
+//! - **Crews of 6, 12 and 20,** half of them compactor-sinterers: (1, 1, 1,
+//!   3), (2, 2, 2, 6) and (3, 4, 3, 10) scouts, excavators, haulers and
+//!   compactor-sinterers.
+//! - **Stations at 20 kW a slot,** so a sinterer's 100 kWh pack fills in a
+//!   few hours and the slots can together draw more than the plant supplies.
 
 use crate::scenario::{DEPOT, STATION};
-use crate::sim::params::Preset;
+use crate::sim::params::{Catalog, Preset};
 use arcadia_protocol::*;
 
 /// A robot design: what a robot can do, how fast, and at what energy cost.
@@ -70,8 +88,66 @@ impl Design {
         }
     }
 
-    /// A robot of this design with the given id.
-    pub fn spec(self, robot_id: &str) -> RobotSpec {
+    /// A robot of this design in `catalog`, with the given id.
+    pub fn spec(self, catalog: Catalog, robot_id: &str) -> RobotSpec {
+        match catalog {
+            Catalog::V1_0 => self.spec_1_0(robot_id),
+            Catalog::V1_1 => self.spec_1_1(robot_id),
+        }
+    }
+
+    /// Catalog 1.1's design: the same four robots at sourced rates
+    /// (`docs/simulator.md` §19 cites each). Speeds are those of VIPER-class
+    /// rovers. Digging and loading follow RASSOR and IPEx scaled by mass;
+    /// grading, compaction and sintering follow Metzger & Autry's landing-pad
+    /// study. A square metre takes about seven hours and 37 kWh to sinter, so
+    /// the compactor-sinterer carries a pack of two cells' worth.
+    fn spec_1_1(self, robot_id: &str) -> RobotSpec {
+        use CapabilityName::*;
+        match self {
+            Design::Scout => robot(
+                robot_id,
+                self,
+                (90.0, 1500.0, 0.2, 0.2, 15.0),
+                vec![
+                    cap(Scan, 4.0, 0.05, None, Some(10.0)),
+                    cap(Repair, 0.0005, 400.0, None, None),
+                ],
+            ),
+            Design::Excavator => robot(
+                robot_id,
+                self,
+                (420.0, 6000.0, 0.1, 0.9, 50.0),
+                vec![
+                    cap(Dig, 1.4e-4, 500.0, None, None),
+                    cap(Grade, 0.1, 11.0, None, None),
+                    cap(Haul, 0.2, 0.01, Some(250.0), None),
+                ],
+            ),
+            Design::Hauler => robot(
+                robot_id,
+                self,
+                (300.0, 12000.0, 0.2, 0.7, 40.0),
+                vec![
+                    cap(Haul, 0.2, 0.008, Some(400.0), None),
+                    cap(Charge, 0.5, 0.0, Some(8000.0), None),
+                    cap(Relay, 0.0, 0.0, None, Some(150.0)),
+                ],
+            ),
+            Design::CompactorSinterer => robot(
+                robot_id,
+                self,
+                (900.0, 100_000.0, 0.1, 1.0, 50.0),
+                vec![
+                    cap(Compact, 0.05, 4.0, None, None),
+                    cap(Sinter, 4e-5, 37_000.0, None, None),
+                ],
+            ),
+        }
+    }
+
+    /// Catalog 1.0's design.
+    fn spec_1_0(self, robot_id: &str) -> RobotSpec {
         use CapabilityName::*;
         match self {
             Design::Scout => robot(
@@ -117,7 +193,40 @@ impl Design {
 }
 
 /// The robots each preset adds to the one before it, in crew order.
-fn added(preset: Preset) -> &'static [(Design, u32)] {
+fn added(catalog: Catalog, preset: Preset) -> &'static [(Design, u32)] {
+    match catalog {
+        Catalog::V1_0 => added_1_0(preset),
+        Catalog::V1_1 => added_1_1(preset),
+    }
+}
+
+/// Catalog 1.1: 6, 12 and 20 robots. Sintering is nearly all of the work, so
+/// half of every crew sinters.
+fn added_1_1(preset: Preset) -> &'static [(Design, u32)] {
+    use Design::*;
+    match preset {
+        Preset::Small => &[
+            (Scout, 1),
+            (Excavator, 1),
+            (Hauler, 1),
+            (CompactorSinterer, 3),
+        ],
+        Preset::Medium => &[
+            (Scout, 1),
+            (Excavator, 1),
+            (Hauler, 1),
+            (CompactorSinterer, 3),
+        ],
+        Preset::Large => &[
+            (Scout, 1),
+            (Excavator, 2),
+            (Hauler, 1),
+            (CompactorSinterer, 4),
+        ],
+    }
+}
+
+fn added_1_0(preset: Preset) -> &'static [(Design, u32)] {
     use Design::*;
     match preset {
         Preset::Small => &[
@@ -147,10 +256,10 @@ fn tiers(preset: Preset) -> impl Iterator<Item = Preset> {
 }
 
 /// How many robots of each design the preset's crew has.
-pub fn mix(preset: Preset) -> [(Design, u32); 4] {
+pub fn mix(catalog: Catalog, preset: Preset) -> [(Design, u32); 4] {
     Design::ALL.map(|d| {
         let n = tiers(preset)
-            .flat_map(|t| added(t).iter())
+            .flat_map(|t| added(catalog, t).iter())
             .filter(|(design, _)| *design == d)
             .map(|(_, n)| n)
             .sum();
@@ -160,18 +269,19 @@ pub fn mix(preset: Preset) -> [(Design, u32); 4] {
 
 /// The preset's crew. Ids number each design from 1 (`cp-1`, `cp-2`, ...),
 /// and each preset's crew starts with the whole crew of the one below it.
-pub fn crew(preset: Preset) -> Vec<RobotSpec> {
+pub fn crew(catalog: Catalog, preset: Preset) -> Vec<RobotSpec> {
     let mut count = [0u32; 4];
     let mut robots = Vec::new();
     for tier in tiers(preset) {
-        for &(design, n) in added(tier) {
+        for &(design, n) in added(catalog, tier) {
             let k = Design::ALL
                 .iter()
                 .position(|&d| d == design)
                 .expect("a design");
             for _ in 0..n {
                 count[k] += 1;
-                robots.push(design.spec(&format!("{}-{}", design.prefix(), count[k])));
+                let id = format!("{}-{}", design.prefix(), count[k]);
+                robots.push(design.spec(catalog, &id));
             }
         }
     }
@@ -180,8 +290,8 @@ pub fn crew(preset: Preset) -> Vec<RobotSpec> {
 
 /// Where the crew starts: in rows of ten eastward from (12, 10), between
 /// the first charge station and the base station.
-pub fn starts(preset: Preset) -> Vec<GridCoord> {
-    (0..crew_size(preset))
+pub fn starts(catalog: Catalog, preset: Preset) -> Vec<GridCoord> {
+    (0..crew_size(catalog, preset))
         .map(|i| GridCoord {
             x: 12 + i % 10,
             y: 10 + i / 10,
@@ -190,14 +300,23 @@ pub fn starts(preset: Preset) -> Vec<GridCoord> {
 }
 
 /// Number of robots in the preset's crew.
-pub fn crew_size(preset: Preset) -> u32 {
-    mix(preset).iter().map(|(_, n)| n).sum()
+pub fn crew_size(catalog: Catalog, preset: Preset) -> u32 {
+    mix(catalog, preset).iter().map(|(_, n)| n).sum()
+}
+
+/// What a charge station delivers in all, W, over its two slots.
+fn station_power_w(catalog: Catalog) -> f64 {
+    match catalog {
+        Catalog::V1_0 => 6000.0,
+        // 20 kW a slot, so a sinterer's pack fills in a few hours.
+        Catalog::V1_1 => 40_000.0,
+    }
 }
 
 /// Charge stations: Small's `st-1`; Medium adds its mirror image east of the
-/// base station; Large adds one on each side of the pad. Each delivers 6 kW
-/// over 2 slots.
-pub fn stations(preset: Preset) -> Vec<ChargeStation> {
+/// base station; Large adds one on each side of the pad. Each has 2 slots;
+/// in catalog 1.0 it delivers 6 kW over them.
+pub fn stations(catalog: Catalog, preset: Preset) -> Vec<ChargeStation> {
     let positions = [
         (Preset::Small, STATION),
         (Preset::Medium, GridCoord { x: 49, y: 10 }),
@@ -211,13 +330,14 @@ pub fn stations(preset: Preset) -> Vec<ChargeStation> {
         .map(|(i, (_, position))| ChargeStation {
             station_id: format!("st-{}", i + 1),
             position,
-            max_power_w: 6000.0,
+            max_power_w: station_power_w(catalog),
             slots: 2,
         })
         .collect()
 }
 
-/// Maintenance depots, placed beside the stations in the same way.
+/// Maintenance depots, placed beside the stations in the same way. They are
+/// the same in every catalog.
 pub fn depots(preset: Preset) -> Vec<Depot> {
     let positions = [
         (Preset::Small, DEPOT),
@@ -286,8 +406,9 @@ mod tests {
     };
 
     #[test]
-    fn crews_have_the_documented_sizes_and_mixes() {
-        let counts = |p| mix(p).map(|(_, n)| n);
+    fn catalog_1_0_crews_have_the_documented_sizes_and_mixes() {
+        let c = Catalog::V1_0;
+        let counts = |p| mix(c, p).map(|(_, n)| n);
         assert_eq!(counts(Preset::Small), [1, 1, 1, 1]);
         assert_eq!(counts(Preset::Medium), [2, 2, 2, 4]);
         assert_eq!(counts(Preset::Large), [4, 4, 4, 8]);
@@ -296,11 +417,14 @@ mod tests {
             (Preset::Medium, 10),
             (Preset::Large, 20),
         ] {
-            assert_eq!(crew(p).len(), n);
-            assert_eq!(crew_size(p), n as u32);
-            assert_eq!(starts(p).len(), n);
+            assert_eq!(crew(c, p).len(), n);
+            assert_eq!(crew_size(c, p), n as u32);
+            assert_eq!(starts(c, p).len(), n);
+            for s in stations(c, p) {
+                assert_eq!(s.max_power_w / f64::from(s.slots), 3000.0);
+            }
         }
-        let ids: Vec<String> = crew(Preset::Small)
+        let ids: Vec<String> = crew(c, Preset::Small)
             .into_iter()
             .map(|r| r.robot_id)
             .collect();
@@ -308,61 +432,111 @@ mod tests {
     }
 
     #[test]
+    fn catalog_1_1_crews_have_the_documented_sizes_and_mixes() {
+        let c = Catalog::V1_1;
+        let counts = |p| mix(c, p).map(|(_, n)| n);
+        assert_eq!(counts(Preset::Small), [1, 1, 1, 3]);
+        assert_eq!(counts(Preset::Medium), [2, 2, 2, 6]);
+        assert_eq!(counts(Preset::Large), [3, 4, 3, 10]);
+        for (p, n) in [
+            (Preset::Small, 6),
+            (Preset::Medium, 12),
+            (Preset::Large, 20),
+        ] {
+            assert_eq!(crew(c, p).len(), n);
+            assert_eq!(starts(c, p).len(), n);
+            for s in stations(c, p) {
+                assert_eq!(s.max_power_w / f64::from(s.slots), 20_000.0);
+            }
+        }
+        let ids: Vec<String> = crew(c, Preset::Small)
+            .into_iter()
+            .map(|r| r.robot_id)
+            .collect();
+        assert_eq!(ids, ["sc-1", "ex-1", "hl-1", "cp-1", "cp-2", "cp-3"]);
+        // A sinterer's pack holds two cells' sintering with room to spare,
+        // and its sinter draws about 5.3 kW.
+        let cp = Design::CompactorSinterer.spec(c, "cp-1");
+        let sinter = cp.capability(CapabilityName::Sinter).unwrap();
+        assert!(cp.battery_capacity_wh > 2.5 * sinter.energy_wh_per_unit);
+        let draw_w = sinter.rate * sinter.energy_wh_per_unit * 3600.0;
+        assert!((draw_w - 5328.0).abs() < 1.0, "{draw_w}");
+        // The same four designs, by model and capabilities, in both catalogs.
+        for d in Design::ALL {
+            let (old, new) = (d.spec(Catalog::V1_0, "x"), d.spec(c, "x"));
+            assert_eq!(old.model, new.model);
+            let names = |r: &RobotSpec| r.capabilities.iter().map(|c| c.name).collect::<Vec<_>>();
+            assert_eq!(names(&old), names(&new));
+        }
+    }
+
+    #[test]
     fn every_preset_has_every_capability_and_medium_and_large_have_two_of_each() {
-        for p in Preset::ALL {
-            let crew = crew(p);
-            for c in EVERY_CAPABILITY {
-                let n = crew.iter().filter(|r| r.capability(c).is_some()).count();
-                let floor = if p == Preset::Small { 1 } else { 2 };
-                assert!(n >= floor, "{p}: {c:?} on {n} robots");
+        for c in Catalog::ALL {
+            for p in Preset::ALL {
+                let crew = crew(c, p);
+                assert_eq!(crew.len(), crew_size(c, p) as usize, "{c} {p}");
+                assert!(crew.len() <= 20, "{c} {p}: at most twenty robots");
+                for cap in EVERY_CAPABILITY {
+                    let n = crew.iter().filter(|r| r.capability(cap).is_some()).count();
+                    let floor = if p == Preset::Small { 1 } else { 2 };
+                    assert!(n >= floor, "{c} {p}: {cap:?} on {n} robots");
+                }
             }
         }
     }
 
     #[test]
     fn presets_nest_and_ids_are_unique() {
-        for (small, big) in [
-            (Preset::Small, Preset::Medium),
-            (Preset::Medium, Preset::Large),
-        ] {
-            let (a, b) = (crew(small), crew(big));
-            assert_eq!(a[..], b[..a.len()]);
-            assert_eq!(starts(small)[..], starts(big)[..a.len()]);
-            assert_eq!(stations(small)[..], stations(big)[..stations(small).len()]);
-            assert_eq!(depots(small)[..], depots(big)[..depots(small).len()]);
+        for c in Catalog::ALL {
+            for (small, big) in [
+                (Preset::Small, Preset::Medium),
+                (Preset::Medium, Preset::Large),
+            ] {
+                let (a, b) = (crew(c, small), crew(c, big));
+                assert!(a.len() < b.len(), "{c}: {big} adds robots to {small}");
+                assert_eq!(a[..], b[..a.len()]);
+                assert_eq!(starts(c, small)[..], starts(c, big)[..a.len()]);
+                let (few, many) = (stations(c, small), stations(c, big));
+                assert_eq!(few[..], many[..few.len()]);
+                assert_eq!(depots(small)[..], depots(big)[..depots(small).len()]);
+            }
+            for p in Preset::ALL {
+                let ids: BTreeSet<String> = crew(c, p).into_iter().map(|r| r.robot_id).collect();
+                assert_eq!(ids.len(), crew_size(c, p) as usize);
+                let cells: BTreeSet<(u32, u32)> = starts(c, p).iter().map(|c| (c.x, c.y)).collect();
+                assert_eq!(
+                    cells.len(),
+                    crew_size(c, p) as usize,
+                    "one robot per start cell"
+                );
+            }
+            assert_eq!(stations(c, Preset::Large).len(), 4);
         }
-        for p in Preset::ALL {
-            let ids: BTreeSet<String> = crew(p).into_iter().map(|r| r.robot_id).collect();
-            assert_eq!(ids.len(), crew_size(p) as usize);
-            let cells: BTreeSet<(u32, u32)> = starts(p).iter().map(|c| (c.x, c.y)).collect();
-            assert_eq!(
-                cells.len(),
-                crew_size(p) as usize,
-                "one robot per start cell"
-            );
-        }
-        assert_eq!(stations(Preset::Large).len(), 4);
         assert_eq!(depots(Preset::Medium).len(), 2);
     }
 
     #[test]
     fn the_outpost_stands_in_coverage_off_the_pad() {
-        let range = crate::sim::params::Params::default().base_station_range_m;
-        for p in Preset::ALL {
-            let places = stations(p)
-                .into_iter()
-                .map(|s| s.position)
-                .chain(depots(p).into_iter().map(|d| d.position))
-                .chain(starts(p));
-            for c in places {
-                assert!(c.x < SITE_SIZE && c.y < SITE_SIZE, "{p}: {c:?}");
-                assert!(within(c, BASE_STATION, range, 1.0), "{p}: {c:?}");
-                let on_pad = (PAD.min.x..=PAD.max.x).contains(&c.x)
-                    && (PAD.min.y..=PAD.max.y).contains(&c.y);
-                assert!(!on_pad, "{p}: {c:?}");
-            }
-            for s in stations(p) {
-                assert_eq!(s.max_power_w / f64::from(s.slots), 3000.0);
+        use crate::sim::params::{Params, Variant};
+        for c in Catalog::ALL {
+            for p in Preset::ALL {
+                let range = Params::scenario(c, p, Variant::Nominal).base_station_range_m;
+                let places = stations(c, p)
+                    .into_iter()
+                    .map(|s| s.position)
+                    .chain(depots(p).into_iter().map(|d| d.position))
+                    .chain(starts(c, p));
+                for at in places {
+                    assert!(at.x < SITE_SIZE && at.y < SITE_SIZE, "{c} {p}: {at:?}");
+                    assert!(within(at, BASE_STATION, range, 1.0), "{c} {p}: {at:?}");
+                    let on_pad = (PAD.min.x..=PAD.max.x).contains(&at.x)
+                        && (PAD.min.y..=PAD.max.y).contains(&at.y);
+                    assert!(!on_pad, "{c} {p}: {at:?}");
+                }
+                for s in stations(c, p) {
+                    assert!(s.slots > 0 && s.max_power_w > 0.0, "{c} {p}");
+                }
             }
         }
     }

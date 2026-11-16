@@ -18,6 +18,9 @@ Version 1.1.0, in development. It speaks arcadia-protocol 1.1.0, which does not 
   - Run metrics carry `coverage` (the commands rejected `out_of_coverage`, and the lost-link returns) and `conditions.between_passes_s`.
   - The baselines read the minimum work duration and the rock density from the scenario's constants.
 - **Scorecard schema.** `schemas/scorecard.schema.json` refers to the protocol's 1.1.0 schemas, and its `$id` is now `https://raw.githubusercontent.com/Gabe-Soler/arcadiabench/v1.1.0/schemas/scorecard.schema.json`. Two optional fields are new: `end_reasons.other`, for runs that ended for a reason this version does not know, and `conditions.mean_between_passes_s`. Scorecards written by 1.0 are still valid.
+- **Baselines.** They grade a cell high by the compaction settlement the scenario states (`constants.compaction_settlement_m`), so it settles onto the target, and they wake hourly and for their own timers instead of every ten minutes. Their runs on catalog 1.0 change slightly, so their regression fingerprints were taken again; the simulator's own fingerprints did not move.
+- **Rust API.** The crate's scenario functions take the catalog first: `Params::scenario`, `scenario::scenario_id`, `bench::bench`, `bench::suite`, `bench::cell_dir`, and the crews and stations of `presets`. `score::parse_scenario_id` is now `scenario::parse_scenario_id` and returns the catalog too. `scenario::TIME_LIMIT_SOLS` is gone: read `Params::time_limit_sols`.
+- **Report table.** The resilience table of `arcadiabench suite` and `arcadiabench score` has a `catalog` column.
 - **Run summary.** `arcadiabench run` reports the sols a run took ("after 0.92 sols") instead of the sol it ended at, and counts the time between passes in "link down".
 - **Replay viewer.**
   - Protocol 1.1 logs load without a version notice.
@@ -29,9 +32,22 @@ Version 1.1.0, in development. It speaks arcadia-protocol 1.1.0, which does not 
 
 ### Added
 
-- **Pass windows on the Earth link** (semantics §8.1), off in every scenario of the catalog. With `pass_windows` on, the link is up only during each sol's direct-to-Earth window and relay passes, drawn from their own `passes` stream. Between them it is down with cause `between_passes`; `comms` events carry `window_end_t` while it is up and `expected_restore_t` while it waits for the next pass; messages wait for a pass; and the run metrics split the down time by cause.
+- **Scenario catalogs.** A scenario now belongs to a catalog: the robot designs, the crews and outposts of the presets, and the parameters of every variant. A catalog never changes once it is released, so results on it stay comparable. The default is now catalog 1.1; `--catalog 1.0` (or `catalog="1.0"`) gives catalog 1.0, whose scenarios, ids and results are unchanged.
+  - **Choosing one:** `--catalog 1.0|1.1` on `run`, `bench` and `suite`; `catalog=` in Python, with `CATALOGS` and `DEFAULT_CATALOG`; `Params::scenario(catalog, preset, variant)` in Rust.
+  - **Scoring:** run records and scorecards name their `catalog`, and resilience is worked out for each coordinator on each catalog, so headlines are never compared across catalogs. Files written by 1.0 leave the field out and are read as catalog 1.0's.
+  - **Files:** a suite writes a later catalog's scenarios to `<catalog>-<preset>-<variant>/`, so two catalogs never share a directory. Catalog 1.0's stay `<preset>-<variant>/`.
+  - **Parameters:** the time limit and the wait for a level-3 answer are now parameters (`time_limit_sols`, `level3_max_wait_s`). Catalog 1.0 keeps 60 sols and one hour.
+  - **Scripts and examples:** `scripts/results.sh`, `scripts/demos.sh` and `python/examples/builder.py` name catalog 1.0, which they were written for.
+  - **Rust:** `Params::default()` and the constructors named after a variant stay catalog 1.0's.
+- **Catalog 1.1** (`landing-pad-1.1-<preset>-<variant>`): the harder catalog, on sourced rates. It is not final until 1.1.0 is released; `docs/simulator.md` §19 lists every value it changes and where each comes from.
+  - **Robots:** the same four designs at published rates. A square metre takes about 7 hours and 37 kWh to sinter, so the pad takes weeks and the compactor-sinterer carries a 100 kWh pack.
+  - **Crews:** 6, 12 and 20 robots, half of them sinterers, with charge stations at 20 kW a slot.
+  - **Power:** a 40 kWe fission unit in the hybrid plant, 100 kW of arrays in `solar_only` and 80 kWe in `nuclear_heavy`.
+  - **The run:** a 100-sol limit from a seeded time of the sol, an Earth link in pass windows, answers from Earth in hours, a level-3 wait of one sol, a two-week blackout and a weeks-long regional storm that begin in the first sols.
+  - **Measured with the baselines on seeds 1–50:** Small takes about 55 sols, Medium 28 and Large 18.
+- **Pass windows on the Earth link** (semantics §8.1), off in every scenario of catalog 1.0. With `pass_windows` on, the link is up only during each sol's direct-to-Earth window and relay passes, drawn from their own `passes` stream. Between them it is down with cause `between_passes`; `comms` events carry `window_end_t` while it is up and `expected_restore_t` while it waits for the next pass; messages wait for a pass; and the run metrics split the down time by cause.
 - **Runs that start at any time of the sol.** `start_sols` draws `scenario.start_t` from the `start` stream. The calendar stays put (sunrise, the seasonal storms, the pass windows), and the run is timed from its start: the time limit, the variant's storm front and blackout, the first outage and the delay's epoch. The catalog keeps starting at midnight.
-- **Regression tests.** The baselines' runs on the catalog are fingerprinted, as the test coordinators' already were: 17 runs across the three baselines.
+- **Regression tests.** The baselines' runs on catalog 1.0 are fingerprinted, as the test coordinators' already were: 17 runs across the three baselines. Catalog 1.1's worlds and idle runs are fingerprinted too, and CI runs one whole catalog 1.1 build in a release build.
 
 ## [1.0.1] - 2026-11-09
 

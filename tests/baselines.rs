@@ -10,7 +10,7 @@ use arcadiabench::coordinator::Agent;
 use arcadiabench::log::EventLog;
 use arcadiabench::run::run_process;
 use arcadiabench::session::RunReport;
-use arcadiabench::sim::params::{Params, Preset, Variant};
+use arcadiabench::sim::params::{Catalog, Params, Preset, Variant};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -27,72 +27,80 @@ impl Agent for InProc {
 }
 
 /// Every baseline run this file makes is also pinned: its log after
-/// `run_start` must hash to what ArcadiaBench 1.0.1 produced.
+/// `run_start` must hash to what these baselines produced when they were
+/// last changed on purpose.
 fn run(how: Allocation, seed: u64, params: &Params) -> (RunReport, String) {
     let (report, text, _) = support::run_raw(InProc(Baseline::new(how)), seed, params);
     assert_pinned(how, seed, params, &text);
     (report, text)
 }
 
-/// The baselines' runs on catalog 1.0, as ArcadiaBench 1.0.1 produced them
-/// on protocol 1.0.0: (baseline, preset, variant, seed, FNV-1a of the raw
-/// log after `run_start`). A change that alters how a baseline decides, or
-/// what the simulator does with its decisions, moves these.
+/// The baselines' runs on catalog 1.0: (baseline, preset, variant, seed,
+/// FNV-1a of the raw log after `run_start`, with what protocol 1.1 adds cut
+/// out). A change that alters how a baseline decides, or what the simulator
+/// does with its decisions, moves these.
+///
+/// They were first taken on ArcadiaBench 1.0.1 and held through the move to
+/// protocol 1.1. They were taken again when 1.1.0 changed the baselines
+/// themselves: a baseline now grades a cell high by the compaction
+/// settlement the scenario states, and wakes hourly and for its own timers
+/// instead of every ten minutes. The simulator's own fingerprints
+/// (`tests/regression.rs`) did not move.
 const V1_0_RUNS: [(&str, &str, &str, u64, u64); 17] = [
     // Small has one robot of each design, so random and greedy have no
     // choice to make and their runs are the same.
-    ("baseline-random", "small", "nominal", 1, 0xe096d5256f8ca920),
-    ("baseline-random", "small", "nominal", 2, 0x793e82326ab6c6e8),
-    ("baseline-random", "small", "nominal", 3, 0xa6f5dfa91f8645e5),
-    ("baseline-greedy", "small", "nominal", 1, 0xe096d5256f8ca920),
-    ("baseline-greedy", "small", "nominal", 2, 0x793e82326ab6c6e8),
-    ("baseline-greedy", "small", "nominal", 3, 0xa6f5dfa91f8645e5),
-    ("baseline-fcfs", "small", "nominal", 1, 0x5bcc015e71fa9213),
-    ("baseline-fcfs", "small", "nominal", 2, 0x84f49358d334dcc3),
-    ("baseline-fcfs", "small", "nominal", 3, 0x6db90207d71b498d),
+    ("baseline-random", "small", "nominal", 1, 0xc7eb8d44112143ee),
+    ("baseline-random", "small", "nominal", 2, 0x4072195b88ded3a8),
+    ("baseline-random", "small", "nominal", 3, 0xf8dd2e024ed35d52),
+    ("baseline-greedy", "small", "nominal", 1, 0xc7eb8d44112143ee),
+    ("baseline-greedy", "small", "nominal", 2, 0x4072195b88ded3a8),
+    ("baseline-greedy", "small", "nominal", 3, 0xf8dd2e024ed35d52),
+    ("baseline-fcfs", "small", "nominal", 1, 0xbb7db7055ee29c13),
+    ("baseline-fcfs", "small", "nominal", 2, 0x6bb993bc4acf213b),
+    ("baseline-fcfs", "small", "nominal", 3, 0xe74130ab1d566a93),
     (
         "baseline-random",
         "medium",
         "nominal",
         5,
-        0xacc7a4ed06395037,
+        0x232d5dc7ccb5c5a0,
     ),
     (
         "baseline-greedy",
         "medium",
         "nominal",
         5,
-        0x66e54cdbe07faa9a,
+        0xd36e24cf1a382264,
     ),
-    ("baseline-fcfs", "medium", "nominal", 5, 0xc29596775c6d8a88),
+    ("baseline-fcfs", "medium", "nominal", 5, 0xccec25422b219b6c),
     (
         "baseline-random",
         "medium",
         "nominal",
         2,
-        0xde77ed36a3dd91cd,
+        0xb0a72cfe061c761b,
     ),
     (
         "baseline-greedy",
         "medium",
         "nominal",
         2,
-        0x4ccdec15e7d50f28,
+        0x58f39873e927d221,
     ),
-    ("baseline-fcfs", "medium", "nominal", 2, 0xaa0bd45b4baafed2),
+    ("baseline-fcfs", "medium", "nominal", 2, 0x08d8e25a4a8aa5e4),
     (
         "baseline-greedy",
         "small",
         "cascading_faults",
         1,
-        0x034060bc9388f5e9,
+        0xad177e033a08b278,
     ),
     (
         "baseline-greedy",
         "small",
         "cascading_faults",
         2,
-        0xe3f8473ce1714ad9,
+        0x210d6a8941d9deb9,
     ),
 ];
 
@@ -111,7 +119,7 @@ fn assert_pinned(how: Allocation, seed: u64, params: &Params, text: &str) {
     assert_eq!(
         support::run_fingerprint(text),
         pinned,
-        "{key:?}: the run is not what 1.0.1 produced"
+        "{key:?}: the run is not the pinned one"
     );
 }
 
@@ -139,7 +147,7 @@ fn every_baseline_builds_small_nominal() {
 #[test]
 fn baselines_are_deterministic() {
     for how in Allocation::ALL {
-        let params = Params::scenario(Preset::Medium, Variant::Nominal);
+        let params = Params::scenario(Catalog::V1_0, Preset::Medium, Variant::Nominal);
         let (a, log_a) = run(how, 5, &params);
         let (b, log_b) = run(how, 5, &params);
         assert_eq!(a, b, "{how}");
@@ -151,7 +159,7 @@ fn baselines_are_deterministic() {
 fn the_allocations_differ() {
     // On a crew with several robots of each design the three policies make
     // different choices, so their runs differ.
-    let params = Params::scenario(Preset::Medium, Variant::Nominal);
+    let params = Params::scenario(Catalog::V1_0, Preset::Medium, Variant::Nominal);
     let logs: Vec<String> = Allocation::ALL
         .iter()
         .map(|&how| run(how, 2, &params).1)
@@ -175,6 +183,47 @@ fn faults_are_handled_and_tows_notified() {
         let tows = text.matches("\"type\":\"tow\"").count();
         assert!(m.autonomy.notifications as usize >= tows.min(1));
     }
+}
+
+/// A whole build on catalog 1.1: weeks of sim time and thousands of
+/// decisions. Optimized it takes a second or two, unoptimized far longer,
+/// so the ordinary debug run skips it and CI runs it in a release build
+/// (`cargo test --release --test baselines`).
+#[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "a full catalog 1.1 build: run with --release"
+)]
+fn greedy_builds_the_pad_on_catalog_1_1_large() {
+    let params = Params::scenario(Catalog::V1_1, Preset::Large, Variant::Nominal);
+    let greedy = InProc(Baseline::new(Allocation::Greedy));
+    let (report, text, _) = support::run_raw(greedy, 1, &params);
+    let m = &report.metrics;
+    assert_eq!(
+        report.end_reason,
+        EndReason::GoalsComplete,
+        "ended at sol {:.2} with {} of {} cells in spec",
+        m.sols,
+        m.quality.cells_in_spec,
+        m.quality.cells_total
+    );
+    assert!(m.completed && m.quality.verified && m.quality.berm_complete);
+    // Ten sinterers at their nominal rate would take 11.3 sols with no
+    // charging, travel or faults. The crew takes about half as long again.
+    assert!(m.sols > 11.3 && m.sols < 25.0, "{:.2} sols", m.sols);
+    // Sintering 400 m² at 37 kWh/m² is nearly all of the energy.
+    let pad_wh = 400.0 * 37_000.0;
+    assert!(
+        m.energy.robot_energy_wh > pad_wh && m.energy.robot_energy_wh < 1.3 * pad_wh,
+        "{}",
+        m.energy.robot_energy_wh
+    );
+    // The crew wants more than the plant gives: the bank runs down.
+    assert!(m.energy.min_storage_fraction < 0.2);
+    assert_eq!(m.autonomy.policy_violations, 0);
+    // A decision when something happens, not every ten minutes.
+    assert!(m.decisions < 6_000, "{} decisions", m.decisions);
+    support::assert_valid_log(&text);
 }
 
 #[test]

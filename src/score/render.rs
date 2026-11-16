@@ -222,6 +222,7 @@ pub(super) fn report(r: &Report) -> String {
             for p in &c.presets {
                 rows.push(vec![
                     who.clone(),
+                    c.catalog.name().to_string(),
                     p.preset.name().to_string(),
                     format!("{:.3}", p.nominal_headline),
                     opt(p.dust_storm, 3),
@@ -232,6 +233,7 @@ pub(super) fn report(r: &Report) -> String {
             }
             rows.push(vec![
                 who,
+                c.catalog.name().to_string(),
                 "all".into(),
                 String::new(),
                 String::new(),
@@ -247,6 +249,7 @@ pub(super) fn report(r: &Report) -> String {
         out.push_str(&table(
             &[
                 "coordinator",
+                "catalog",
                 "preset",
                 "nominal",
                 "dust_storm",
@@ -255,7 +258,7 @@ pub(super) fn report(r: &Report) -> String {
                 "resilience",
             ],
             &rows,
-            2,
+            3,
         ));
     }
     out

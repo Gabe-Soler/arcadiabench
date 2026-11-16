@@ -32,7 +32,7 @@ use arcadia_protocol::*;
 use arcadiabench::coordinator::{Agent, InProcess};
 use arcadiabench::log::EventLog;
 use arcadiabench::session::{RunReport, run_session};
-use arcadiabench::sim::params::{Params, Preset, Variant};
+use arcadiabench::sim::params::{Catalog, Params, Preset, Variant};
 use support::fnv1a;
 
 /// (seed, true_site text, scenario text, weather event texts, number of weather events).
@@ -429,7 +429,7 @@ fn check_runs(table: &[(&str, u64, u64, u64, u64, u64, u64)], variant: &str) {
         if name != variant {
             continue;
         }
-        let params = Params::scenario(Preset::Small, v);
+        let params = Params::scenario(Catalog::V1_0, Preset::Small, v);
         let parker = Parker {
             capacity: Vec::new(),
             next: 0,
@@ -457,7 +457,7 @@ fn check_runs(table: &[(&str, u64, u64, u64, u64, u64, u64)], variant: &str) {
 fn small_nominal_keeps_its_week_6_worlds_and_runs() {
     assert_eq!(
         Params::default(),
-        Params::scenario(Preset::Small, Variant::Nominal)
+        Params::scenario(Catalog::V1_0, Preset::Small, Variant::Nominal)
     );
     check_runs(&WEEK6, "nominal");
 }
@@ -472,6 +472,133 @@ fn the_other_week_6_variants_keep_their_small_runs() {
 #[test]
 fn the_conjunction_keeps_its_week_9_small_runs() {
     check_runs(&WEEK9, "conjunction");
+}
+
+/// Catalog 1.1 as it stands: (preset, variant, seed, then FNV-1a hashes of
+/// the true site, the scenario, and everything an idle crew's log holds
+/// after `run_start`). Raw text, with nothing cut: catalog 1.1 was born on
+/// protocol 1.1. They pin the world a seed gives (terrain, crew, outpost,
+/// power, policy, constants) and what happens in it unprompted (weather,
+/// the Earth link's passes, drain).
+///
+/// The catalog is not final until ArcadiaBench 1.1.0 is released. Until
+/// then a deliberate change to its values takes these again and says so;
+/// from the release on they are frozen, as catalog 1.0's are.
+const CATALOG_1_1: [(&str, &str, u64, u64, u64, u64); 10] = [
+    (
+        "small",
+        "nominal",
+        1,
+        0xca89ea10cbd9925e,
+        0x2365505e961dc0b2,
+        0x654ce6330425c0d5,
+    ),
+    (
+        "small",
+        "nominal",
+        2,
+        0x34fe916cd075a83c,
+        0x02398e924029cc52,
+        0xbd5b19352be00cb0,
+    ),
+    (
+        "small",
+        "nominal",
+        3,
+        0x53c51c1a605b59dd,
+        0x7259064303d7a25f,
+        0x4efcd17b79d7ff1a,
+    ),
+    (
+        "small",
+        "dust_storm",
+        1,
+        0xca89ea10cbd9925e,
+        0x6e9bfe6b48346eb6,
+        0x0b002a29d3796d29,
+    ),
+    (
+        "small",
+        "conjunction",
+        1,
+        0xca89ea10cbd9925e,
+        0x3fcfd0e564c52c8e,
+        0xb7c9daa2aedb0c37,
+    ),
+    (
+        "small",
+        "cascading_faults",
+        1,
+        0xca89ea10cbd9925e,
+        0x2a9bda75c2190723,
+        0x654ce6330425c0d5,
+    ),
+    (
+        "small",
+        "solar_only",
+        1,
+        0xca89ea10cbd9925e,
+        0x7f57ddca060683ad,
+        0xe14afe604de69fba,
+    ),
+    (
+        "small",
+        "nuclear_heavy",
+        1,
+        0xca89ea10cbd9925e,
+        0x15cdc76a38edc822,
+        0xba38197be73d6af6,
+    ),
+    (
+        "medium",
+        "nominal",
+        1,
+        0xca89ea10cbd9925e,
+        0x561fa602365002e3,
+        0x5c89e93e81e441f1,
+    ),
+    (
+        "large",
+        "nominal",
+        1,
+        0xca89ea10cbd9925e,
+        0x0f7d0e3e7f757b71,
+        0x12d34410924891ae,
+    ),
+];
+
+/// (true_site, scenario, everything after `run_start`) of a raw log.
+fn fingerprints_1_1(text: &str) -> (u64, u64, u64) {
+    let (first, rest) = text.split_at(text.find('\n').unwrap() + 1);
+    let first = first.trim_end();
+    let site =
+        &first[first.find("\"true_site\":").unwrap() + "\"true_site\":".len()..first.len() - 1];
+    let scenario = between(first, "\"scenario\":", ",\"true_site\":");
+    (fnv1a(site), fnv1a(scenario), fnv1a(rest))
+}
+
+#[test]
+fn catalog_1_1_keeps_its_worlds_and_idle_runs() {
+    for (preset, variant, seed, site, scenario, rest) in CATALOG_1_1 {
+        let params = Params::scenario(
+            Catalog::V1_1,
+            preset.parse().unwrap(),
+            variant.parse().unwrap(),
+        );
+        let (_, log, _) = support::run_raw(support::Idle, seed, &params);
+        let got = fingerprints_1_1(&log);
+        let what = format!("{preset}/{variant} seed {seed}");
+        assert_eq!(got.0, site, "{what}: terrain");
+        assert_eq!(got.1, scenario, "{what}: scenario");
+        assert_eq!(got.2, rest, "{what}: the idle run");
+    }
+    // One seed is one site, whatever the preset or the variant.
+    let sites: Vec<u64> = CATALOG_1_1
+        .iter()
+        .filter(|r| r.2 == 1)
+        .map(|r| r.3)
+        .collect();
+    assert!(sites.len() > 2 && sites.windows(2).all(|w| w[0] == w[1]));
 }
 
 fn strip_agent<A>((report, text, _): (RunReport, String, A)) -> (RunReport, String) {

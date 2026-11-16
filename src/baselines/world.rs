@@ -60,6 +60,10 @@ pub fn bounds(cells: impl IntoIterator<Item = GridCoord>) -> Option<GridRect> {
 /// carries no constants (`constants.min_work_duration_s`).
 pub const MIN_WORK_S: f64 = 5.0;
 
+/// How far a cell settles when it is compacted, m, when the scenario carries
+/// no constants (`constants.compaction_settlement_m`).
+pub const SETTLE_M: f64 = 0.01;
+
 /// Density of boulders, kg/m³, when the scenario carries no constants
 /// (`constants.rock_density_kg_m3`). Scans report diameters, not masses.
 pub const ROCK_KG_M3: f64 = 2800.0;
@@ -115,6 +119,8 @@ pub struct World {
     pub min_work_s: f64,
     /// Density of boulders, kg/m³.
     pub rock_kg_m3: f64,
+    /// How far a cell settles when it is compacted, m.
+    pub settle_m: f64,
 }
 
 impl World {
@@ -125,6 +131,7 @@ impl World {
         Self {
             min_work_s: constants.map_or(MIN_WORK_S, |c| c.min_work_duration_s),
             rock_kg_m3: constants.map_or(ROCK_KG_M3, |c| c.rock_density_kg_m3),
+            settle_m: constants.map_or(SETTLE_M, |c| c.compaction_settlement_m),
             t: s.start_t,
             seed: hello.seed,
             robots: s

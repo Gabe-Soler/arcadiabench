@@ -16,7 +16,9 @@ against arcadia-protocol's JSON Schemas.
 
 Scenarios are named by a preset (``small``, ``medium``, ``large``) and a
 variant (``nominal``, ``dust_storm``, ``conjunction``, ``cascading_faults``,
-``solar_only``, ``nuclear_heavy``).
+``solar_only``, ``nuclear_heavy``), in a catalog (:data:`CATALOGS`). A
+catalog fixes the robots, the crews and every parameter, so results on it
+stay comparable; ``catalog=None`` means :data:`DEFAULT_CATALOG`, the newest.
 """
 
 from __future__ import annotations
@@ -26,6 +28,8 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Unio
 
 from . import _native
 from ._native import (
+    CATALOGS,
+    DEFAULT_CATALOG,
     PRESETS,
     PROTOCOL_VERSION,
     SCORECARD_SCHEMA,
@@ -38,6 +42,8 @@ from .coordinator import Coordinator, serve
 __version__: str = _native.VERSION
 
 __all__ = [
+    "CATALOGS",
+    "DEFAULT_CATALOG",
     "PRESETS",
     "PROTOCOL_VERSION",
     "SCORECARD_SCHEMA",
@@ -104,8 +110,12 @@ def run(
     variant: str = "nominal",
     log_path: Optional[PathLike] = None,
     decision_timeout: float = 10.0,
+    *,
+    catalog: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Run one seed of ``landing-pad-<preset>-<variant>`` with a coordinator.
+    """Run one seed of a scenario with a coordinator: the catalog's
+    ``landing-pad-<preset>-<variant>`` (a catalog after 1.0 puts its name
+    before the preset, as in ``landing-pad-1.1-small-nominal``).
 
     ``coordinator`` is a command line (a list of strings, or one path), run
     as a subprocess, or an object with ``welcome``, ``decide`` and ``end``,
@@ -125,9 +135,11 @@ def run(
     """
     argv = _argv(coordinator)
     if argv is not None:
-        return _native.run_process(argv, seed, preset, variant, _path(log_path), decision_timeout)
+        return _native.run_process(
+            argv, seed, catalog, preset, variant, _path(log_path), decision_timeout
+        )
     return _native.run_agent(
-        _check_agent(coordinator), seed, preset, variant, _path(log_path), decision_timeout
+        _check_agent(coordinator), seed, catalog, preset, variant, _path(log_path), decision_timeout
     )
 
 
@@ -137,12 +149,13 @@ def bench(
     preset: str = "small",
     variant: str = "nominal",
     *,
+    catalog: Optional[str] = None,
     jobs: Optional[int] = None,
     out: Optional[PathLike] = None,
     save_logs: bool = False,
     decision_timeout: float = 10.0,
 ) -> Dict[str, Any]:
-    """Run a coordinator over seeds and score the batch.
+    """Run a coordinator over seeds of one scenario and score the batch.
 
     ``seeds`` is a list such as ``"1-50"`` or ``"1,4,10-20"``, an int, or
     any iterable of ints. A command-line coordinator runs ``jobs`` seeds at
@@ -163,7 +176,15 @@ def bench(
     argv = _argv(coordinator)
     if argv is not None:
         return _native.bench_process(
-            argv, seed_list, preset, variant, jobs or 0, _path(out), save_logs, decision_timeout
+            argv,
+            seed_list,
+            catalog,
+            preset,
+            variant,
+            jobs or 0,
+            _path(out),
+            save_logs,
+            decision_timeout,
         )
     factory: Callable[[], Any]
     if isinstance(coordinator, type):
@@ -176,7 +197,7 @@ def bench(
 
         factory = reuse
     return _native.bench_agent(
-        factory, seed_list, preset, variant, _path(out), save_logs, decision_timeout
+        factory, seed_list, catalog, preset, variant, _path(out), save_logs, decision_timeout
     )
 
 
@@ -186,15 +207,18 @@ def suite(
     presets: Optional[Iterable[str]] = None,
     variants: Optional[Iterable[str]] = None,
     *,
+    catalog: Optional[str] = None,
     jobs: Optional[int] = None,
     out: Optional[PathLike] = None,
     save_logs: bool = False,
     decision_timeout: float = 10.0,
 ) -> Dict[str, Any]:
-    """Run a command-line coordinator on every preset × variant over seeds.
+    """Run a command-line coordinator on every preset × variant of a
+    catalog over seeds.
 
     Defaults to every preset and every variant. With ``out``, each scenario's
-    results go to ``out/<preset>-<variant>/`` and the report to
+    results go to ``out/<preset>-<variant>/`` (on a catalog after 1.0,
+    ``out/<catalog>-<preset>-<variant>/``) and the report to
     ``out/suite.json``. Returns ``{"report": ..., "runs": [...]}``, where the
     report holds every scorecard and the coordinator's resilience.
     """
@@ -204,6 +228,7 @@ def suite(
     return _native.suite_process(
         argv,
         _seeds(seeds),
+        catalog,
         list(PRESETS if presets is None else presets),
         list(VARIANTS if variants is None else variants),
         jobs or 0,
@@ -219,16 +244,22 @@ def score(paths: Union[PathLike, Iterable[PathLike]]) -> Dict[str, Any]:
     ``paths`` are log files (``.jsonl`` or ``.jsonl.gz``), a bench's
     ``metrics.jsonl`` files, and directories, searched for logs. Returns
     ``{"scorecards": [...], "resilience": [...]}`` with one scorecard per
-    coordinator and scenario.
+    coordinator and scenario, and one resilience per coordinator and catalog.
     """
     if isinstance(paths, (str, os.PathLike)):
         paths = [paths]
     return _native.score([os.fspath(p) for p in paths])
 
 
-def scenario(seed: int = 0, preset: str = "small", variant: str = "nominal") -> Dict[str, Any]:
+def scenario(
+    seed: int = 0,
+    preset: str = "small",
+    variant: str = "nominal",
+    *,
+    catalog: Optional[str] = None,
+) -> Dict[str, Any]:
     """The ``hello`` message a coordinator gets for this scenario and seed:
     the protocol version, the simulator, the run id, the seed, and the
     ``scenario`` (site prior, crew, stations, depots, power, base station,
-    policy)."""
-    return _native.scenario(seed, preset, variant)
+    policy, constants)."""
+    return _native.scenario(seed, catalog, preset, variant)

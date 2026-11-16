@@ -77,13 +77,15 @@ While it serves, anything the coordinator prints goes to stderr, where it cannot
 
 | Function | Returns |
 |---|---|
-| `run(coordinator, seed=0, preset="small", variant="nominal", log_path=None, decision_timeout=10.0)` | The run record: run id, scenario, seed, coordinator, end reason, `reference_sols`, `speed`, `score`, and `metrics` (`run_end.metrics`), plus the report's `end_t`, `progress` and `lost_link_returns`. `log_path` saves the event log, gzipped if it ends in `.gz`. |
-| `bench(coordinator, seeds="1-50", preset="small", variant="nominal", *, jobs=None, out=None, save_logs=False, decision_timeout=10.0)` | `{"scorecard": ..., "runs": [...]}` for a seeded batch. |
-| `suite(coordinator, seeds="1-50", presets=None, variants=None, *, jobs=None, out=None, save_logs=False, decision_timeout=10.0)` | `{"report": ..., "runs": [...]}` across presets × variants (default: all), with resilience. |
+| `run(coordinator, seed=0, preset="small", variant="nominal", log_path=None, decision_timeout=10.0, *, catalog=None)` | The run record: run id, scenario, seed, coordinator, end reason, `reference_sols`, `speed`, `score`, and `metrics` (`run_end.metrics`), plus the report's `end_t`, `progress` and `lost_link_returns`. `log_path` saves the event log, gzipped if it ends in `.gz`. |
+| `bench(coordinator, seeds="1-50", preset="small", variant="nominal", *, catalog=None, jobs=None, out=None, save_logs=False, decision_timeout=10.0)` | `{"scorecard": ..., "runs": [...]}` for a seeded batch. |
+| `suite(coordinator, seeds="1-50", presets=None, variants=None, *, catalog=None, jobs=None, out=None, save_logs=False, decision_timeout=10.0)` | `{"report": ..., "runs": [...]}` across a catalog's presets × variants (default: all), with resilience. |
 | `score(paths)` | `{"scorecards": [...], "resilience": [...]}` from saved event logs and directories of them, and from a bench's `metrics.jsonl` named as a file. |
-| `scenario(seed=0, preset="small", variant="nominal")` | The `hello` message a coordinator gets for that run. |
+| `scenario(seed=0, preset="small", variant="nominal", *, catalog=None)` | The `hello` message a coordinator gets for that run. |
 
 Arguments:
+
+- **`catalog`**, a keyword of `run`, `bench`, `suite` and `scenario`, names the scenario catalog: one of `CATALOGS`. Left out, it is `DEFAULT_CATALOG`, the newest. Catalog `"1.0"` is the one the published v1.0 results are on, where a build takes hours; on `"1.1"` it takes weeks of simulated time.
 
 - **`seeds`** is a list such as `"1-50"` or `"1,4,10-20"`, an int, or an iterable of ints.
 - **`out`** writes `metrics.jsonl`, `scorecard.json` and, with `save_logs`, `logs/<run_id>.jsonl.gz`. A suite writes one directory per scenario plus `suite.json`.
@@ -103,7 +105,8 @@ When a coordinator fails, times out or breaks the protocol, `run()` raises `arca
 
 Constants:
 
-- `PRESETS` and `VARIANTS`: the scenario catalog's names.
+- `CATALOGS` and `DEFAULT_CATALOG`: the scenario catalogs, and the one a run is on when none is named.
+- `PRESETS` and `VARIANTS`: a catalog's presets and variants.
 - `STRESS_VARIANTS`: the variants resilience is measured against.
 - `PROTOCOL_VERSION`.
 - `SCORECARD_SCHEMA`: the JSON Schema of scorecards, run records and reports.
@@ -123,11 +126,11 @@ Scoring is described in [`docs/scoring.md`](../docs/scoring.md), and the presets
 - **Rescues:** it rescues disabled robots by field repair, a tow to the depot for service, or the mobile charger.
 - **Crews:** it picks robots by capability, so it runs on every preset.
 
-On Small it finishes the pad in about 1.8 sols, a speed of about 0.25.
+It was written for catalog 1.0, and runs on it unless told otherwise (`--catalog`). On catalog 1.0's Small it finishes the pad in about 1.8 sols, a speed of about 0.25. Catalog 1.1 asks more of a coordinator: [`docs/simulator.md`](../docs/simulator.md) §19 says what.
 
 ```sh
-python examples/builder.py --seed 3 --preset medium --variant dust_storm      # in process
-arcadiabench run --seed 3 -- python examples/builder.py --serve               # as a subprocess
+python examples/builder.py --seed 3 --preset medium --variant dust_storm               # in process
+arcadiabench run --catalog 1.0 --seed 3 -- python examples/builder.py --serve          # as a subprocess
 ```
 
 ## Tests

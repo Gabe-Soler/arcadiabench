@@ -12,6 +12,11 @@
 # the repository root. The runs go to a temporary directory that is removed
 # afterwards. Every run is deterministic and a batch's output does not depend
 # on --jobs, so the files come out byte for byte the same on any machine.
+#
+# The published files were written by ArcadiaBench 1.0.0 (tag v1.0.0) with
+# ArcadiaOS 1.0: check that tag out to get them byte for byte. A later
+# ArcadiaBench runs the same catalog 1.0 scenarios, named here explicitly, and
+# adds what its version adds to a scorecard.
 set -euo pipefail
 
 here=$(pwd)
@@ -34,7 +39,7 @@ trap 'rm -rf "$runs"' EXIT
 
 for c in arcadiaos baseline-greedy baseline-random baseline-fcfs; do
   if [ "$c" = arcadiaos ]; then coord=$os; else coord=$bin/$c; fi
-  "$bin/arcadiabench" suite --seeds 1-50 --out "$runs/$c" -- "$coord" </dev/null
+  "$bin/arcadiabench" suite --catalog 1.0 --seeds 1-50 --out "$runs/$c" -- "$coord" </dev/null
   mkdir -p "$out/scorecards/$c"
   for d in "$runs/$c"/*/; do
     cp "$d/scorecard.json" "$out/scorecards/$c/$(basename "$d").json"
