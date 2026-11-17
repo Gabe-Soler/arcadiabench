@@ -158,7 +158,7 @@ resilience = mean of resilience(preset) over the presets where it is known
 
 ## 5. Seeds, determinism and files
 
-- **Seeds.** Every scenario reproduces bit for bit from its seed, and every coordinator on a seed faces the same terrain, weather and Earth link. Leaderboard results use seeds 1–50, the default of `bench` and `suite`, and say which catalog they are on.
+- **Seeds.** Every scenario reproduces bit for bit from its seed, and every coordinator on a seed faces the same terrain, weather and Earth link. Published results use seeds 1–50, the default of `bench` and `suite`, and say which catalog they are on. The leaderboard runs every entry on those public seeds, and ranks a round on seeds computed from the commit that closes it ([`leaderboard.md`](leaderboard.md)).
 - **Determinism.** What a batch writes depends only on the coordinator and the seeds, never on `--jobs`: runs are independent and are written and aggregated in seed order. Saved logs are gzipped with a fixed header. A deterministic coordinator therefore gives byte-identical `metrics.jsonl`, `scorecard.json` and logs at any `--jobs`, and `tests/scoring.rs` checks this. The per-decision timeout is wall-clock, so keep `--jobs` at or below the number of CPUs.
 - **Files.** `arcadiabench bench` writes into its output directory:
   - `metrics.jsonl`: one run record per line, in seed order (`#/$defs/RunRecord`).

@@ -1,0 +1,10 @@
+{
+  "catalog": "1.1",
+  "simulator": "v1.1.0",
+  "public_seeds": "1-50",
+  "round_seeds": 50,
+  "jobs": 3,
+  "decision_timeout_s": 10,
+  "run_budget_s": 900,
+  "image_limit_mb": 1024
+}

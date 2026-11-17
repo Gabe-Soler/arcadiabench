@@ -1,0 +1,198 @@
+name: Leaderboard
+
+# Runs an entry for the leaderboard. Started by hand, by a maintainer, from
+# the Actions tab; docs/leaderboard.md has the rules.
+#
+# Submitted code is untrusted. No job both runs it and holds anything worth
+# stealing:
+#
+#   build    builds the entry's image from its pinned commit. No permissions.
+#   run      runs the image in the sandbox (leaderboard/tools/sandbox.sh): no
+#            network, nothing mounted, no permissions.
+#   publish  runs no submitted code. It pushes the image to the registry and
+#            pushes a branch with the entry's results for a maintainer to
+#            open as a pull request.
+#
+# The entry id is checked against a pattern before use, and everything the
+# entry file says reaches git and docker as environment variables, never as
+# text pasted into a command (site/tools/entry-fields.mjs).
+#
+# The results are committed under the name and address in the repository
+# variables LEADERBOARD_GIT_NAME and LEADERBOARD_GIT_EMAIL.
+on:
+  workflow_dispatch:
+    inputs:
+      entry:
+        description: "The entry to accept, as ID/VERSION (its directory under leaderboard/entries)"
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: leaderboard-${{ inputs.entry }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      id: ${{ steps.entry.outputs.id }}
+      version: ${{ steps.entry.outputs.version }}
+      dir: ${{ steps.entry.outputs.dir }}
+      image_name: ${{ steps.entry.outputs.image_name }}
+      image_tag: ${{ steps.entry.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Read the entry
+        id: entry
+        env:
+          ENTRY: ${{ inputs.entry }}
+        run: node site/tools/entry-fields.mjs "$ENTRY" | tee -a "$GITHUB_OUTPUT"
+      - name: Fetch the source at its pinned commit
+        env:
+          REPOSITORY: ${{ steps.entry.outputs.repository }}
+          COMMIT: ${{ steps.entry.outputs.commit }}
+        run: |
+          git init -q src
+          git -C src remote add origin "$REPOSITORY"
+          git -C src -c protocol.file.allow=never fetch -q --depth 1 --no-tags --no-recurse-submodules origin "$COMMIT"
+          git -C src checkout -q --detach FETCH_HEAD
+          test "$(git -C src rev-parse HEAD)" = "$COMMIT"
+      - name: Build the image
+        env:
+          DOCKERFILE: ${{ steps.entry.outputs.dockerfile }}
+        run: |
+          test -f "src/$DOCKERFILE"
+          timeout 45m docker build -f "src/$DOCKERFILE" -t entry:built src
+          docker save entry:built | gzip > image.tar.gz
+          limit=$(node -e 'console.log(require("./leaderboard/config.json").image_limit_mb)')
+          size=$(( $(stat -c %s image.tar.gz) / 1048576 ))
+          echo "image: $size MB compressed (limit $limit MB)"
+          test "$size" -le "$limit"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: image
+          path: image.tar.gz
+          retention-days: 1
+          compression-level: 0
+
+  run:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Which simulator
+        id: cfg
+        run: echo "simulator=$(node -e 'console.log(require("./leaderboard/config.json").simulator)')" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ steps.cfg.outputs.simulator }}
+          path: simulator
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - name: Build the simulator from its release tag
+        run: cargo build --release --locked --bin arcadiabench --manifest-path simulator/Cargo.toml
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: image
+      - name: Load the image
+        run: gunzip -c image.tar.gz | docker load
+      - name: Run the entry on the public seeds, twice
+        env:
+          DIR: ${{ needs.build.outputs.dir }}
+          ARCADIABENCH: simulator/target/release/arcadiabench
+        run: |
+          seeds=$(node -e 'console.log(require("./leaderboard/config.json").public_seeds)')
+          leaderboard/tools/run-entry.sh "$DIR/entry.json" entry:built results "$seeds" twice
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: results
+          path: results/
+          retention-days: 7
+
+  publish:
+    needs: [build, run]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      packages: write
+    env:
+      ID: ${{ needs.build.outputs.id }}
+      VERSION: ${{ needs.build.outputs.version }}
+      DIR: ${{ needs.build.outputs.dir }}
+      IMAGE_NAME: ${{ needs.build.outputs.image_name }}
+      IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+      GIT_NAME: ${{ vars.LEADERBOARD_GIT_NAME }}
+      GIT_EMAIL: ${{ vars.LEADERBOARD_GIT_EMAIL }}
+    steps:
+      - name: The results need an author
+        run: |
+          if [ -z "$GIT_NAME" ] || [ -z "$GIT_EMAIL" ]; then
+            echo "Set the repository variables LEADERBOARD_GIT_NAME and LEADERBOARD_GIT_EMAIL: the results are committed under them." >&2
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          path: artifacts
+      - name: Push the image to the registry
+        id: push
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          gunzip -c artifacts/image/image.tar.gz | docker load
+          image="ghcr.io/$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')/$IMAGE_NAME"
+          echo "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          docker tag entry:built "$image:$IMAGE_TAG"
+          docker push -q "$image:$IMAGE_TAG"
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$image:$IMAGE_TAG" | sed 's/.*@//')
+          echo "$digest" | grep -Eqx 'sha256:[0-9a-f]{64}'
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - name: Write the entry's results
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          mkdir -p "$DIR/public"
+          # Only the two files the leaderboard keeps, and only as JSON that
+          # parses: whatever else the run job uploaded is left behind.
+          for f in report.json runs.json; do
+            node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))) + "\n")' "artifacts/results/$f" > "$DIR/public/$f"
+          done
+          node -e '
+            const fs = require("fs"), path = process.argv[1] + "/entry.json";
+            const entry = JSON.parse(fs.readFileSync(path, "utf8"));
+            entry.image_digest = process.argv[2];
+            fs.writeFileSync(path, JSON.stringify(entry, null, 2) + "\n");' "$DIR" "$DIGEST"
+          node site/tools/build-board.mjs /tmp/board.json
+      - name: Push a branch with the results
+        env:
+          IMAGE: ${{ steps.push.outputs.image }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          branch="leaderboard/$ID-$VERSION"
+          git switch -q -c "$branch"
+          git add "$DIR"
+          git -c user.name="$GIT_NAME" -c user.email="$GIT_EMAIL" commit -q -m "Leaderboard: results of $ID $VERSION on the public seeds" \
+            -m "Image $IMAGE@$DIGEST, built from the entry's pinned commit and run in the sandbox on seeds 1-50, twice, with the same result both times."
+          git push -q --force origin "$branch"
+          {
+            echo "### $ID $VERSION"
+            echo "- Image: \`$IMAGE@$DIGEST\`"
+            echo "- Results are on the branch \`$branch\`. Open the pull request:"
+            echo "  $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/main...$branch"
+          } >> "$GITHUB_STEP_SUMMARY"
