@@ -1,0 +1,127 @@
+{
+  "scenario_id": "landing-pad-1.1-crew.2.1.1.10-nominal",
+  "catalog": "1.1",
+  "preset": null,
+  "crew": {
+    "scout": 2,
+    "excavator": 1,
+    "hauler": 1,
+    "compactor_sinterer": 10
+  },
+  "variant": "nominal",
+  "coordinator": {
+    "name": "baseline-greedy",
+    "version": "1.1.0"
+  },
+  "simulator": {
+    "name": "arcadiabench",
+    "version": "1.1.0"
+  },
+  "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50
+  ],
+  "reference_sols": 10.240393231100073,
+  "headline": 0.5707338053157196,
+  "completion": {
+    "runs": 50,
+    "completed": 50,
+    "success_rate": 1.0,
+    "mean_speed": 0.5707338053157196,
+    "mean_sols": 18.072376645451993,
+    "median_sols": 17.806142506336244,
+    "min_sols": 16.20831727400732,
+    "max_sols": 22.594116676992396,
+    "end_reasons": {
+      "goals_complete": 50,
+      "time_limit": 0,
+      "fleet_lost": 0,
+      "coordinator_error": 0,
+      "simulator_error": 0
+    }
+  },
+  "quality": {
+    "mean_cells_in_spec": 1.0,
+    "verified_rate": 1.0,
+    "berm_complete_rate": 1.0,
+    "mean_rms_error_m": 0.007340766539654176,
+    "max_abs_error_m": 0.02811100902590624,
+    "max_slope_deg": 1.998736158236003
+  },
+  "energy": {
+    "energy_per_pad_wh": 16718815.503680892,
+    "mean_robot_energy_wh": 16718815.503680892,
+    "mean_grid_energy_wh": 16266366.267747682,
+    "min_storage_fraction": 0.0,
+    "mean_min_storage_fraction": 0.0,
+    "mean_deficit_s": 639679.3839000001
+  },
+  "fleet": {
+    "mean_faults": 27.46,
+    "mean_robot_hours_lost": 13.116909722222218,
+    "mean_robots_lost": 0.0,
+    "robots_lost": 0
+  },
+  "autonomy": {
+    "mean_approval_requests": 0.0,
+    "mean_downlink_messages": 3.02,
+    "mean_notifications": 3.02,
+    "mean_status_reports": 0.0,
+    "mean_approval_wait_s": 0.0,
+    "mean_policy_violations": 0.0
+  },
+  "conditions": {
+    "mean_storm_s": 114762.51673999999,
+    "mean_blackout_s": 0.0,
+    "mean_outage_s": 11509.11698,
+    "mean_between_passes_s": 1384888.2369200003
+  }
+}

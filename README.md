@@ -4,7 +4,7 @@ ArcadiaBench: an open, seeded benchmark for coordinating robot crews building on
 
 ArcadiaBench is a fast, headless simulator of a construction site at Arcadia Planitia. Any team can plug in a coordinator and compare results. Coordinators connect through [arcadia-protocol](https://github.com/Gabe-Soler/arcadia-protocol), newline-delimited JSON over stdio, so they can be written in any language. [ArcadiaOS](https://github.com/Gabe-Soler/arcadiaos) is the reference coordinator.
 
-**Version 1.1.0, in development on `main`**, speaking arcadia-protocol 1.1.0. The latest release is 1.0.1 (`pip install arcadiabench`, tag `v1.0.1`), which speaks protocol 1.0.0; the two protocol versions do not work together, so use the release with a 1.0 coordinator such as ArcadiaOS 1.0. A coordinator builds a landing pad end to end while robots wear out, break down and get stuck, on a choice of power systems, with Earth minutes away behind a link that drops out, and authority rules that Earth enforces and updates. Crews come in three sizes, every scenario runs across seeds in parallel, and scorecards rank coordinators by success rate × speed. Scenarios come in two catalogs: 1.1, the default, on sourced rates where the pad takes weeks, and 1.0, where it takes hours. Three baseline coordinators ship with the benchmark, the [v1.0 results](results/v1.0/RESULTS.md) compare them with ArcadiaOS across the whole of catalog 1.0, a [replay viewer](viewer/README.md) turns any run into a shareable visual demo, and Python researchers can drive it all through the [`arcadiabench` package](python/README.md).
+**Version 1.1.0** (`pip install arcadiabench`, tag `v1.1.0`), speaking arcadia-protocol 1.1.0. Release 1.0.1 (tag `v1.0.1`) speaks protocol 1.0.0; the two protocol versions do not work together, so use it with a 1.0 coordinator such as ArcadiaOS 1.0. A coordinator builds a landing pad end to end while robots wear out, break down and get stuck, on a choice of power systems, with Earth minutes away behind a link that drops out, and authority rules that Earth enforces and updates. Crews come in three sizes, every scenario runs across seeds in parallel, and scorecards rank coordinators by success rate × speed. Scenarios come in two catalogs: 1.1, the default, on sourced rates where the pad takes weeks, and 1.0, where it takes hours. Three baseline coordinators ship with the benchmark, the [v1.1 results](results/v1.1/RESULTS.md) compare them with ArcadiaOS across the whole of catalog 1.1 (and the [v1.0 results](results/v1.0/RESULTS.md) across catalog 1.0), a [replay viewer](viewer/README.md) turns any run into a shareable visual demo, and Python researchers can drive it all through the [`arcadiabench` package](python/README.md).
 
 ## Quickstart
 
@@ -31,7 +31,7 @@ Each run prints a one-line summary, and `bench` prints its scorecard. To benchma
 ## What it simulates
 
 - **Scenario catalogs:** a scenario is a preset (the crew and its outpost) under a variant (what the run throws at it), in a catalog (the robots, crews and every parameter). There are three Standard track presets, Small, Medium and Large, and six variants: `nominal`, `dust_storm`, `conjunction`, `cascading_faults`, `solar_only` and `nuclear_heavy`. Every preset combines with every variant (see [Catalogs, presets and variants](#catalogs-presets-and-variants)).
-  - **Catalog 1.1,** the default (`landing-pad-1.1-<preset>-<variant>`): sourced, realistic rates. Crews of 6, 12 and 20; a pad that takes 18 to 55 sols; an Earth link that works in pass windows; answers from Earth in hours; a 100-sol limit. It is being calibrated on `main` and is not final until 1.1.0 is released.
+  - **Catalog 1.1,** the default (`landing-pad-1.1-<preset>-<variant>`): sourced, realistic rates. Crews of 6, 12 and 20; a pad that takes 18 to 55 sols; an Earth link that works in pass windows; answers from Earth in hours; a 100-sol limit. It is final as of 1.1.0: like catalog 1.0, it does not change again.
   - **Catalog 1.0** (`--catalog 1.0`, `landing-pad-<preset>-<variant>`): the catalog of the 1.0 release and its published results. Crews of 4, 10 and 20; a pad that takes hours; a continuous link; a 60-sol limit. It is frozen.
 - **The site:** a seeded 60 × 60 m site (1 m cells) on a gently tilted plain, with variable regolith and a sparse boulder field. The goal is a 20 × 20 m pad with a 12 m blast berm. Crews are defined purely by capabilities and work from charge stations, depots and a comms base station. The coordinator starts with noisy orbital elevation data; scans reveal the ground truth, with sensor noise.
 - **Wear and faults:** every robot carries hidden wear on six components (wheels, drive motor, joints, tool, sensors, battery).
@@ -197,18 +197,21 @@ Priority order is rescans and surveys, then verification scans, then the pad pip
 
 ## Results
 
-[`results/v1.0/RESULTS.md`](results/v1.0/RESULTS.md) has the benchmark results of ArcadiaBench 1.0, on catalog 1.0: ArcadiaOS 1.0 and the three baselines on all 18 scenarios over seeds 1–50, 3,600 runs, with the headline table, every scorecard, resilience and the scripts that reproduce them byte for byte. In short, ArcadiaOS finishes the pad 15% faster than greedy on the nominal build and has the best headline in every scenario.
+[`results/v1.1/RESULTS.md`](results/v1.1/RESULTS.md) has the benchmark results of ArcadiaBench 1.1, on catalog 1.1: ArcadiaOS 1.1 and the three baselines on all 18 scenarios over seeds 1–50, 3,600 runs, with the headline table, every scorecard, resilience, the fleet design track and the scripts that reproduce them byte for byte. In short, ArcadiaOS finishes the pad 11% faster than greedy on the nominal build and has the best headline in every scenario.
 
-| Nominal headline, catalog 1.0 | Small (4 robots) | Medium (10) | Large (20) |
+| Nominal headline, catalog 1.1 | Small (6 robots) | Medium (12) | Large (20) |
 |---|---|---|---|
-| ArcadiaOS | **0.559** | **0.753** | **0.710** |
-| greedy | 0.501 | 0.681 | 0.585 |
-| random | 0.499 | 0.677 | 0.587 |
-| first come, first served | 0.385 | 0.419 | 0.362 |
+| ArcadiaOS | **0.764** | **0.764** | **0.692** |
+| greedy | 0.690 | 0.683 | 0.627 |
+| random | 0.673 | 0.678 | 0.628 |
+| first come, first served | 0.660 | 0.659 | 0.606 |
 
-Results on catalog 1.1 will be published with the 1.1.0 release, once ArcadiaOS has run on it. With the baselines alone on seeds 1–50, Small takes about 55 sols, Medium 28 and Large 18, and their nominal headlines are 0.61 to 0.69.
+- **The fleet design track.** ArcadiaOS designs its own crew for the 10 t budget (2 scouts, 1 excavator, 1 hauler, 10 compactor-sinterers) and scores 0.600 over the six variants; the greedy baseline with the same crew scores 0.546.
+- **What catalog 1.1 does not do.** Three of its design criteria are not met, and it is released with them stated: stress makes almost no run fail (1 of 3,600), the two-week conjunction costs under 1%, and random matches greedy. [The results](results/v1.1/RESULTS.md#what-the-catalog-does-not-do) say more. They are for the next catalog.
 
-[`docs/demos.md`](docs/demos.md) describes the four demo replays (a nominal build, a dust storm, a conjunction blackout and cascading faults) and how to open them in the replay viewer. `scripts/results.sh` and `scripts/demos.sh` regenerate the results and the replays.
+[`results/v1.0/RESULTS.md`](results/v1.0/RESULTS.md) has the results of ArcadiaBench 1.0 on catalog 1.0, where a build takes hours: ArcadiaOS 1.0 finishes the pad 15% faster than greedy on the nominal build and has the best headline in every scenario (0.559, 0.753 and 0.710 against 0.501, 0.681 and 0.585). The two sets are not comparable.
+
+[`docs/demos.md`](docs/demos.md) describes the demo replays of both (a nominal build, a dust storm, a conjunction blackout, cascading faults, and on catalog 1.1 a build with the crew ArcadiaOS designs) and how to open them in the replay viewer. `scripts/results.sh` and `scripts/demos.sh` regenerate the results and the replays.
 
 ## Replay viewer
 
@@ -216,7 +219,7 @@ Results on catalog 1.1 will be published with the 1.1.0 release, once ArcadiaOS 
 
 ```sh
 python3 -m http.server 8000
-# then open http://localhost:8000/viewer/?log=../results/v1.0/replays/landing-pad-large-nominal-1.jsonl.gz
+# then open http://localhost:8000/viewer/?log=../results/v1.1/replays/landing-pad-1.1-medium-nominal-1.jsonl.gz
 ```
 
 Any log saved with `--log`, or with `--save-logs` in a batch, opens the same way, or from the page's **Open log** button. The **Viewer Pages** workflow publishes the viewer and the results to GitHub Pages whenever either changes on `main`.
@@ -251,7 +254,7 @@ print(batch["scorecard"]["headline"])
 
 - [`docs/simulator.md`](docs/simulator.md): every parameter, the scenario catalog, and the functional forms behind the interface.
 - [`docs/scoring.md`](docs/scoring.md): every score, the scorecard and resilience, and why.
-- [`docs/demos.md`](docs/demos.md): the four demo replays.
+- [`docs/demos.md`](docs/demos.md): the demo replays.
 - [`viewer/README.md`](viewer/README.md) and [`python/README.md`](python/README.md): the replay viewer and the Python package.
 - [arcadia-protocol](https://github.com/Gabe-Soler/arcadia-protocol/tree/v1.1.0): the message schemas and the normative semantics.
 - [`CHANGELOG.md`](CHANGELOG.md): what each release contains.

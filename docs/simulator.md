@@ -39,7 +39,7 @@ A scenario is a **preset** (the crew and its outpost) combined with a **variant*
 **Catalogs.** The presets and variants belong to a catalog: a fixed set of robot designs, crews, outposts and parameters. A catalog never changes once it is released, so results on it stay comparable, and a harder one is added beside it.
 
 - **Catalog 1.0** is the one ArcadiaBench 1.0 shipped with, and the one its published results are on. Sections 1 to 18 describe it. Its ids are `landing-pad-<preset>-<variant>`, as published. It is frozen: `tests/regression.rs` pins its worlds and runs.
-- **Catalog 1.1** is the default, and the harder one, built on sourced rates: crews of 6, 12 and 20, a pad that takes weeks, an Earth link in pass windows and a 100-sol limit. §19 gives its values and their sources. Its ids are `landing-pad-1.1-<preset>-<variant>`. It is being calibrated on `main` and is not final until ArcadiaBench 1.1.0 is released.
+- **Catalog 1.1** is the default, and the harder one, built on sourced rates: crews of 6, 12 and 20, a pad that takes weeks, an Earth link in pass windows and a 100-sol limit. §19 gives its values and their sources. Its ids are `landing-pad-1.1-<preset>-<variant>`. It is final as of ArcadiaBench 1.1.0.
 - **Choosing one:** `--catalog 1.0` or `--catalog 1.1` on `run`, `bench` and `suite`, and `catalog=` in Python. Without it a run is on catalog 1.1. In Rust, `Params::default()` and the constructors named after a variant stay catalog 1.0's.
 
 Every scenario has the same site, the same landing-pad goal and the same base station (§15), and a seed gives the same terrain, weather and Earth link in every preset.
@@ -534,7 +534,7 @@ Wear-driven faults are rare in short runs and dominate longer ones as wear build
 
 ## 19. Catalog 1.1
 
-Catalog 1.1 keeps the site, the goal, the four robot designs and every rule of the simulator. It changes numbers: where a published value exists it is used, and the rest are calibrated around it. The result is a pad that takes weeks, on which night, storms, power, charging, wear and Earth's hours-long answers all fall inside one build. Sections 2 to 18 describe catalog 1.0; this section lists everything catalog 1.1 changes. A parameter not listed here keeps catalog 1.0's value. The catalog is not final until ArcadiaBench 1.1.0 is released.
+Catalog 1.1 keeps the site, the goal, the four robot designs and every rule of the simulator. It changes numbers: where a published value exists it is used, and the rest are calibrated around it. The result is a pad that takes weeks, on which night, storms, power, charging, wear and Earth's hours-long answers all fall inside one build. Sections 2 to 18 describe catalog 1.0; this section lists everything catalog 1.1 changes. A parameter not listed here keeps catalog 1.0's value. The catalog is final as of ArcadiaBench 1.1.0. [`results/v1.1/RESULTS.md`](../results/v1.1/RESULTS.md) says what it does and does not tell apart.
 
 **Basis** is the source's short name (the list is at the end of this section) or *calibrated*, meaning no meaningful published value exists and the number was chosen so that the catalog behaves as intended.
 
