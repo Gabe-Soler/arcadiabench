@@ -32,6 +32,9 @@ Version 1.1.0, in development. It speaks arcadia-protocol 1.1.0, which does not 
 
 ### Added
 
+- **`arcadiabench scenario` and `arcadiabench crew`.** Two commands for designing a crew, which run nothing.
+  - `scenario` prints the `hello` message a coordinator would get for a scenario and seed, as one line of JSON, as `scenario()` returns it in Python. With `--goal`, the goal Earth sends at the start follows as a second line.
+  - `crew` says whether each crew file may enter the fleet design track on `--catalog`: its robots, and its mass against the budget. It exits with 1 if any may not.
 - **Scenario catalogs.** A scenario now belongs to a catalog: the robot designs, the crews and outposts of the presets, and the parameters of every variant. A catalog never changes once it is released, so results on it stay comparable. The default is now catalog 1.1; `--catalog 1.0` (or `catalog="1.0"`) gives catalog 1.0, whose scenarios, ids and results are unchanged.
   - **Choosing one:** `--catalog 1.0|1.1` on `run`, `bench` and `suite`; `catalog=` in Python, with `CATALOGS` and `DEFAULT_CATALOG`; `Params::scenario(catalog, preset, variant)` in Rust.
   - **Scoring:** run records and scorecards name their `catalog`, and resilience is worked out for each coordinator on each catalog, so headlines are never compared across catalogs. Files written by 1.0 leave the field out and are read as catalog 1.0's.

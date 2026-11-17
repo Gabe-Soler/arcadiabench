@@ -669,3 +669,4 @@ On the Standard track a preset gives the crew. On the fleet design track the coo
 - **Everything else** is the variant's, exactly as a preset meets it: the site, the goal, the power plant, the policy, the constants, and the seeded weather, start time and Earth link. `tests/fleet.rs` checks that an idle crew of its own meets the same storm as the Small preset on the same seed.
 - **The name** is the catalog's id with `crew.<sc>.<ex>.<hl>.<cp>` where the preset would be: `landing-pad-1.1-crew.1.2.1.6-dust_storm`, or `landing-pad-crew.1.2.1.6-dust_storm` on catalog 1.0. A suite writes it to `1.1-crew.1.2.1.6-dust_storm/`.
 - **Scoring** uses one reference for every crew ([`scoring.md`](scoring.md) §1), and each crew has its own resilience (§4 there).
+- **Two commands for designers**, which run nothing: `arcadiabench scenario --goal` prints the `hello` a coordinator would get and the goal, and `arcadiabench crew FILE` checks a crew file against the two rules.
