@@ -81,6 +81,15 @@ jobs:
             console.log("24 scorecards, 4 nominal scenarios");'
           test -z "$(docker ps -q --filter label=arcadia-run)"
 
+      - name: A baseline built from its own Dockerfile gives the same runs
+        run: |
+          # As the runner builds an entry: with whatever compiler the
+          # Dockerfile brings, not this job's.
+          docker build -q -f leaderboard/tools/dockerfiles/baseline-greedy.Dockerfile -t entry-built .
+          $B suite --catalog 1.1 --seeds 1-2 --jobs 3 --out built -- leaderboard/tools/sandbox.sh entry-built >/dev/null
+          diff -r direct built
+          echo "36 runs: byte for byte the same"
+
       - name: A coordinator that hangs is killed, and its container with it
         run: |
           if ARCADIA_RUN_BUDGET_S=20 $B run --catalog 1.1 --decision-timeout 3 -- leaderboard/tools/sandbox.sh entry-hang; then
