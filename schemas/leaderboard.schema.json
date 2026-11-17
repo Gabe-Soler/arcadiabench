@@ -1,0 +1,405 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Gabe-Soler/arcadiabench/main/schemas/leaderboard.schema.json",
+  "title": "ArcadiaBench leaderboard",
+  "description": "leaderboard/board.json: what the front page draws. It is built from the entries by site/tools/build-board.mjs when the site is deployed, and is not kept in the repository.",
+  "type": "object",
+  "properties": {
+    "catalog": {
+      "type": "string"
+    },
+    "basis": {
+      "description": "The runs the board ranks on: the public seeds, or a round.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "label"
+      ],
+      "additionalProperties": false
+    },
+    "tie_z": {
+      "description": "How many standard errors a paired difference has to be from zero for two entries to be told apart.",
+      "type": "number"
+    },
+    "tracks": {
+      "type": "object",
+      "properties": {
+        "standard": {
+          "type": "object",
+          "properties": {
+            "scenarios": {
+              "type": "integer"
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/StandardRow"
+              }
+            }
+          },
+          "required": [
+            "scenarios",
+            "rows"
+          ],
+          "additionalProperties": false
+        },
+        "fleet": {
+          "type": "object",
+          "properties": {
+            "scenarios": {
+              "type": "integer"
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/FleetRow"
+              }
+            }
+          },
+          "required": [
+            "scenarios",
+            "rows"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "standard",
+        "fleet"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "catalog",
+    "basis",
+    "tie_z",
+    "tracks"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "GridRow": {
+      "type": "object",
+      "properties": {
+        "preset": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cells": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "variant": {
+                "type": "string"
+              },
+              "headline": {
+                "type": "number"
+              },
+              "success_rate": {
+                "type": "number"
+              },
+              "mean_sols": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "variant",
+              "headline",
+              "success_rate",
+              "mean_sols"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "preset",
+        "cells"
+      ],
+      "additionalProperties": false
+    },
+    "StandardRow": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "authors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "licence": {
+          "type": "string"
+        },
+        "baseline": {
+          "type": "boolean"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "rank": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tied": {
+          "type": "boolean"
+        },
+        "headline": {
+          "type": "number"
+        },
+        "resilience": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "completed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "runs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "grid": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/GridRow"
+          }
+        },
+        "links": {
+          "type": "object",
+          "properties": {
+            "source": {
+              "type": "string"
+            },
+            "scorecards": {
+              "type": "string"
+            },
+            "replay": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "source",
+            "scorecards",
+            "replay"
+          ],
+          "additionalProperties": false
+        },
+        "presets": {
+          "type": "object",
+          "properties": {
+            "small": {
+              "type": "number"
+            },
+            "medium": {
+              "type": "number"
+            },
+            "large": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "small",
+            "medium",
+            "large"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "name",
+        "authors",
+        "licence",
+        "baseline",
+        "summary",
+        "rank",
+        "tied",
+        "headline",
+        "resilience",
+        "completed",
+        "runs",
+        "grid",
+        "links",
+        "presets"
+      ],
+      "additionalProperties": false
+    },
+    "FleetRow": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "authors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "licence": {
+          "type": "string"
+        },
+        "baseline": {
+          "type": "boolean"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "rank": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tied": {
+          "type": "boolean"
+        },
+        "headline": {
+          "type": "number"
+        },
+        "resilience": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "completed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "runs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "grid": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/GridRow"
+          }
+        },
+        "links": {
+          "type": "object",
+          "properties": {
+            "source": {
+              "type": "string"
+            },
+            "scorecards": {
+              "type": "string"
+            },
+            "replay": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "source",
+            "scorecards",
+            "replay"
+          ],
+          "additionalProperties": false
+        },
+        "crew": {
+          "type": "object",
+          "properties": {
+            "scout": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "excavator": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "hauler": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "compactor_sinterer": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            }
+          },
+          "required": [
+            "scout",
+            "excavator",
+            "hauler",
+            "compactor_sinterer"
+          ],
+          "additionalProperties": false
+        },
+        "mass_kg": {
+          "type": "number"
+        },
+        "designed_by": {
+          "type": "string"
+        },
+        "reference_sols": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "name",
+        "authors",
+        "licence",
+        "baseline",
+        "summary",
+        "rank",
+        "tied",
+        "headline",
+        "resilience",
+        "completed",
+        "runs",
+        "grid",
+        "links",
+        "crew",
+        "mass_kg",
+        "designed_by",
+        "reference_sols"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

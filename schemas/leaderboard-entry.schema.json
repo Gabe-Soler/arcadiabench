@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Gabe-Soler/arcadiabench/main/schemas/leaderboard-entry.schema.json",
+  "title": "ArcadiaBench leaderboard entry",
+  "description": "A coordinator entered on the leaderboard: leaderboard/entries/<id>/<version>/entry.json. An entry does not change once it is accepted; a new version is a new entry. Everything here is written by the entrant and is treated as untrusted text: the patterns below are what the leaderboard's tools accept.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "description": "The entry's id, and its directory's name.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,39}$"
+    },
+    "version": {
+      "description": "The coordinator's version, and the name of the directory under the id.",
+      "type": "string",
+      "pattern": "^[0-9A-Za-z][0-9A-Za-z.+-]{0,31}$"
+    },
+    "name": {
+      "description": "The name shown on the board.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 60
+    },
+    "authors": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 60
+      }
+    },
+    "licence": {
+      "description": "The SPDX identifier of the source's licence.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9.+-]{1,40}$"
+    },
+    "baseline": {
+      "description": "True for the coordinators that ship with ArcadiaBench.",
+      "type": "boolean"
+    },
+    "summary": {
+      "description": "One or two sentences on how it works.",
+      "type": "string",
+      "maxLength": 240
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "repository": {
+          "description": "The public repository the coordinator is built from.",
+          "type": "string",
+          "pattern": "^https://github\\.com/[A-Za-z0-9_.-]{1,60}/[A-Za-z0-9_.-]{1,100}$"
+        },
+        "commit": {
+          "description": "The commit it is built from: a full hash, never a branch or a tag.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      },
+      "required": [
+        "repository",
+        "commit"
+      ],
+      "additionalProperties": false
+    },
+    "image_digest": {
+      "description": "The digest of the image built from that commit, written by the leaderboard's runner when the entry is accepted.",
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "tracks": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "standard",
+          "fleet"
+        ]
+      }
+    },
+    "fleet": {
+      "description": "The fleet design track: the crew the entry brings.",
+      "type": "object",
+      "properties": {
+        "crew": {
+          "type": "object",
+          "properties": {
+            "scout": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "excavator": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "hauler": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "compactor_sinterer": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            }
+          },
+          "required": [
+            "scout",
+            "excavator",
+            "hauler",
+            "compactor_sinterer"
+          ],
+          "additionalProperties": false
+        },
+        "mass_kg": {
+          "description": "The crew's mass on the board's catalog.",
+          "type": "number",
+          "minimum": 0
+        },
+        "designed_by": {
+          "description": "The id of the entry whose coordinator designed the crew, when it is not this one.",
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{1,39}$"
+        }
+      },
+      "required": [
+        "crew",
+        "mass_kg"
+      ],
+      "additionalProperties": false
+    },
+    "replays": {
+      "description": "A published replay of the entry for each track, as a path in this repository.",
+      "type": "object",
+      "properties": {
+        "standard": {
+          "$ref": "#/$defs/Replay"
+        },
+        "fleet": {
+          "$ref": "#/$defs/Replay"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "id",
+    "version",
+    "name",
+    "authors",
+    "licence",
+    "baseline",
+    "source",
+    "tracks"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Replay": {
+      "type": "string",
+      "pattern": "^results/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*\\.jsonl\\.gz$"
+    }
+  }
+}

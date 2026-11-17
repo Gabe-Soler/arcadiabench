@@ -13,3 +13,4 @@ jobs:
         with:
           node-version: 24
       - run: node --test viewer/test/
+      - run: node --test site/test/

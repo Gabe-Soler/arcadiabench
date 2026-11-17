@@ -213,6 +213,17 @@ Priority order is rescans and surveys, then verification scans, then the pad pip
 
 [`docs/demos.md`](docs/demos.md) describes the demo replays of both (a nominal build, a dust storm, a conjunction blackout, cascading faults, and on catalog 1.1 a build with the crew ArcadiaOS designs) and how to open them in the replay viewer. `scripts/results.sh` and `scripts/demos.sh` regenerate the results and the replays.
 
+## Leaderboard
+
+The [front page](https://gabe-soler.github.io/arcadiabench/) ranks coordinators on catalog 1.1 by the nominal headline, with resilience and every scenario beside it. Every score on it was run by the project. Today it shows the published v1.1 results; [`docs/leaderboard.md`](docs/leaderboard.md) says what an entry is, how it is run, and how rounds on held-out seeds will work.
+
+The page is `index.html` with its assets in [`site/`](site/), and the entries it draws are in [`leaderboard/`](leaderboard/README.md). To preview it, from the repository root:
+
+```sh
+node site/tools/build-board.mjs
+python3 -m http.server 8000     # then open http://localhost:8000/
+```
+
 ## Replay viewer
 
 [`viewer/`](viewer/README.md) is a static web page that replays a run from its event log: the robots at work, the pad taking shape, site power through dust storms, and the Earth link through outages and blackouts. It has no build step and no dependencies. From the repository root:
@@ -222,7 +233,7 @@ python3 -m http.server 8000
 # then open http://localhost:8000/viewer/?log=../results/v1.1/replays/landing-pad-1.1-medium-nominal-1.jsonl.gz
 ```
 
-Any log saved with `--log`, or with `--save-logs` in a batch, opens the same way, or from the page's **Open log** button. The **Viewer Pages** workflow publishes the viewer and the results to GitHub Pages whenever either changes on `main`.
+Any log saved with `--log`, or with `--save-logs` in a batch, opens the same way, or from the page's **Open log** button. The **Viewer Pages** workflow publishes the front page, the viewer, the results and the leaderboard's entries to GitHub Pages whenever any of them changes on `main`.
 
 ## Python
 

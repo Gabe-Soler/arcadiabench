@@ -14,3 +14,7 @@ target/
 __pycache__/
 .pytest_cache/
 python/dist/
+
+# The leaderboard's board: built from leaderboard/entries when the site is
+# deployed, or by `node site/tools/build-board.mjs` for a local preview.
+/leaderboard/board.json
