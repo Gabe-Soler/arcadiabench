@@ -1,0 +1,121 @@
+{
+  "scenario_id": "landing-pad-1.1-small-nominal",
+  "catalog": "1.1",
+  "preset": "small",
+  "variant": "nominal",
+  "coordinator": {
+    "name": "baseline-fcfs",
+    "version": "1.1.0"
+  },
+  "simulator": {
+    "name": "arcadiabench",
+    "version": "1.1.0"
+  },
+  "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50
+  ],
+  "reference_sols": 37.5481085140336,
+  "headline": 0.6596759926611172,
+  "completion": {
+    "runs": 50,
+    "completed": 50,
+    "success_rate": 1.0,
+    "mean_speed": 0.6596759926611172,
+    "mean_sols": 57.320928685778654,
+    "median_sols": 56.55456126161644,
+    "min_sols": 50.240766398197685,
+    "max_sols": 79.8489191326387,
+    "end_reasons": {
+      "goals_complete": 50,
+      "time_limit": 0,
+      "fleet_lost": 0,
+      "coordinator_error": 0,
+      "simulator_error": 0
+    }
+  },
+  "quality": {
+    "mean_cells_in_spec": 1.0,
+    "verified_rate": 1.0,
+    "berm_complete_rate": 1.0,
+    "mean_rms_error_m": 0.00744751717889485,
+    "max_abs_error_m": 0.027661688098305603,
+    "max_slope_deg": 1.9875100836042048
+  },
+  "energy": {
+    "energy_per_pad_wh": 16875973.1596858,
+    "mean_robot_energy_wh": 16875973.1596858,
+    "mean_grid_energy_wh": 16718640.760530867,
+    "min_storage_fraction": 0.6,
+    "mean_min_storage_fraction": 0.6000000000000005,
+    "mean_deficit_s": 0.0
+  },
+  "fleet": {
+    "mean_faults": 28.2,
+    "mean_robot_hours_lost": 25.478404311111113,
+    "mean_robots_lost": 0.0,
+    "robots_lost": 0
+  },
+  "autonomy": {
+    "mean_approval_requests": 0.0,
+    "mean_downlink_messages": 3.5,
+    "mean_notifications": 3.5,
+    "mean_status_reports": 0.0,
+    "mean_approval_wait_s": 0.0,
+    "mean_policy_violations": 0.0
+  },
+  "conditions": {
+    "mean_storm_s": 507454.16251999995,
+    "mean_blackout_s": 0.0,
+    "mean_outage_s": 38657.591920000006,
+    "mean_between_passes_s": 4387623.686080001
+  }
+}
