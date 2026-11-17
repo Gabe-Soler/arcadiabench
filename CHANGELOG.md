@@ -4,7 +4,9 @@ All notable changes to ArcadiaBench. Versions follow semver.
 
 ## [Unreleased]
 
-Version 1.1.0, in development. It speaks arcadia-protocol 1.1.0, which does not work with protocol 1.0: use ArcadiaBench 1.0.1 with a 1.0 coordinator.
+## [1.1.0] - 2026-11-16
+
+It speaks arcadia-protocol 1.1.0, which does not work with protocol 1.0: use ArcadiaBench 1.0.1 with a 1.0 coordinator. Catalog 1.1 becomes the default and is final from this release. [`results/v1.1/RESULTS.md`](results/v1.1/RESULTS.md) has the results on it.
 
 ### Fixed
 
@@ -32,6 +34,9 @@ Version 1.1.0, in development. It speaks arcadia-protocol 1.1.0, which does not 
 
 ### Added
 
+- **The v1.1 results** (`results/v1.1/`): ArcadiaOS 1.1 and the three baselines on every scenario of catalog 1.1 over seeds 1–50, and the fleet design track with the crew ArcadiaOS designs. ArcadiaOS has the best headline in all 18 scenarios, 9 to 15% above greedy's. The document also states what the catalog does not do: stress makes 1 run of 3,600 fail, the conjunction costs under 1%, and random matches greedy.
+  - Five demo replays on catalog 1.1 (`results/v1.1/replays/`, `docs/demos.md`).
+  - `scripts/results.sh` and `scripts/demos.sh` take the results version, `v1.1` by default or `v1.0`.
 - **`arcadiabench scenario` and `arcadiabench crew`.** Two commands for designing a crew, which run nothing.
   - `scenario` prints the `hello` message a coordinator would get for a scenario and seed, as one line of JSON, as `scenario()` returns it in Python. With `--goal`, the goal Earth sends at the start follows as a second line.
   - `crew` says whether each crew file may enter the fleet design track on `--catalog`: its robots, and its mass against the budget. It exits with 1 if any may not.
@@ -42,7 +47,7 @@ Version 1.1.0, in development. It speaks arcadia-protocol 1.1.0, which does not 
   - **Parameters:** the time limit and the wait for a level-3 answer are now parameters (`time_limit_sols`, `level3_max_wait_s`). Catalog 1.0 keeps 60 sols and one hour.
   - **Scripts and examples:** `scripts/results.sh`, `scripts/demos.sh` and `python/examples/builder.py` name catalog 1.0, which they were written for.
   - **Rust:** `Params::default()` and the constructors named after a variant stay catalog 1.0's.
-- **Catalog 1.1** (`landing-pad-1.1-<preset>-<variant>`): the harder catalog, on sourced rates. It is not final until 1.1.0 is released; `docs/simulator.md` §19 lists every value it changes and where each comes from.
+- **Catalog 1.1** (`landing-pad-1.1-<preset>-<variant>`): the harder catalog, on sourced rates. `docs/simulator.md` §19 lists every value it changes and where each comes from.
   - **Robots:** the same four designs at published rates. A square metre takes about 7 hours and 37 kWh to sinter, so the pad takes weeks and the compactor-sinterer carries a 100 kWh pack.
   - **Crews:** 6, 12 and 20 robots, half of them sinterers, with charge stations at 20 kW a slot.
   - **Power:** a 40 kWe fission unit in the hybrid plant, 100 kW of arrays in `solar_only` and 80 kWe in `nuclear_heavy`.
