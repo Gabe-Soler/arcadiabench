@@ -1,0 +1,33 @@
+{
+  "id": "arcadiaos",
+  "version": "1.1.0",
+  "name": "ArcadiaOS",
+  "authors": [
+    "Gabe-Soler"
+  ],
+  "licence": "MIT",
+  "baseline": false,
+  "summary": "A capacity plan by linear program, an auction for dispatch, cells measured before they are sintered, and wear read from what each robot shows.",
+  "source": {
+    "repository": "https://github.com/Gabe-Soler/arcadiaos",
+    "commit": "c511ce6355b3a81e93c0e07399cae8e233b49e40"
+  },
+  "tracks": [
+    "standard",
+    "fleet"
+  ],
+  "fleet": {
+    "crew": {
+      "scout": 2,
+      "excavator": 1,
+      "hauler": 1,
+      "compactor_sinterer": 10
+    },
+    "mass_kg": 9900,
+    "designed_by": "arcadiaos"
+  },
+  "replays": {
+    "standard": "results/v1.1/replays/landing-pad-1.1-medium-nominal-1.jsonl.gz",
+    "fleet": "results/v1.1/replays/landing-pad-1.1-crew.2.1.1.10-nominal-1.jsonl.gz"
+  }
+}

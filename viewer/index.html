@@ -13,6 +13,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <!-- Loaded without blocking, so the viewer starts offline too (on system fonts). -->
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&amp;family=Manrope:wght@300;400;500&amp;display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -144,13 +145,13 @@
 
 <div class="overlay welcome" id="welcome">
   <nav class="welcome-nav"><div class="wrap">
-    <div class="brand"><svg aria-hidden="true"><use href="#i-mark"/></svg>ArcadiaBench <span class="brand-sub">replay</span></div>
-    <a class="btn" href="https://github.com/Gabe-Soler/arcadiabench">GitHub</a>
+    <a class="brand" href="../"><svg aria-hidden="true"><use href="#i-mark"/></svg>ArcadiaBench <span class="brand-sub">replay</span></a>
+    <div class="btnrow-nav"><a class="btn" href="../#leaderboard">Leaderboard</a><a class="btn" href="https://github.com/Gabe-Soler/arcadiabench">GitHub</a></div>
   </div></nav>
 
   <header class="hero"><div class="wrap">
-    <h1 class="h1">Watch a crew build the pad.</h1>
-    <p class="hero-sub">Top-down replays of ArcadiaBench event logs: robots at work, the landing pad taking shape, site power through dust storms, and the Earth link through blackouts. Nothing is uploaded.</p>
+    <h1 class="h1">Replay a build, robot by robot.</h1>
+    <p class="hero-sub">Open an ArcadiaBench event log and watch the crew at work: the landing pad taking shape, site power through dust storms, and the Earth link through blackouts. Nothing is uploaded.</p>
     <div class="btnrow">
       <button type="button" class="btn primary" id="welcome-open">Choose a log file</button>
       <a class="btn" href="?log=samples/arcadiaos-conjunction-seed13.jsonl.gz&amp;t=68300">Open a sample</a>
@@ -164,7 +165,9 @@
       <div class="drop-title">Drop an event log here.</div>
       <div class="drop-meta">.jsonl or .jsonl.gz, as written by <code>arcadiabench run --log FILE</code></div>
     </div>
-  </div></header>
+  </div>
+  <div class="hero-media" role="img" aria-label="NASA's Perseverance rover on Mars, with the Ingenuity helicopter on the ground behind it."></div>
+  </header>
 
   <section class="sec" id="samples"><div class="wrap">
     <div class="headrow"><h2 class="h2">Samples.</h2><span class="tag">4 replays · one click each</span></div>
@@ -194,7 +197,7 @@
 
   <footer class="foot"><div class="wrap"><div class="foot-inner">
     <div>Add <code>?log=URL</code> to the address to open a log directly, and <code>&amp;t=SECONDS</code> to start at a moment.</div>
-    <div>ArcadiaBench · replay viewer</div>
+    <div>ArcadiaBench · replay viewer · Photograph: NASA/JPL-Caltech/MSSS</div>
   </div></div></footer>
 </div>
 

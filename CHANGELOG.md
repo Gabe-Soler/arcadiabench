@@ -4,6 +4,17 @@ All notable changes to ArcadiaBench. Versions follow semver.
 
 ## [Unreleased]
 
+### Added
+
+- **A front page with a leaderboard** (`index.html`, `site/`). The site's root was a redirect to the replay viewer; it is now a page about the benchmark.
+  - **The leaderboard** ranks coordinators on catalog 1.1 by the nominal headline, averaged over the three outposts, with resilience, runs finished and every scenario beside it, and a second board for the fleet design track. Entries that the same runs cannot tell apart share a rank. It shows the published v1.1 results until the first round on held-out seeds has run.
+  - **Entries** are files in `leaderboard/entries/<id>/<version>/`, checked against `schemas/leaderboard-entry.schema.json`. The board the page reads is built from them when the site is deployed (`site/tools/build-board.mjs`, `schemas/leaderboard.schema.json`). `docs/leaderboard.md` has the rules.
+  - **A photograph in the hero:** NASA's Perseverance rover with the Ingenuity helicopter (NASA/JPL-Caltech/MSSS), credited in the footer and in `site/img/CREDITS.md`.
+
+### Changed
+
+- **The replay viewer's welcome screen** says what it does ("Replay a build, robot by robot.") and carries the front page's photograph. The viewer's design tokens moved to `viewer/tokens.css`, which both pages link.
+
 ## [1.1.0] - 2026-11-16
 
 It speaks arcadia-protocol 1.1.0, which does not work with protocol 1.0: use ArcadiaBench 1.0.1 with a 1.0 coordinator. Catalog 1.1 becomes the default and is final from this release. [`results/v1.1/RESULTS.md`](results/v1.1/RESULTS.md) has the results on it.

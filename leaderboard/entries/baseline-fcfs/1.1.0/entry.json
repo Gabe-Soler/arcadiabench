@@ -1,0 +1,18 @@
+{
+  "id": "baseline-fcfs",
+  "version": "1.1.0",
+  "name": "first come, first served",
+  "authors": [
+    "ArcadiaBench"
+  ],
+  "licence": "MIT",
+  "baseline": true,
+  "summary": "Robots in the order they became free; each takes the oldest ready task it can do.",
+  "source": {
+    "repository": "https://github.com/Gabe-Soler/arcadiabench",
+    "commit": "7db45ce8a08733ceff2a800fdf251429bceb2cbe"
+  },
+  "tracks": [
+    "standard"
+  ]
+}

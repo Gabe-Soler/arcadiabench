@@ -1,0 +1,18 @@
+{
+  "id": "baseline-random",
+  "version": "1.1.0",
+  "name": "random",
+  "authors": [
+    "ArcadiaBench"
+  ],
+  "licence": "MIT",
+  "baseline": true,
+  "summary": "Each ready task goes to a capable free robot drawn at random, from a generator seeded with the run.",
+  "source": {
+    "repository": "https://github.com/Gabe-Soler/arcadiabench",
+    "commit": "7db45ce8a08733ceff2a800fdf251429bceb2cbe"
+  },
+  "tracks": [
+    "standard"
+  ]
+}

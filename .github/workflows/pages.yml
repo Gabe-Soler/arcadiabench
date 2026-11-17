@@ -1,18 +1,23 @@
 name: Viewer Pages
 
-# Publishes the replay viewer to GitHub Pages: on every push to main that
-# changes what the site serves, and by hand from the Actions tab. The
-# repository's Pages source must be set to GitHub Actions.
+# Publishes the site to GitHub Pages: on every push to main that changes
+# what it serves, and by hand from the Actions tab. The repository's Pages
+# source must be set to GitHub Actions.
 #
-# The site keeps repository paths: viewer/ (without its tests) and results/
-# when present, so a replay under results/ opens with
-#   https://<owner>.github.io/<repo>/viewer/?log=../results/v1.0/replays/<run>.jsonl.gz
+# The site keeps repository paths: the front page (index.html and site/), the
+# replay viewer (viewer/, without its tests), results/, and the leaderboard's
+# entries with the board built from them (leaderboard/). So a replay under
+# results/ opens with
+#   https://<owner>.github.io/<repo>/viewer/?log=../results/v1.1/replays/<run>.jsonl.gz
 on:
   push:
     branches: [main]
     paths:
+      - "index.html"
+      - "site/**"
       - "viewer/**"
       - "results/**"
+      - "leaderboard/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -37,19 +42,18 @@ jobs:
         with:
           node-version: 24
       - run: node --test viewer/test/
+      - run: node --test site/test/
       - name: Assemble the site
         run: |
           mkdir -p _site
+          cp index.html _site/index.html
+          cp -R site _site/site
+          rm -rf _site/site/test _site/site/tools
           cp -R viewer _site/viewer
           rm -rf _site/viewer/test
           if [ -d results ]; then cp -R results _site/results; fi
-          cat > _site/index.html <<'HTML'
-          <!doctype html>
-          <meta charset="utf-8">
-          <title>ArcadiaBench replay viewer</title>
-          <meta http-equiv="refresh" content="0; url=viewer/">
-          <p><a href="viewer/">Open the ArcadiaBench replay viewer</a></p>
-          HTML
+          cp -R leaderboard _site/leaderboard
+          node site/tools/build-board.mjs _site/leaderboard/board.json
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:

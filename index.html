@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>ArcadiaBench</title>
+<meta name="description" content="ArcadiaBench is an open, seeded benchmark for coordinating robot crews building on Mars. Every coordinator on the leaderboard was run by the project, on the same runs.">
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Loaded without blocking, so the page reads on system fonts first. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&amp;family=Manrope:wght@300;400;500&amp;display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="viewer/tokens.css">
+<link rel="stylesheet" href="site/site.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-mark" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5" fill="currentColor"/><circle cx="8.6" cy="9.4" r="2.3" style="fill:var(--gs-bg)"/><circle cx="14.6" cy="15.2" r="1.4" style="fill:var(--gs-bg)"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<nav class="nav"><div class="wrap nav-in">
+  <a class="brand" href="#top"><svg aria-hidden="true"><use href="#i-mark"/></svg>ArcadiaBench</a>
+  <div class="segment" aria-label="Sections">
+    <a href="#leaderboard">Leaderboard</a>
+    <a href="#how">How it works</a>
+    <a href="#replays">Replays</a>
+  </div>
+  <div class="nav-actions">
+    <a class="btn" href="https://github.com/Gabe-Soler/arcadiabench">GitHub</a>
+    <a class="btn primary" href="https://github.com/Gabe-Soler/arcadiabench/blob/main/docs/leaderboard.md">Submit a coordinator</a>
+  </div>
+</div></nav>
+
+<header class="hero" id="top">
+  <div class="wrap">
+    <h1 class="h1">The benchmark for robot crews building on Mars.</h1>
+    <p class="hero-sub">ArcadiaBench is an open, seeded simulator. A coordinator directs a crew of robots to build a landing pad while machines wear out, dust storms cut the power and Earth is minutes away. Every coordinator, the same runs.</p>
+    <div class="btnrow">
+      <a class="btn primary" href="#leaderboard">See the leaderboard</a>
+      <a class="btn" href="viewer/?log=../results/v1.1/replays/landing-pad-1.1-medium-nominal-1.jsonl.gz">Watch a replay</a>
+    </div>
+  </div>
+  <div class="hero-media" role="img" aria-label="NASA's Perseverance rover on Mars, with the Ingenuity helicopter on the ground behind it."></div>
+</header>
+
+<main>
+<section class="wrap stats" aria-label="The leaderboard in four numbers">
+  <div class="stat"><div class="stat-n" id="stat-entries">4</div><div class="stat-l">coordinators</div></div>
+  <div class="stat"><div class="stat-n">900</div><div class="stat-l">runs each</div></div>
+  <div class="stat"><div class="stat-n">18</div><div class="stat-l">scenarios</div></div>
+  <div class="stat"><div class="stat-n">0</div><div class="stat-l">self-reported scores</div></div>
+</section>
+
+<section class="sec" id="leaderboard"><div class="wrap">
+  <div class="headrow"><h2 class="h2">Leaderboard.</h2><span class="tag" id="board-tag">Catalog 1.1 · seeds 1–50</span></div>
+  <div class="segment board-tracks" role="tablist" aria-label="Track">
+    <button type="button" role="tab" id="tab-standard" aria-selected="true" aria-controls="board" data-track="standard">Standard</button>
+    <button type="button" role="tab" id="tab-fleet" aria-selected="false" aria-controls="board" data-track="fleet">Fleet design</button>
+  </div>
+  <div class="card board" id="board" role="tabpanel" aria-labelledby="tab-standard" aria-live="polite">
+    <p class="board-note" id="board-status">Loading the board…</p>
+  </div>
+  <noscript><p class="fine">The board needs JavaScript. The same numbers are in the <a href="https://github.com/Gabe-Soler/arcadiabench/blob/main/results/v1.1/RESULTS.md">v1.1 results</a>.</p></noscript>
+  <p class="fine" id="board-fine">Ranked by the headline, success rate × speed, on the nominal variant: averaged over the three outposts on the Standard track, and for the crew an entry brings on the fleet design track. Entries that the same runs cannot tell apart share a rank. Round 1 has not run yet; until it has, the board shows the <a href="https://github.com/Gabe-Soler/arcadiabench/blob/main/results/v1.1/RESULTS.md">published v1.1 results</a>.</p>
+</div></section>
+
+<section class="sec" id="how"><div class="wrap">
+  <div class="headrow"><h2 class="h2">How it works.</h2><span class="tag">Three steps</span></div>
+  <div class="grid3">
+    <div class="card step"><div class="step-n">1</div><h3 class="h3">Open a pull request.</h3><p>Add one small file to ArcadiaBench: your coordinator's source repository, a pinned commit and its licence. The source is open and builds with a Dockerfile.</p></div>
+    <div class="card step"><div class="step-n">2</div><h3 class="h3">A maintainer starts the run.</h3><p>The project builds your image once and runs it in containers with no network. One coordinator process per run, the same simulator for everyone.</p></div>
+    <div class="card step"><div class="step-n">3</div><h3 class="h3">The board updates.</h3><p>Results come back as a pull request anyone can read. Once it is merged your row is here, with every scorecard behind it.</p></div>
+  </div>
+</div></section>
+
+<section class="sec"><div class="wrap two">
+  <p class="statement">Every score here was run by the project.</p>
+  <div class="body">
+    <p>No entry reports its own numbers. A coordinator is any program that speaks the protocol on standard input and output, so it can be written in anything; what is ranked is what it did in the project's own runs.</p>
+    <p>A round's seeds are computed from the commit that closes it. Nobody knows them while the code is being written, and anyone can reproduce the round byte for byte afterwards. No secrets, no trust.</p>
+  </div>
+</div></section>
+
+<section class="sec" id="replays"><div class="wrap">
+  <div class="headrow"><h2 class="h2">Replays.</h2><span class="tag">5 runs · one click each</span></div>
+  <div class="grid3">
+    <a class="card replay" href="viewer/?log=../results/v1.1/replays/landing-pad-1.1-medium-nominal-1.jsonl.gz">
+      <div class="meta">ArcadiaOS · Medium · seed 1</div><h3 class="h3">Six sinterers, 24 sols</h3><p>The nominal build. Seven hours to sinter a cell, then hours on the charger.</p></a>
+    <a class="card replay" href="viewer/?log=../results/v1.1/replays/landing-pad-1.1-large-dust_storm-1.jsonl.gz&amp;t=159376">
+      <div class="meta">ArcadiaOS · Large · dust storm · seed 1</div><h3 class="h3">A storm that does not lift</h3><p>Ten sinterers on a plant that cannot feed them, through 409 hours of dust.</p></a>
+    <a class="card replay" href="viewer/?log=../results/v1.1/replays/landing-pad-1.1-medium-conjunction-1.jsonl.gz&amp;t=197048">
+      <div class="meta">ArcadiaOS · Medium · conjunction · seed 1</div><h3 class="h3">Fourteen sols without Earth</h3><p>The crew asks a question as the blackout begins. The answer comes after it ends.</p></a>
+    <a class="card replay" href="viewer/?log=../results/v1.1/replays/landing-pad-1.1-medium-cascading_faults-13.jsonl.gz&amp;t=54597">
+      <div class="meta">ArcadiaOS · Medium · cascading faults · seed 13</div><h3 class="h3">One hundred and thirty faults</h3><p>A hauler and an excavator fail in the first half sol. The pad still gets built.</p></a>
+    <a class="card replay" href="viewer/?log=../results/v1.1/replays/landing-pad-1.1-crew.2.1.1.10-nominal-1.jsonl.gz">
+      <div class="meta">ArcadiaOS · fleet design · seed 1</div><h3 class="h3">A crew of its own design</h3><p>Ten sinterers, two scouts, one excavator and one hauler. Sixteen sols.</p></a>
+    <a class="card replay" href="viewer/">
+      <div class="meta">Replay viewer</div><h3 class="h3">Open your own log</h3><p>Any run saved with <code>--log</code> replays in the browser. Nothing is uploaded.</p></a>
+  </div>
+</div></section>
+
+<section class="sec"><div class="wrap">
+  <div class="headrow"><h2 class="h2">What it does not measure.</h2><span class="tag">Catalog 1.1</span></div>
+  <div class="grid3">
+    <div class="card"><h3 class="h3">Failure.</h3><p>Stress makes almost no run fail: 1 in 3,600. A build can be slow, and it still ends.</p></div>
+    <div class="card"><h3 class="h3">The blackout.</h3><p>Two weeks without Earth cost every coordinator under 1%. Nothing a build needs waits for an answer.</p></div>
+    <div class="card"><h3 class="h3">Who takes which task.</h3><p>Random matches greedy. When a cell takes seven hours to sinter, the order of work matters little.</p></div>
+  </div>
+  <p class="fine">These are stated in the <a href="https://github.com/Gabe-Soler/arcadiabench/blob/main/results/v1.1/RESULTS.md#what-the-catalog-does-not-do">v1.1 results</a>, and they are for the next catalog.</p>
+</div></section>
+</main>
+
+<footer class="foot"><div class="wrap"><div class="foot-in">
+  <div>ArcadiaBench · MIT · Photograph: NASA/JPL-Caltech/MSSS</div>
+  <div class="foot-links">
+    <a href="https://github.com/Gabe-Soler/arcadiabench/blob/main/results/v1.1/RESULTS.md">Results</a>
+    <a href="viewer/">Replay viewer</a>
+    <a href="https://github.com/Gabe-Soler/arcadiabench">GitHub</a>
+    <a href="https://pypi.org/project/arcadiabench/">PyPI</a>
+  </div>
+</div></div></footer>
+
+<script type="module" src="site/src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,146 @@
+/*
+ * The ArcadiaBench site's design tokens, in the GSDesign language: every
+ * colour, the type families and the shapes. The replay viewer (style.css)
+ * and the front page (../site/site.css) both link this file, so the two
+ * pages cannot drift apart.
+ *
+ * Light and dark follow the system setting (prefers-color-scheme). The
+ * viewer's canvases read the --gs-*, data and --cv-* properties through
+ * src/render/theme.js and redraw when the scheme changes.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* ink and text */
+  --gs-ink: #12110d;
+  --gs-text: #4a4a4a;
+  --gs-muted: #434343;
+  --gs-grey: #6b6b6b;
+  --gs-placeholder: #a3a3a3;
+
+  /* lines */
+  --gs-line: #e5e5e5;
+  --gs-line-soft: #ececec;
+  --gs-line-hover: #c4c4c4;
+
+  /* surfaces */
+  --gs-bg: #fff;
+  --gs-card: #f7f7f7;
+  --gs-raised: #fff;        /* pills, tooltips and panels set on a card or the map */
+  --gs-track: #ececec;      /* segmented tracks and bars inside a card */
+  --gs-segment: #f2f2f2;    /* segmented track on the page */
+  --gs-plot: #fff;          /* chart and timeline backgrounds */
+  --gs-dialog: #fff;
+  --gs-cream: #faf6ef;
+  --gs-cream-end: #fdfaf5;
+  --gs-scrim: rgba(18, 17, 13, .45);
+  --gs-shadow: 0 24px 60px rgba(0, 0, 0, .18);
+  --gs-shadow-sm: 0 8px 24px rgba(0, 0, 0, .12);
+  --gs-dot-ring: rgba(18, 17, 13, .22);
+
+  /* accent: primary actions and focus only */
+  --gs-accent: #0098f6;
+  --gs-accent-hover: #0086dc;
+  --gs-accent-ring: rgba(0, 152, 246, .16);
+
+  /* type, shape */
+  --gs-font-display: Manrope, system-ui, sans-serif;
+  --gs-font-body: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --gs-pill: 100px;
+  --gs-radius-card: 24px;
+  --gs-gutter: 20px;
+  --gs-gap: 16px;
+  --gs-fast: .15s;
+
+  /* data: states, power series, messages */
+  --ok: #15803d;
+  --warn: #b45309;
+  --err: #c62828;
+  --storm: #d9822b;
+  --link-down: #c8344a;
+  --earth: #6d5bd0;
+  --solar: #d49b00;
+  --fission: #9a9a96;
+  --demand: #d6418d;
+  --storage: #0f9d8a;
+  --msg-up: #2b7fd9;
+  --msg-down: #d49b00;
+
+  /* canvases */
+  --cv-map-frame: rgba(18, 17, 13, .14);
+  --cv-unknown: #dcdcd8;
+  --cv-night: #e3e6ec;
+  --cv-day: #f3d99a;
+  --cv-tick: #d6d6d2;
+  --cv-elapsed: rgba(18, 17, 13, .05);
+  --cv-hover: rgba(18, 17, 13, .28);
+  --cv-band-storm: rgba(217, 130, 43, .85);
+  --cv-band-link: rgba(200, 52, 74, .88);
+  --cv-band-pass: rgba(200, 52, 74, .16);
+  --cv-failure: #e0661a;
+  --cv-chart-night: rgba(70, 90, 130, .08);
+  --cv-chart-storm: rgba(217, 130, 43, .14);
+  --cv-chart-grid: rgba(18, 17, 13, .07);
+  --cv-storage-fill: rgba(15, 157, 138, .1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --gs-ink: #f4f2ed;
+    --gs-text: #c8c6c0;
+    --gs-muted: #b4b2ac;
+    --gs-grey: #9a9a96;
+    --gs-placeholder: #6b6b68;
+
+    --gs-line: #2a2a28;
+    --gs-line-soft: #232321;
+    --gs-line-hover: #3d3d3a;
+
+    --gs-bg: #0e0e0c;
+    --gs-card: #1a1a18;
+    --gs-raised: #2a2a27;
+    --gs-track: #121211;
+    --gs-segment: #1a1a18;
+    --gs-plot: #121211;
+    --gs-dialog: #1a1a18;
+    --gs-cream: #17150f;
+    --gs-cream-end: #11100d;
+    --gs-scrim: rgba(0, 0, 0, .6);
+    --gs-shadow: 0 24px 60px rgba(0, 0, 0, .5);
+    --gs-shadow-sm: 0 8px 24px rgba(0, 0, 0, .45);
+    --gs-dot-ring: rgba(0, 0, 0, .45);
+
+    --gs-accent-ring: rgba(0, 152, 246, .32);
+
+    --ok: #4ade80;
+    --warn: #f5b942;
+    --err: #f87171;
+    --storm: #e0954a;
+    --link-down: #e0576d;
+    --earth: #a294f0;
+    --solar: #f7c948;
+    --fission: #8f8f8a;
+    --demand: #f472b6;
+    --storage: #38c6b5;
+    --msg-up: #9fd0ff;
+    --msg-down: #ffd27d;
+
+    --cv-map-frame: rgba(244, 242, 237, .16);
+    --cv-unknown: #232321;
+    --cv-night: #23262c;
+    --cv-day: #5f5229;
+    --cv-tick: #3a3a37;
+    --cv-elapsed: rgba(244, 242, 237, .06);
+    --cv-hover: rgba(244, 242, 237, .32);
+    --cv-band-storm: rgba(224, 149, 74, .8);
+    --cv-band-link: rgba(224, 87, 109, .82);
+    --cv-band-pass: rgba(224, 87, 109, .2);
+    --cv-failure: #fb923c;
+    --cv-chart-night: rgba(130, 150, 200, .1);
+    --cv-chart-storm: rgba(224, 149, 74, .16);
+    --cv-chart-grid: rgba(244, 242, 237, .08);
+    --cv-storage-fill: rgba(56, 198, 181, .18);
+  }
+}
