@@ -10,7 +10,8 @@
   "summary": "Each ready task goes to the free robot that can do it at the lowest estimated cost.",
   "source": {
     "repository": "https://github.com/Gabe-Soler/arcadiabench",
-    "commit": "7db45ce8a08733ceff2a800fdf251429bceb2cbe"
+    "commit": "7db45ce8a08733ceff2a800fdf251429bceb2cbe",
+    "dockerfile": "leaderboard/tools/dockerfiles/baseline-greedy.Dockerfile"
   },
   "tracks": [
     "standard",

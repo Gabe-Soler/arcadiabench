@@ -9,6 +9,10 @@ leaderboard/
     public/report.json    every scorecard and the resilience, on seeds 1-50
     public/runs.json      one score per seed for the nominal scenarios
   board.json              built from the entries; not kept in the repository
+  config.json             the catalog, the simulator release and the sandbox's limits
+  tools/sandbox.sh        one run's coordinator in its own container
+  tools/run-entry.sh      an entry's image through the benchmark, to report.json and runs.json
+  tools/dockerfiles/      the baselines' Dockerfiles
 ```
 
 - **`report.json`** is a report as `arcadiabench score --json` writes it (`schemas/scorecard.schema.json#/$defs/Report`), for that entry alone.

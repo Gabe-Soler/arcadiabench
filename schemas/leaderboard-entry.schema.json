@@ -57,6 +57,12 @@
           "description": "The commit it is built from: a full hash, never a branch or a tag.",
           "type": "string",
           "pattern": "^[0-9a-f]{40}$"
+        },
+        "dockerfile": {
+          "description": "The Dockerfile to build, as a path in the repository. `Dockerfile` at the root when left out.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*(/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*$",
+          "maxLength": 120
         }
       },
       "required": [

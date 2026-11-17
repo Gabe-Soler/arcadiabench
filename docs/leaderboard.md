@@ -2,7 +2,7 @@
 
 The [front page](https://gabe-soler.github.io/arcadiabench/#leaderboard) ranks coordinators on ArcadiaBench's catalog 1.1. Every number on it comes from runs the project made itself: no entry reports its own score.
 
-**Where it stands.** The board shows the [published v1.1 results](../results/v1.1/RESULTS.md) on seeds 1–50: ArcadiaOS and the three baselines. The runner that takes outside entries, and the first round on held-out seeds, are the next two steps. Until the runner is merged, an entry can be prepared but not run.
+**Where it stands.** The board shows the [published v1.1 results](../results/v1.1/RESULTS.md) on seeds 1–50: ArcadiaOS and the three baselines. Entries are open: an entry is built and run on the public seeds by the runner described below. The first round on held-out seeds has not run yet.
 
 ## What ranks
 
@@ -34,7 +34,8 @@ A pull request that adds one file, `leaderboard/entries/<id>/<version>/entry.jso
 ```
 
 - **Open source.** `repository` is public, and `commit` is a full commit hash, never a branch or a tag.
-- **It builds with a Dockerfile** at the repository's root, whose image runs the coordinator: a program that speaks [arcadia-protocol](https://github.com/Gabe-Soler/arcadia-protocol) on standard input and output.
+- **It builds with a Dockerfile**, at the repository's root unless `source.dockerfile` names another path. The image's entrypoint is the coordinator: a program that speaks [arcadia-protocol](https://github.com/Gabe-Soler/arcadia-protocol) on standard input and output. [`leaderboard/tools/dockerfiles/`](../leaderboard/tools/dockerfiles/) has the baselines' as examples.
+- **It runs in the sandbox below.** Try it there before you enter: `arcadiabench suite --seeds 1-50 -- leaderboard/tools/sandbox.sh YOUR_IMAGE`.
 - **It is deterministic.** The same seed gives the same run. An entry that answers differently on a second run is not ranked.
 - **The fleet design track** adds `"fleet"` to `tracks` and a `fleet` block with the crew and its mass ([`schemas/crew.schema.json`](../schemas/crew.schema.json)).
 - **An entry does not change.** A new version is a new directory.
@@ -43,9 +44,36 @@ A pull request that adds one file, `leaderboard/entries/<id>/<version>/entry.jso
 
 ## How an entry is run
 
-1. **You open the pull request.** A maintainer reads it.
-2. **A maintainer starts the run.** The project builds your image once, records its digest, and runs it in containers with no network: one coordinator process per run, the same simulator release for every entry.
-3. **Results come back as a pull request** with the scorecards. When it is merged, the board shows your row.
+1. **You open the pull request** with your entry file ([template](../.github/PULL_REQUEST_TEMPLATE/leaderboard-entry.md)). A maintainer reads it and merges it.
+2. **A maintainer starts the runner** for it. Nothing runs by itself.
+3. **The runner builds your image once**, from the pinned commit, and keeps it in the project's registry under its digest. Every later run uses that exact image.
+4. **It runs the image on the public seeds, twice.** The two have to be the same byte for byte. A run that crashes, breaks the protocol or times out fails the entry.
+5. **The results come back on a branch**, which a maintainer opens as a pull request. When it is merged, the board shows your row.
+
+### The sandbox
+
+Each run's coordinator is its own container ([`leaderboard/tools/sandbox.sh`](../leaderboard/tools/sandbox.sh)). It gets the protocol on standard input and output, and nothing else:
+
+| | |
+|---|---|
+| Network | none |
+| File system | read-only, with 64 MB at `/tmp` |
+| User | 65534, no capabilities, no new privileges |
+| Memory | 2 GB, no swap |
+| CPU | 1 |
+| Processes | 256 |
+| A decision | 10 seconds (`--decision-timeout`) |
+| A run | 900 seconds of wall clock; a watchdog kills the container after that |
+| The image | 1 GB compressed at most |
+
+Building is the only step with network access. The numbers are in [`leaderboard/config.json`](../leaderboard/config.json), with the simulator release every entry is run on.
+
+### For maintainers
+
+- **Once:** in the repository's settings, under *Secrets and variables → Actions → Variables*, set `LEADERBOARD_GIT_NAME` and `LEADERBOARD_GIT_EMAIL`: the results are committed under them. After the first image is pushed, make its package public under the owner's *Packages*, so anyone can pull an entry's image to reproduce it.
+- **To run an entry:** *Actions → Leaderboard → Run workflow*, and give the entry as `ID/VERSION`. When it finishes, its summary has the link that opens the results as a pull request.
+- **What the workflow is made of** is tested on every push that touches it ([`leaderboard-check.yml`](../.github/workflows/leaderboard-check.yml)): the same runs come out byte for byte in the sandbox and outside it; a coordinator in the sandbox cannot write outside `/tmp` or reach the network; one that hangs is killed, container included; one that is not deterministic gets no results.
+- **Submitted code is untrusted.** No job both runs it and holds a permission worth stealing: the build and the runs have none, and the job that pushes the image and the results runs no submitted code. What an entry file says is checked against patterns ([`site/tools/entry-fields.mjs`](../site/tools/entry-fields.mjs)) and reaches git and docker as environment variables, never as text pasted into a command.
 
 ## Rounds and seeds
 
