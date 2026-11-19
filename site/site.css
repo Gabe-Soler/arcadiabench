@@ -68,6 +68,19 @@ html.g-no-scroll .g-header.is-over-media:not(.is-scrolled) .logo-crater { fill: 
 }
 .cols .num, .row .num { text-align: right; }
 
+/* A round's board has one more column: the headline on the public seeds. */
+.board[data-basis="round"] .cols, .board[data-basis="round"] .row > summary {
+  grid-template-columns: 56px minmax(0, 1.5fr) minmax(170px, 1fr) 88px repeat(3, 68px) 92px 96px 24px;
+}
+.board[data-basis="round"][data-track="fleet"] .cols, .board[data-basis="round"][data-track="fleet"] .row > summary {
+  grid-template-columns: 56px minmax(0, 1.3fr) minmax(170px, 1fr) 88px minmax(130px, .8fr) 92px 96px 24px;
+}
+/* Entries waiting for the next round: no rank, no bar. */
+.board-group { margin: 0; padding: var(--g-space-4) 0 var(--g-space-2); border-bottom: 1px solid var(--g-outline); color: var(--g-on-surface-variant); font-size: var(--g-fs-small); line-height: var(--g-lh-small); letter-spacing: var(--g-ls-small); }
+.row--pending .rank, .row--pending .score-n { color: var(--g-on-surface-variant); }
+.row--pending .g-progress { visibility: hidden; }
+.row--pending .pub { color: var(--g-on-surface); }
+
 .row { border-bottom: 1px solid var(--g-outline); }
 .row:last-child { border-bottom: 0; }
 .row > summary { position: relative; padding-block: var(--g-space-4); list-style: none; cursor: pointer; border-radius: var(--g-r-sm); transition: background-color .3s ease; }
@@ -105,11 +118,16 @@ html.g-no-scroll .g-header.is-over-media:not(.is-scrolled) .logo-crater { fill: 
     grid-template-columns: 48px minmax(0, 1.4fr) minmax(140px, 1fr) 92px 96px 24px;
   }
   .cols .p, .row .p, .board[data-track="fleet"] .crew-col { display: none; }
+  .board[data-basis="round"] .cols, .board[data-basis="round"] .row > summary,
+  .board[data-basis="round"][data-track="fleet"] .cols, .board[data-basis="round"][data-track="fleet"] .row > summary {
+    grid-template-columns: 48px minmax(0, 1.4fr) minmax(120px, 1fr) 88px 92px 96px 24px;
+  }
 }
 
 @media (max-width: 767px) {
   .cols { display: none; }
-  .row > summary, .board[data-track="fleet"] .row > summary {
+  .row > summary, .board[data-track="fleet"] .row > summary,
+  .board[data-basis="round"] .row > summary, .board[data-basis="round"][data-track="fleet"] .row > summary {
     grid-template-columns: 40px minmax(0, 1fr) auto 24px;
     grid-template-areas: "rank who score chev" ". stats stats stats";
     row-gap: var(--g-space-2);

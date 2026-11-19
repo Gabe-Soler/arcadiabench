@@ -176,20 +176,43 @@ function finish(rows) {
   return rows;
 }
 
+const key = (row) => `${row.id}/${row.version}`;
+
+/** One track of the board. On a round's board each ranked row carries its
+ * headline on the public seeds, and the entries accepted since the round's
+ * tag wait below the ranks with their public-seed figures. */
+function track(rowOf, entries, basis, publicEntries) {
+  const rows = finish(entries.map((e) => rowOf(e.entry, e.report, e.runs, basis.kind)).filter(Boolean));
+  if (!publicEntries) return { rows };
+  const open = publicEntries.map((e) => rowOf(e.entry, e.report, e.runs, 'public')).filter(Boolean);
+  const byKey = new Map(open.map((row) => [key(row), row]));
+  for (const row of rows) {
+    const mine = byKey.get(key(row));
+    row.public = mine ? { headline: mine.headline, scorecards: mine.links.scorecards } : null;
+  }
+  const ranked = new Set(rows.map(key));
+  const pending = open
+    .filter((row) => !ranked.has(key(row)))
+    .sort((a, b) => (b.headline - a.headline) || (a.id < b.id ? -1 : 1))
+    .map(({ scores, runsKey, ...row }) => ({ ...row, rank: null, tied: false, public: null }));
+  return { rows, pending };
+}
+
 /** The board: every entry's row on each track it entered, ranked.
- * `entries` is a list of `{ entry, report, runs }`. */
-export function buildBoard(entries, basis = { kind: 'public', label: 'seeds 1–50' }) {
-  const catalogs = new Set(entries.flatMap((e) => e.report.scorecards.map((c) => c.catalog ?? '1.0')));
+ * `entries` is a list of `{ entry, report, runs }` on the runs the board
+ * ranks on. For a round, `basis` describes it (`kind` is its tag) and
+ * `publicEntries` is every entry on the public seeds. */
+export function buildBoard(entries, basis = { kind: 'public', label: 'seeds 1–50' }, publicEntries = null) {
+  const all = [...entries, ...(publicEntries ?? [])];
+  const catalogs = new Set(all.flatMap((e) => e.report.scorecards.map((c) => c.catalog ?? '1.0')));
   if (catalogs.size > 1) throw new Error(`entries on more than one catalog: ${[...catalogs].join(', ')}`);
-  const standard = entries.map((e) => standardRow(e.entry, e.report, e.runs, basis.kind)).filter(Boolean);
-  const fleet = entries.map((e) => fleetRow(e.entry, e.report, e.runs, basis.kind)).filter(Boolean);
   return {
     catalog: [...catalogs][0] ?? null,
     basis,
     tie_z: TIE_Z,
     tracks: {
-      standard: { scenarios: PRESETS.length * VARIANTS.length, rows: finish(standard) },
-      fleet: { scenarios: VARIANTS.length, rows: finish(fleet) },
+      standard: { scenarios: PRESETS.length * VARIANTS.length, ...track(standardRow, entries, basis, publicEntries) },
+      fleet: { scenarios: VARIANTS.length, ...track(fleetRow, entries, basis, publicEntries) },
     },
   };
 }

@@ -81,6 +81,45 @@ jobs:
             console.log("24 scorecards, 4 nominal scenarios");'
           test -z "$(docker ps -q --filter label=arcadia-run)"
 
+      - name: A round, from its plan to its files
+        run: |
+          # A copy of the leaderboard where the greedy baseline is the one
+          # entry, accepted, and a round has three seeds.
+          mkdir -p sim && cp -R leaderboard sim/leaderboard
+          node -e '
+            const fs = require("fs"), base = "sim/leaderboard";
+            const cfg = JSON.parse(fs.readFileSync(base + "/config.json"));
+            cfg.round_seeds = 3;
+            fs.writeFileSync(base + "/config.json", JSON.stringify(cfg));
+            for (const id of fs.readdirSync(base + "/entries")) if (id !== "baseline-greedy") fs.rmSync(base + "/entries/" + id, { recursive: true });
+            fs.rmSync(base + "/rounds", { recursive: true, force: true });
+            const file = base + "/entries/baseline-greedy/1.1.0/entry.json", entry = JSON.parse(fs.readFileSync(file));
+            entry.image_digest ??= "sha256:" + "0".repeat(64);
+            fs.writeFileSync(file, JSON.stringify(entry));'
+          commit=$(git rev-parse HEAD)
+          node site/tools/plan.mjs round round-1 "$commit" sim > plan.txt
+          seeds=$(grep '^seeds=' plan.txt | cut -d= -f2-)
+          plan=$(grep '^entries=' plan.txt | cut -d= -f2-)
+          test "$seeds" = "$(node site/tools/round-seeds.mjs "$commit" 3)"
+          ARCADIABENCH=$B leaderboard/tools/run-entry.sh sim/leaderboard/entries/baseline-greedy/1.1.0/entry.json entry-greedy artifacts/results-baseline-greedy-1.1.0 "$seeds" twice
+          cp -R sim sim-wrong
+          node site/tools/publish-results.mjs round --plan "$plan" --artifacts artifacts --tag round-1 --commit "$commit" --root sim --out round-out
+          grep -q "Ranked: baseline-greedy 1.1.0" round-out/message.txt
+          test -f sim/leaderboard/entries/baseline-greedy/1.1.0/round-1/report.json
+          node -e '
+            const round = require("./sim/leaderboard/rounds/round-1.json");
+            const assert = require("node:assert/strict");
+            assert.equal(round.seeds.join(), process.argv[1]);
+            assert.deepEqual(round.entries.map((e) => e.id), ["baseline-greedy"]);
+            assert.deepEqual(round.not_ranked, []);
+            console.log("round 1 of one entry on seeds", process.argv[1]);' "$seeds"
+          # Results on other seeds than the round's are not the round's.
+          mkdir -p wrong && cp -R out wrong/results-baseline-greedy-1.1.0
+          if node site/tools/publish-results.mjs round --plan "$plan" --artifacts wrong --tag round-1 --commit "$commit" --root sim-wrong --out wrong-out; then
+            echo "results on the public seeds were taken for a round's"; exit 1
+          fi
+          grep -q "not on the seeds asked for" wrong-out/summary.md
+
       - name: A baseline built from its own Dockerfile gives the same runs
         run: |
           # As the runner builds an entry: with whatever compiler the

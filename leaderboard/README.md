@@ -8,7 +8,9 @@ leaderboard/
     entry.json            who entered what (schemas/leaderboard-entry.schema.json)
     public/report.json    every scorecard and the resilience, on seeds 1-50
     public/runs.json      one score per seed for the nominal scenarios
-  board.json              built from the entries; not kept in the repository
+    round-N/              the same two files on round N's seeds, if it was ranked in it
+  rounds/round-N.json     a round: its tag, commit, seeds and entries (schemas/leaderboard-round.schema.json)
+  board.json              built from the entries and the last round; not kept in the repository
   config.json             the catalog, the simulator release and the sandbox's limits
   tools/sandbox.sh        one run's coordinator in its own container
   tools/run-entry.sh      an entry's image through the benchmark, to report.json and runs.json
@@ -38,4 +40,6 @@ ArcadiaOS 1.1.0 and the three baselines, on seeds 1–50 of catalog 1.1.
 
   and the same for `medium`, `large`, and for the fleet design track `--crew results/v1.1/fleet/crew.json`. `OUT/metrics.jsonl` has each run's `seed` and `score`.
 
-`tests/leaderboard.rs` checks every entry against its schema, that its per-seed scores average to its scorecards' headlines, and that the board built from the entries matches the board's schema.
+`tests/leaderboard.rs` checks every entry against its schema, that its per-seed scores average to its scorecards' headlines, every round against its schema and its entries' results on its seeds, and that the board built from them matches the board's schema. `site/test/rounds.test.js` checks that a round's seeds are the ones its commit gives.
+
+Entries are accepted and rounds are published by pull requests the runner writes, so these tests check what always holds: they pin no list of entries, no order and no digest.

@@ -70,7 +70,9 @@ Building is the only step with network access. The numbers are in [`leaderboard/
 
 ### For maintainers
 
-- **To run an entry:** open the repository's *Actions* tab, choose *Leaderboard* in the list on the left, press *Run workflow*, type the entry as `ID/VERSION` (for example `baseline-greedy/1.1.0`) and press the green *Run workflow* button. It takes about an hour. When it finishes, the run's summary has the link that opens the results as a pull request.
+- **To accept entries:** open the repository's *Actions* tab, choose *Leaderboard* in the list on the left, press *Run workflow*, then the green *Run workflow* button. Left at `pending`, it takes every entry that has not been accepted yet, one job each; type `ID/VERSION` (for example `baseline-greedy/1.1.0`) to take one. It takes about half an hour. When it finishes, the run's summary has the link that opens the results as one pull request.
+- **An accepted entry does not change.** Accepting writes the digest of its image into its entry file, and the workflow refuses an entry that has one. A new version is a new entry.
+- **To run a round:** in the *Actions* tab choose *Leaderboard round*, press *Run workflow*, then the green *Run workflow* button. It takes no input. It tags `main` as it stands as the next round, runs every accepted entry on the round's seeds, and its summary has the link that opens the round as a pull request. It does not start while an entry is waiting to be accepted. If a run fails, starting it again repeats the same round on the same tag.
 - **Whose name is on the results:** the maintainer who started the run, under their GitHub account's no-reply address. Set the repository variables `LEADERBOARD_GIT_NAME` and `LEADERBOARD_GIT_EMAIL` to use another.
 - **The images** all go to one package, `arcadiabench-entries`, in the owner's container registry, tagged `<id>-<version>`. It is private until the owner makes it public (the owner's *Packages* tab → the package → *Package settings* → *Change visibility*). Do that once, so anyone can pull an entry's image to reproduce it.
 - **What the workflow is made of** is tested on every push that touches it ([`leaderboard-check.yml`](../.github/workflows/leaderboard-check.yml)): the same runs come out byte for byte in the sandbox and outside it; a coordinator in the sandbox cannot write outside `/tmp` or reach the network; one that hangs is killed, container included; one that is not deterministic gets no results.
@@ -78,12 +80,26 @@ Building is the only step with network access. The numbers are in [`leaderboard/
 
 ## Rounds and seeds
 
-- **A round is a tag on `main`.** Only entries accepted before the tag are ranked in it.
-- **Its seeds are computed from the tag's commit hash.** Nobody can know them while the entries are being written, and nothing has to be kept secret.
+- **A round is a tag on `main`,** `round-1`, `round-2` and so on. Only entries accepted before the tag are ranked in it. Starting the round is what makes the tag ([`leaderboard-round.yml`](../.github/workflows/leaderboard-round.yml)), before any entry has been run on it.
+- **Its seeds are computed from the tag's commit hash** ([`site/tools/round-seeds.mjs`](../site/tools/round-seeds.mjs)). Nobody can know them while the entries are being written, and nothing has to be kept secret. An entry's image is built when it is accepted, which is before the tag, so it cannot be changed once the seeds are known.
+- **Every entry is run on them twice,** from the image kept for it, in the same sandbox. The two have to agree, as on the public seeds.
+- **The board ranks on the last round.** Each entry's headline on the public seeds is beside its rank.
 - **Anyone can reproduce a round**, byte for byte, the moment it is published: the seeds, the simulator release and every entry's image are public.
 - **Seeds 1–50 stay public.** Every entry is also run on them, so you can check your own setup against the board before you enter.
-- **An entry that arrives after a round's tag** shows its public-seed figures until the next round.
+- **An entry that arrives after a round's tag** shows its public-seed figures, below the ranks, until the next round.
+- **An entry whose runs on a round's seeds fail** (a crash, a timeout, or two runs that differ) is named in the round's file with the reason, and is not ranked in it.
+
+To repeat a round yourself, check its tag out and run an entry as the workflow does. The seeds, the simulator release and the image are all in [`leaderboard/rounds/`](../leaderboard/rounds/):
+
+```sh
+git checkout round-1
+seeds=$(node site/tools/round-seeds.mjs "$(git rev-parse 'round-1^{commit}')")
+docker pull ghcr.io/gabe-soler/arcadiabench-entries@sha256:...      # the entry's image_digest
+ARCADIABENCH=path/to/arcadiabench leaderboard/tools/run-entry.sh \
+  leaderboard/entries/ID/VERSION/entry.json ghcr.io/gabe-soler/arcadiabench-entries@sha256:... out "$seeds" twice
+cmp out/report.json leaderboard/entries/ID/VERSION/round-1/report.json
+```
 
 ## What is published
 
-For each entry: its `entry.json`, the report with every scorecard (`report.json`, [`schemas/scorecard.schema.json`](../schemas/scorecard.schema.json)`#/$defs/Report`), and one score per seed for the nominal scenarios (`runs.json`), which is what ties are worked out from. [`leaderboard/README.md`](../leaderboard/README.md) describes the files.
+For each entry: its `entry.json`, the report with every scorecard (`report.json`, [`schemas/scorecard.schema.json`](../schemas/scorecard.schema.json)`#/$defs/Report`), and one score per seed for the nominal scenarios (`runs.json`), which is what ties are worked out from. An entry has these once for the public seeds (`public/`) and once for each round it was ranked in (`round-N/`). For each round: its tag, commit, seeds, simulator release, and every entry with the digest of the image it was run from (`leaderboard/rounds/round-N.json`, [`schemas/leaderboard-round.schema.json`](../schemas/leaderboard-round.schema.json)). [`leaderboard/README.md`](../leaderboard/README.md) describes the files.

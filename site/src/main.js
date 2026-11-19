@@ -1,6 +1,7 @@
 // The front page: loads leaderboard/board.json and draws the track chosen.
 
 import { renderBoard } from './board.js';
+import { basisNote } from './format.js';
 
 const board = document.getElementById('board');
 const tabs = [...document.querySelectorAll('.board-tracks [role="tab"]')];
@@ -31,7 +32,8 @@ try {
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   data = await response.json();
   document.getElementById('board-tag').textContent = `Catalog ${data.catalog} · ${data.basis.label}`;
-  document.getElementById('stat-entries').textContent = String(data.tracks.standard.rows.length);
+  document.getElementById('board-basis-note').textContent = basisNote(data.basis);
+  document.getElementById('stat-entries').textContent = String(data.tracks.standard.rows.length + (data.tracks.standard.pending?.length ?? 0));
   show('standard');
 } catch {
   const note = document.createElement('p');
