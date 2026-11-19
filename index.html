@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-g-theme="auto">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -9,118 +9,262 @@
 <link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<!-- Loaded without blocking, so the page reads on system fonts first. -->
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&amp;family=Manrope:wght@300;400;500&amp;display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="viewer/tokens.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@6..144,1..1000&amp;display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&amp;icon_names=chevron_left,chevron_right,close,expand_more,leaderboard,menu,merge,play_arrow&amp;display=block">
+<link rel="stylesheet" href="site/ui/tokens.css">
+<link rel="stylesheet" href="site/ui/components.css">
 <link rel="stylesheet" href="site/site.css">
+<script defer src="site/ui/behavior.js"></script>
 </head>
-<body>
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <symbol id="i-mark" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5" fill="currentColor"/><circle cx="8.6" cy="9.4" r="2.3" style="fill:var(--gs-bg)"/><circle cx="14.6" cy="15.2" r="1.4" style="fill:var(--gs-bg)"/></symbol>
-  <symbol id="i-chevron" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-</svg>
+<body class="g-page">
+<a class="g-btn g-btn--primary g-btn--compact skip" href="#main">Skip to main content</a>
 
-<nav class="nav"><div class="wrap nav-in">
-  <a class="brand" href="#top"><svg aria-hidden="true"><use href="#i-mark"/></svg>ArcadiaBench</a>
-  <div class="segment" aria-label="Sections">
-    <a href="#leaderboard">Leaderboard</a>
-    <a href="#how">How it works</a>
-    <a href="#replays">Replays</a>
-  </div>
-  <div class="nav-actions">
-    <a class="btn" href="https://github.com/Gabe-Soler/arcadiabench">GitHub</a>
-    <a class="btn primary" href="https://github.com/Gabe-Soler/arcadiabench/blob/main/docs/leaderboard.md">Submit a coordinator</a>
-  </div>
-</div></nav>
-
-<header class="hero" id="top">
-  <div class="wrap">
-    <h1 class="h1">The benchmark for robot crews building on Mars.</h1>
-    <p class="hero-sub">ArcadiaBench is an open, seeded simulator. A coordinator directs a crew of robots to build a landing pad while machines wear out, dust storms cut the power and Earth is minutes away. Every coordinator, the same runs.</p>
-    <div class="btnrow">
-      <a class="btn primary" href="#leaderboard">See the leaderboard</a>
-      <a class="btn" href="viewer/?log=../results/v1.1/replays/landing-pad-1.1-medium-nominal-1.jsonl.gz">Watch a replay</a>
+<header class="g-header is-over-media">
+  <div class="g-header__bar">
+    <button class="g-btn g-btn--glass g-btn--icon g-btn--compact g-header__menu" aria-label="Menu" data-g-drawer-toggle="#menu" data-g-icon-swap><span class="g-icon">menu</span></button>
+    <a class="g-logo" href="#top" aria-label="ArcadiaBench home">
+      <svg class="g-logo__mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="currentColor"/><circle cx="8.6" cy="9.4" r="2.3" class="logo-crater"/><circle cx="14.6" cy="15.2" r="1.4" class="logo-crater"/></svg>
+      ArcadiaBench
+    </a>
+    <nav class="g-nav" aria-label="Primary" data-g-spy>
+      <a class="g-nav__link" href="#leaderboard">Leaderboard</a>
+      <a class="g-nav__link" href="#how">How it works</a>
+      <a class="g-nav__link" href="#replays">Replays</a>
+      <a class="g-nav__link" href="#limits">Limits</a>
+    </nav>
+    <div class="g-header__actions">
+      <a class="g-btn g-btn--glass g-btn--compact" href="https://github.com/Gabe-Soler/arcadiabench">GitHub</a>
+      <a class="g-btn g-btn--glass g-btn--compact" href="https://github.com/Gabe-Soler/arcadiabench/blob/main/docs/leaderboard.md">Submit an entry</a>
     </div>
   </div>
-  <div class="hero-media" role="img" aria-label="Three generations of NASA's Mars rovers side by side in JPL's Mars Yard: a spare of Sojourner, and test models of the Mars Exploration Rovers and of Curiosity."></div>
 </header>
 
-<main>
-<section class="wrap stats" aria-label="The leaderboard in four numbers">
-  <div class="stat"><div class="stat-n" id="stat-entries">4</div><div class="stat-l">coordinators</div></div>
-  <div class="stat"><div class="stat-n">900</div><div class="stat-l">runs each</div></div>
-  <div class="stat"><div class="stat-n">18</div><div class="stat-l">scenarios</div></div>
-  <div class="stat"><div class="stat-n">0</div><div class="stat-l">self-reported scores</div></div>
-</section>
+<nav class="g-drawer" id="menu" aria-label="Menu">
+  <a class="g-drawer__link" href="#leaderboard">Leaderboard <span class="g-icon">chevron_right</span></a>
+  <a class="g-drawer__link" href="#how">How it works <span class="g-icon">chevron_right</span></a>
+  <a class="g-drawer__link" href="#replays">Replays <span class="g-icon">chevron_right</span></a>
+  <a class="g-drawer__link" href="#limits">Limits <span class="g-icon">chevron_right</span></a>
+  <div class="g-actions g-mt-4">
+    <a class="g-btn g-btn--primary" href="https://github.com/Gabe-Soler/arcadiabench/blob/main/docs/leaderboard.md">Submit an entry</a>
+    <a class="g-btn g-btn--outlined" href="https://github.com/Gabe-Soler/arcadiabench">GitHub</a>
+  </div>
+</nav>
 
-<section class="sec" id="leaderboard"><div class="wrap">
-  <div class="headrow"><h2 class="h2">Leaderboard.</h2><span class="tag" id="board-tag">Catalog 1.1 · seeds 1–50</span></div>
-  <div class="segment board-tracks" role="tablist" aria-label="Track">
-    <button type="button" role="tab" id="tab-standard" aria-selected="true" aria-controls="board" data-track="standard">Standard</button>
-    <button type="button" role="tab" id="tab-fleet" aria-selected="false" aria-controls="board" data-track="fleet">Fleet design</button>
-  </div>
-  <div class="card board" id="board" role="tabpanel" aria-labelledby="tab-standard" aria-live="polite">
-    <p class="board-note" id="board-status">Loading the board…</p>
-  </div>
-  <noscript><p class="fine">The board needs JavaScript. The same numbers are in the <a href="https://github.com/Gabe-Soler/arcadiabench/blob/main/results/v1.1/RESULTS.md">v1.1 results</a>.</p></noscript>
-  <p class="fine" id="board-fine">Ranked by the headline, success rate × speed, on the nominal variant: averaged over the three outposts on the Standard track, and for the crew an entry brings on the fleet design track. Entries that the same runs cannot tell apart share a rank. Round 1 has not run yet; until it has, the board shows the <a href="https://github.com/Gabe-Soler/arcadiabench/blob/main/results/v1.1/RESULTS.md">published v1.1 results</a>.</p>
-</div></section>
+<main class="g-main g-main--under-header" id="main">
 
-<section class="sec" id="how"><div class="wrap">
-  <div class="headrow"><h2 class="h2">How it works.</h2><span class="tag">Three steps</span></div>
-  <div class="grid3">
-    <div class="card step"><div class="step-n">1</div><h3 class="h3">Open a pull request.</h3><p>Add one small file to ArcadiaBench: your coordinator's source repository, a pinned commit and its licence. The source is open and builds with a Dockerfile.</p></div>
-    <div class="card step"><div class="step-n">2</div><h3 class="h3">A maintainer starts the run.</h3><p>The project builds your image once and runs it in containers with no network. One coordinator process per run, the same simulator for everyone.</p></div>
-    <div class="card step"><div class="step-n">3</div><h3 class="h3">The board updates.</h3><p>Results come back as a pull request anyone can read. Once it is merged your row is here, with every scorecard behind it.</p></div>
-  </div>
-</div></section>
+  <section class="g-cover cover" id="top" data-g-theme="dark">
+    <img class="g-cover__media" src="site/img/hero-1600.jpg" srcset="site/img/hero-960.jpg 960w, site/img/hero-1600.jpg 1600w" sizes="100vw" width="1600" height="833" alt="Three generations of NASA's Mars rovers side by side in JPL's Mars Yard: a spare of Sojourner, and test models of the Mars Exploration Rovers and of Curiosity." fetchpriority="high">
+    <div class="g-cover__scrim" aria-hidden="true"></div>
+    <div class="g-cover__body">
+      <h1 class="g-cover__title">The benchmark for robot crews building on Mars</h1>
+      <p class="g-cover__lede">An open, seeded simulator. A coordinator directs a crew of robots to build a landing pad while machines wear out, dust storms cut the power and Earth is minutes away.</p>
+    </div>
+    <div class="g-cover__actions">
+      <a class="g-btn g-btn--primary" href="#leaderboard">See the leaderboard</a>
+      <a class="g-btn g-btn--glass" href="viewer/?log=../results/v1.1/replays/landing-pad-1.1-medium-nominal-1.jsonl.gz">Watch a replay</a>
+    </div>
+  </section>
 
-<section class="sec"><div class="wrap two">
-  <p class="statement">Every score here was run by the project.</p>
-  <div class="body">
-    <p>No entry reports its own numbers. A coordinator is any program that speaks the protocol on standard input and output, so it can be written in anything; what is ranked is what it did in the project's own runs.</p>
-    <p>A round's seeds are computed from the commit that closes it. Nobody knows them while the code is being written, and anyone can reproduce the round byte for byte afterwards. No secrets, no trust.</p>
-  </div>
-</div></section>
+  <section class="g-section" aria-label="The leaderboard in four numbers">
+    <div class="g-container">
+      <div class="g-cols-4">
+        <div class="g-stat"><div class="g-stat__value" id="stat-entries">4</div><div class="g-stat__label">coordinators</div></div>
+        <div class="g-stat"><div class="g-stat__value">900</div><div class="g-stat__label">runs each</div></div>
+        <div class="g-stat"><div class="g-stat__value">18</div><div class="g-stat__label">scenarios</div></div>
+        <div class="g-stat"><div class="g-stat__value">0</div><div class="g-stat__label">self-reported scores</div></div>
+      </div>
+    </div>
+  </section>
 
-<section class="sec" id="replays"><div class="wrap">
-  <div class="headrow"><h2 class="h2">Replays.</h2><span class="tag">5 runs · one click each</span></div>
-  <div class="grid3">
-    <a class="card replay" href="viewer/?log=../results/v1.1/replays/landing-pad-1.1-medium-nominal-1.jsonl.gz">
-      <div class="meta">ArcadiaOS · Medium · seed 1</div><h3 class="h3">Six sinterers, 24 sols</h3><p>The nominal build. Seven hours to sinter a cell, then hours on the charger.</p></a>
-    <a class="card replay" href="viewer/?log=../results/v1.1/replays/landing-pad-1.1-large-dust_storm-1.jsonl.gz&amp;t=159376">
-      <div class="meta">ArcadiaOS · Large · dust storm · seed 1</div><h3 class="h3">A storm that does not lift</h3><p>Ten sinterers on a plant that cannot feed them, through 409 hours of dust.</p></a>
-    <a class="card replay" href="viewer/?log=../results/v1.1/replays/landing-pad-1.1-medium-conjunction-1.jsonl.gz&amp;t=197048">
-      <div class="meta">ArcadiaOS · Medium · conjunction · seed 1</div><h3 class="h3">Fourteen sols without Earth</h3><p>The crew asks a question as the blackout begins. The answer comes after it ends.</p></a>
-    <a class="card replay" href="viewer/?log=../results/v1.1/replays/landing-pad-1.1-medium-cascading_faults-13.jsonl.gz&amp;t=54597">
-      <div class="meta">ArcadiaOS · Medium · cascading faults · seed 13</div><h3 class="h3">One hundred and thirty faults</h3><p>A hauler and an excavator fail in the first half sol. The pad still gets built.</p></a>
-    <a class="card replay" href="viewer/?log=../results/v1.1/replays/landing-pad-1.1-crew.2.1.1.10-nominal-1.jsonl.gz">
-      <div class="meta">ArcadiaOS · fleet design · seed 1</div><h3 class="h3">A crew of its own design</h3><p>Ten sinterers, two scouts, one excavator and one hauler. Sixteen sols.</p></a>
-    <a class="card replay" href="viewer/">
-      <div class="meta">Replay viewer</div><h3 class="h3">Open your own log</h3><p>Any run saved with <code>--log</code> replays in the browser. Nothing is uploaded.</p></a>
-  </div>
-</div></section>
+  <hr class="g-divider">
 
-<section class="sec"><div class="wrap">
-  <div class="headrow"><h2 class="h2">What it does not measure.</h2><span class="tag">Catalog 1.1</span></div>
-  <div class="grid3">
-    <div class="card"><h3 class="h3">Failure.</h3><p>Stress makes almost no run fail: 1 in 3,600. A build can be slow, and it still ends.</p></div>
-    <div class="card"><h3 class="h3">The blackout.</h3><p>Two weeks without Earth cost every coordinator under 1%. Nothing a build needs waits for an answer.</p></div>
-    <div class="card"><h3 class="h3">Who takes which task.</h3><p>Random matches greedy. When a cell takes seven hours to sinter, the order of work matters little.</p></div>
-  </div>
-  <p class="fine">These are stated in the <a href="https://github.com/Gabe-Soler/arcadiabench/blob/main/results/v1.1/RESULTS.md#what-the-catalog-does-not-do">v1.1 results</a>, and they are for the next catalog.</p>
-</div></section>
+  <section class="g-section" id="leaderboard">
+    <div class="g-container">
+      <header class="g-head">
+        <div class="g-head__text">
+          <h2 class="g-head__title">Leaderboard</h2>
+          <p class="g-head__sub">Every score run by the project</p>
+        </div>
+        <a class="g-btn g-btn--outlined g-btn--compact g-head__action" href="https://github.com/Gabe-Soler/arcadiabench/blob/main/docs/leaderboard.md">Read the rules</a>
+      </header>
+      <div class="board-bar">
+        <div class="g-segment g-segment--compact board-tracks" role="tablist" aria-label="Track">
+          <button type="button" class="g-segment__item" role="tab" id="tab-standard" aria-selected="true" aria-controls="board" data-track="standard">Standard</button>
+          <button type="button" class="g-segment__item" role="tab" id="tab-fleet" aria-selected="false" aria-controls="board" data-track="fleet">Fleet design</button>
+        </div>
+        <span class="g-small board-basis" id="board-tag">Catalog 1.1 · seeds 1–50</span>
+      </div>
+      <div class="board" id="board" role="tabpanel" aria-labelledby="tab-standard" aria-live="polite">
+        <p class="board-note" id="board-status">Loading the board…</p>
+      </div>
+      <noscript><p class="g-small board-fine">The board needs JavaScript. The same numbers are in the <a href="https://github.com/Gabe-Soler/arcadiabench/blob/main/results/v1.1/RESULTS.md">v1.1 results</a>.</p></noscript>
+      <p class="g-small board-fine" id="board-fine">Ranked by the headline, success rate × speed, on the nominal variant: averaged over the three outposts on the Standard track, and for the crew an entry brings on the fleet design track. Entries that the same runs cannot tell apart share a rank. Round 1 has not run yet; until it has, the board shows the <a href="https://github.com/Gabe-Soler/arcadiabench/blob/main/results/v1.1/RESULTS.md">published v1.1 results</a>.</p>
+    </div>
+  </section>
+
+  <hr class="g-divider">
+
+  <section class="g-section" id="how">
+    <div class="g-container">
+      <header class="g-head">
+        <div class="g-head__text">
+          <h2 class="g-head__title">How it works</h2>
+          <p class="g-head__sub">Three steps from a pull request to a row</p>
+        </div>
+        <a class="g-btn g-btn--outlined g-btn--compact g-head__action" href="https://github.com/Gabe-Soler/arcadiabench/blob/main/docs/leaderboard.md#what-an-entry-is">View an entry</a>
+      </header>
+      <div class="g-cols-3">
+        <article class="g-feature">
+          <div class="g-tile"><span class="g-icon g-icon--fill g-icon--accent">merge</span></div>
+          <h3 class="g-feature__title">Open a pull request</h3>
+          <p class="g-feature__text">Add one small file: your coordinator's source repository, a pinned commit and its licence. The source is open and builds with a Dockerfile.</p>
+        </article>
+        <article class="g-feature">
+          <div class="g-tile"><span class="g-icon g-icon--fill g-icon--accent">play_arrow</span></div>
+          <h3 class="g-feature__title">A maintainer starts the run</h3>
+          <p class="g-feature__text">The project builds your image once and runs it in containers with no network. One coordinator process per run, the same simulator for everyone.</p>
+        </article>
+        <article class="g-feature">
+          <div class="g-tile"><span class="g-icon g-icon--fill g-icon--accent">leaderboard</span></div>
+          <h3 class="g-feature__title">The board updates</h3>
+          <p class="g-feature__text">Results come back as a pull request anyone can read. Once it is merged your row is here, with every scorecard behind it.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <hr class="g-divider">
+
+  <section class="g-section">
+    <div class="g-container">
+      <div class="g-grid">
+        <p class="g-h3 g-span-6 statement">Every score here was run by the project</p>
+        <div class="g-span-6 statement-body">
+          <p>No entry reports its own numbers. A coordinator is any program that speaks the protocol on standard input and output, so it can be written in anything. What is ranked is what it did in the project's own runs.</p>
+          <p>A round's seeds are computed from the commit that closes it. Nobody knows them while the code is being written, and anyone can reproduce the round byte for byte afterwards.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="g-divider">
+
+  <section class="g-section" id="replays" data-g-rail>
+    <div class="g-container">
+      <header class="g-head">
+        <div class="g-head__text">
+          <h2 class="g-head__title">Replays</h2>
+          <p class="g-head__sub">Five builds, start to finish</p>
+        </div>
+        <a class="g-btn g-btn--outlined g-btn--compact g-head__action" href="viewer/">Open the viewer</a>
+      </header>
+    </div>
+    <div class="g-rail g-rail--4">
+      <article class="g-promo" data-g-theme="dark">
+        <div class="g-promo__media g-atmos g-atmos--warm" aria-hidden="true"></div>
+        <div class="g-promo__scrim" aria-hidden="true"></div>
+        <h3 class="g-promo__title">Nominal build</h3>
+        <p class="g-promo__text">Six sinterers, 24 sols</p>
+        <div class="g-promo__actions"><a class="g-btn g-btn--primary g-btn--compact" href="viewer/?log=../results/v1.1/replays/landing-pad-1.1-medium-nominal-1.jsonl.gz" aria-label="Watch the nominal build">Watch</a></div>
+      </article>
+      <article class="g-promo" data-g-theme="dark">
+        <div class="g-promo__media g-atmos g-atmos--rose" aria-hidden="true"></div>
+        <div class="g-promo__scrim" aria-hidden="true"></div>
+        <h3 class="g-promo__title">Dust storm</h3>
+        <p class="g-promo__text">409 hours of dust on a short plant</p>
+        <div class="g-promo__actions"><a class="g-btn g-btn--primary g-btn--compact" href="viewer/?log=../results/v1.1/replays/landing-pad-1.1-large-dust_storm-1.jsonl.gz&amp;t=159376" aria-label="Watch the dust storm">Watch</a></div>
+      </article>
+      <article class="g-promo" data-g-theme="dark">
+        <div class="g-promo__media g-atmos g-atmos--violet" aria-hidden="true"></div>
+        <div class="g-promo__scrim" aria-hidden="true"></div>
+        <h3 class="g-promo__title">Conjunction</h3>
+        <p class="g-promo__text">Fourteen sols without Earth</p>
+        <div class="g-promo__actions"><a class="g-btn g-btn--primary g-btn--compact" href="viewer/?log=../results/v1.1/replays/landing-pad-1.1-medium-conjunction-1.jsonl.gz&amp;t=197048" aria-label="Watch the conjunction">Watch</a></div>
+      </article>
+      <article class="g-promo" data-g-theme="dark">
+        <div class="g-promo__media g-atmos" aria-hidden="true"></div>
+        <div class="g-promo__scrim" aria-hidden="true"></div>
+        <h3 class="g-promo__title">Cascading faults</h3>
+        <p class="g-promo__text">130 faults, and the pad gets built</p>
+        <div class="g-promo__actions"><a class="g-btn g-btn--primary g-btn--compact" href="viewer/?log=../results/v1.1/replays/landing-pad-1.1-medium-cascading_faults-13.jsonl.gz&amp;t=54597" aria-label="Watch the cascading faults">Watch</a></div>
+      </article>
+      <article class="g-promo" data-g-theme="dark">
+        <div class="g-promo__media g-atmos g-atmos--green" aria-hidden="true"></div>
+        <div class="g-promo__scrim" aria-hidden="true"></div>
+        <h3 class="g-promo__title">Own crew</h3>
+        <p class="g-promo__text">A crew of its own design, 16 sols</p>
+        <div class="g-promo__actions"><a class="g-btn g-btn--primary g-btn--compact" href="viewer/?log=../results/v1.1/replays/landing-pad-1.1-crew.2.1.1.10-nominal-1.jsonl.gz" aria-label="Watch the crew of its own design">Watch</a></div>
+      </article>
+      <article class="g-promo" data-g-theme="dark">
+        <div class="g-promo__media g-atmos g-atmos--ink" aria-hidden="true"></div>
+        <div class="g-promo__scrim" aria-hidden="true"></div>
+        <h3 class="g-promo__title">Your own log</h3>
+        <p class="g-promo__text">Any saved run, in the browser</p>
+        <div class="g-promo__actions"><a class="g-btn g-btn--primary g-btn--compact" href="viewer/" aria-label="Open your own log in the viewer">Open</a></div>
+      </article>
+    </div>
+    <div class="g-container g-mt-4">
+      <div class="g-stepper" role="group" aria-label="Scroll the replays">
+        <button class="g-stepper__btn" data-g-rail-prev aria-label="Previous"><span class="g-icon">chevron_left</span></button>
+        <button class="g-stepper__btn" data-g-rail-next aria-label="Next"><span class="g-icon">chevron_right</span></button>
+      </div>
+    </div>
+  </section>
+
+  <hr class="g-divider">
+
+  <section class="g-section g-section--last" id="limits">
+    <div class="g-container">
+      <header class="g-head">
+        <div class="g-head__text">
+          <h2 class="g-head__title">Limits</h2>
+          <p class="g-head__sub">What catalog 1.1 does not tell apart</p>
+        </div>
+        <a class="g-btn g-btn--outlined g-btn--compact g-head__action" href="https://github.com/Gabe-Soler/arcadiabench/blob/main/results/v1.1/RESULTS.md#what-the-catalog-does-not-do">Read the results</a>
+      </header>
+      <div class="g-cols-3">
+        <article class="g-card"><h3 class="g-card__title">Failure</h3><p class="g-card__text">Stress makes almost no run fail: 1 in 3,600. A build can be slow, and it still ends.</p></article>
+        <article class="g-card"><h3 class="g-card__title">The blackout</h3><p class="g-card__text">Two weeks without Earth cost every coordinator under 1%. Nothing a build needs waits for an answer.</p></article>
+        <article class="g-card"><h3 class="g-card__title">Task order</h3><p class="g-card__text">Random matches greedy. When a cell takes seven hours to sinter, who takes which task matters little.</p></article>
+      </div>
+    </div>
+  </section>
 </main>
 
-<footer class="foot"><div class="wrap"><div class="foot-in">
-  <div>ArcadiaBench · MIT · Photograph: NASA/JPL-Caltech</div>
-  <div class="foot-links">
-    <a href="https://github.com/Gabe-Soler/arcadiabench/blob/main/results/v1.1/RESULTS.md">Results</a>
-    <a href="viewer/">Replay viewer</a>
-    <a href="https://github.com/Gabe-Soler/arcadiabench">GitHub</a>
-    <a href="https://pypi.org/project/arcadiabench/">PyPI</a>
+<footer class="g-footer">
+  <div class="g-container">
+    <div class="g-footer__main">
+      <p class="g-footer__statement">An open benchmark for robot crews, run the same way for everyone</p>
+      <div class="g-footer__cols">
+        <div class="g-footer__col">
+          <h2 class="g-footer__heading">Benchmark</h2>
+          <a class="g-footer__link" href="https://github.com/Gabe-Soler/arcadiabench/blob/main/results/v1.1/RESULTS.md">Results</a>
+          <a class="g-footer__link" href="https://github.com/Gabe-Soler/arcadiabench/blob/main/docs/leaderboard.md">Leaderboard rules</a>
+          <a class="g-footer__link" href="https://github.com/Gabe-Soler/arcadiabench/blob/main/docs/scoring.md">Scoring</a>
+        </div>
+        <div class="g-footer__col">
+          <h2 class="g-footer__heading">Tools</h2>
+          <a class="g-footer__link" href="viewer/">Replay viewer</a>
+          <a class="g-footer__link" href="https://pypi.org/project/arcadiabench/">Python package</a>
+          <a class="g-footer__link" href="https://github.com/Gabe-Soler/arcadiabench">Source</a>
+        </div>
+        <div class="g-footer__col">
+          <h2 class="g-footer__heading">Project</h2>
+          <a class="g-footer__link" href="https://github.com/Gabe-Soler/arcadiaos">ArcadiaOS</a>
+          <a class="g-footer__link" href="https://github.com/Gabe-Soler/arcadia-protocol">The protocol</a>
+          <a class="g-footer__link" href="https://github.com/Gabe-Soler/arcadiabench/blob/main/CHANGELOG.md">Changelog</a>
+        </div>
+      </div>
+    </div>
+    <div class="g-footer__legal">
+      <a class="g-logo" href="#top" aria-label="ArcadiaBench home">
+        <svg class="g-logo__mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="currentColor"/><circle cx="8.6" cy="9.4" r="2.3" class="logo-crater"/><circle cx="14.6" cy="15.2" r="1.4" class="logo-crater"/></svg>
+        ArcadiaBench
+      </a>
+      <span class="g-small legal-note">MIT licence · Photograph: NASA/JPL-Caltech</span>
+    </div>
   </div>
-</div></div></footer>
+</footer>
 
 <script type="module" src="site/src/main.js"></script>
 </body>

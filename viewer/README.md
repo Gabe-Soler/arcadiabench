@@ -2,7 +2,7 @@
 
 A static web page that replays an ArcadiaBench run from its event log: a top-down view of the site with the robots at work, the landing pad taking shape, site power through dust storms, and the Earth link through outages and blackouts.
 
-It is plain HTML, CSS and ES modules drawn on Canvas 2D, with no build step and no framework. It follows the system's light or dark setting, switching live when the setting changes. Its fonts, Inter and Manrope, come from Google Fonts when the network allows; without it the page uses system fonts, so it still works offline from any static file server.
+It is plain HTML, CSS and ES modules drawn on Canvas 2D, with no build step and no framework. It follows the system's light or dark setting, switching live when the setting changes. Its typeface, Google Sans Flex, comes from Google Fonts when the network allows; without it the page uses system fonts, so it still works offline from any static file server.
 
 ## Use
 

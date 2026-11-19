@@ -94,7 +94,13 @@ test('what the workflow reads of an entry is checked first', () => {
   assert.equal(f.image_name, 'arcadiabench-entries');
   assert.equal(f.image_tag, 'baseline-greedy-1.1.0');
   assert.equal(f.dir, 'leaderboard/entries/baseline-greedy/1.1.0');
-  assert.equal(f.image_digest, '');
+  // An entry has no image until the runner has accepted it; from then on it
+  // names the image by its digest. This holds for the entry either way.
+  assert.match(f.image_digest, /^(sha256:[0-9a-f]{64})?$/);
+  const { image_digest: _, ...fresh } = entry;
+  assert.equal(entryFields(fresh).image_digest, '');
+  const digest = `sha256:${'ab'.repeat(32)}`;
+  assert.equal(entryFields({ ...entry, image_digest: digest }).image_digest, digest);
   // The Dockerfile is the root one unless the entry names another.
   const plain = { ...entry, source: { repository: entry.source.repository, commit: entry.source.commit } };
   assert.equal(entryFields(plain).dockerfile, 'Dockerfile');

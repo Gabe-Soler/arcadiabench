@@ -3,8 +3,6 @@
 
 import { barWidth, crewCounts, finished, fmt3, metaLine, presetName, rankLabel, safeHref, tonnes, variantName } from './format.js';
 
-const SVG = 'http://www.w3.org/2000/svg';
-
 function el(tag, cls, text) {
   const node = document.createElement(tag);
   if (cls) node.className = cls;
@@ -12,14 +10,11 @@ function el(tag, cls, text) {
   return node;
 }
 
-function chevron() {
-  const svg = document.createElementNS(SVG, 'svg');
-  svg.setAttribute('class', 'chev');
-  svg.setAttribute('aria-hidden', 'true');
-  const use = document.createElementNS(SVG, 'use');
-  use.setAttribute('href', '#i-chevron');
-  svg.append(use);
-  return svg;
+/** A glyph from the icon font, hidden from assistive technology. */
+function icon(name, cls = '') {
+  const span = el('span', `g-icon ${cls}`.trim(), name);
+  span.setAttribute('aria-hidden', 'true');
+  return span;
 }
 
 function labelled(label, value, cls = 'num') {
@@ -44,12 +39,12 @@ function summary(row, track, best) {
 
   const who = el('div', 'who');
   const name = el('div', 'name', row.name);
-  if (row.baseline) name.append(el('span', 'tag small', 'baseline'));
+  if (row.baseline) name.append(el('span', 'g-badge g-badge--sm', 'Baseline'));
   who.append(name, el('div', 'meta', metaLine(row)));
   s.append(who);
 
   const score = el('div', 'score');
-  const bar = el('div', 'bar');
+  const bar = el('div', 'g-progress');
   const fill = el('span');
   fill.style.width = `${barWidth(row.headline, best)}%`;
   bar.append(fill);
@@ -58,10 +53,10 @@ function summary(row, track, best) {
 
   const mob = el('div', 'mob');
   if (track === 'fleet') {
-    const crew = el('span', 'crew crew-col', `${crewCounts(row.crew)} `);
+    const crew = el('span', 'crew crew-col', `${crewCounts(row.crew)} · `);
     crew.append(el('small', null, tonnes(row.mass_kg)));
     s.append(crew);
-    mob.append(el('span', 'crew', `${crewCounts(row.crew)} · ${tonnes(row.mass_kg)}`));
+    mob.append(el('span', 'num', `${crewCounts(row.crew)} · ${tonnes(row.mass_kg)}`));
   } else {
     for (const p of ['small', 'medium', 'large']) {
       s.append(el('span', 'num p', fmt3(row.presets[p])));
@@ -70,12 +65,12 @@ function summary(row, track, best) {
   }
   s.append(el('span', 'num', fmt3(row.resilience)), el('span', 'num', finished(row)));
   mob.append(labelled('Resilience', fmt3(row.resilience)), labelled('Finished', finished(row)));
-  s.append(chevron(), mob);
+  s.append(icon('expand_more', 'chev'), mob);
   return s;
 }
 
 function scenarios(row) {
-  const table = el('table', 'scen');
+  const table = el('table', 'g-table');
   const head = el('tr');
   head.append(el('th'));
   for (const c of row.grid[0].cells) head.append(el('th', null, variantName(c.variant)));
@@ -95,16 +90,19 @@ function scenarios(row) {
     body.append(tr);
   }
   table.append(thead, body);
-  const scroll = el('div', 'grid-scroll');
-  scroll.append(table);
-  return scroll;
+  const wrap = el('div', 'g-table-wrap');
+  wrap.append(table);
+  return wrap;
 }
 
+/** A text link with its chevron, or nothing if the address is not one the
+ * page follows. */
 function link(label, href) {
   const safe = safeHref(href);
   if (!safe) return null;
-  const a = el('a', 'btn', label);
+  const a = el('a', 'g-link', label);
   a.href = safe;
+  a.append(icon('chevron_right'));
   return a;
 }
 
@@ -113,14 +111,14 @@ function detail(row) {
   if (row.summary) d.append(el('p', null, row.summary));
   // On the fleet design track a crew may be another entry's design.
   if (row.designed_by && row.designed_by !== row.id) {
-    d.append(el('p', 'meta', `It runs the crew that ${row.designed_by} designed.`));
+    d.append(el('p', 'g-small', `It runs the crew that ${row.designed_by} designed.`));
   }
   d.append(scenarios(row));
-  const pills = el('div', 'btnrow');
+  const links = el('div', 'links');
   for (const a of [link('Scorecards', row.links.scorecards), link('Watch a run', row.links.replay), link('Source', row.links.source)]) {
-    if (a) pills.append(a);
+    if (a) links.append(a);
   }
-  d.append(pills);
+  d.append(links);
   return d;
 }
 

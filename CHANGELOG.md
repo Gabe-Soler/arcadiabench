@@ -15,7 +15,13 @@ All notable changes to ArcadiaBench. Versions follow semver.
 
 ### Changed
 
-- **The replay viewer's welcome screen** says what it does ("Replay a build, robot by robot.") and carries the front page's photograph. The viewer's design tokens moved to `viewer/tokens.css`, which both pages link.
+- **The replay viewer's welcome screen** says what it does ("Replay a build, robot by robot") and carries the front page's photograph. The viewer's design tokens moved to `viewer/tokens.css`.
+- **A new look for the whole site**, front page and replay viewer, in light and dark.
+  - **Monochrome interface.** The main button of a screen is the inverse of the page: black on white, near-white on near-black. Colour is left to the photograph, the replay cards and the data.
+  - **One typeface**, Google Sans Flex, at weights 400 to 500. Every control is a pill in one of two heights, sections are set apart by hairlines, and nothing has a shadow.
+  - **Front page.** The photograph fills the first screen behind the headline; the replays are a row of cards that scrolls sideways; below 1024 px the navigation is a menu button that opens a full-screen list.
+  - **Viewer.** Underline tabs, filter chips that invert when on, status labels with a dot and a word, and a wider sidebar (460 px) for the larger text (14.5 px throughout).
+  - The site's tokens and components are in `site/ui/`. The viewer keeps its own `viewer/tokens.css`, written out per scheme because its canvases read plain colours; a test keeps the two in step (`site/test/tokens.test.js`).
 
 ## [1.1.0] - 2026-11-16
 

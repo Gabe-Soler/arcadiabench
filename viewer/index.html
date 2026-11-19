@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
-<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0e0e0c">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#121317">
 <title>ArcadiaBench replay viewer</title>
 <meta name="description" content="Top-down replays of ArcadiaBench runs from their event logs.">
 <link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <!-- Loaded without blocking, so the viewer starts offline too (on system fonts). -->
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&amp;family=Manrope:wght@300;400;500&amp;display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@6..144,1..1000&amp;display=swap" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -20,13 +20,13 @@
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-start" viewBox="0 0 16 16"><rect x="3" y="3.5" width="1.8" height="9" rx=".9" fill="currentColor"/><path d="M13 4.1v7.8a.6.6 0 0 1-.92.5L6.3 8.5a.6.6 0 0 1 0-1l5.78-3.9a.6.6 0 0 1 .92.5Z" fill="currentColor"/></symbol>
   <symbol id="i-end" viewBox="0 0 16 16"><rect x="11.2" y="3.5" width="1.8" height="9" rx=".9" fill="currentColor"/><path d="M3 4.1v7.8a.6.6 0 0 0 .92.5L9.7 8.5a.6.6 0 0 0 0-1L3.92 3.6a.6.6 0 0 0-.92.5Z" fill="currentColor"/></symbol>
-  <symbol id="i-back" viewBox="0 0 16 16"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-  <symbol id="i-fwd" viewBox="0 0 16 16"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-back" viewBox="0 0 16 16"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-fwd" viewBox="0 0 16 16"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-play" viewBox="0 0 16 16"><path d="M5 3.2v9.6a.6.6 0 0 0 .92.5l7.56-4.8a.6.6 0 0 0 0-1L5.92 2.7a.6.6 0 0 0-.92.5Z" fill="currentColor"/></symbol>
   <symbol id="i-pause" viewBox="0 0 16 16"><rect x="4" y="3" width="2.6" height="10" rx="1" fill="currentColor"/><rect x="9.4" y="3" width="2.6" height="10" rx="1" fill="currentColor"/></symbol>
-  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3.5v9M3.5 8h9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
-  <symbol id="i-minus" viewBox="0 0 16 16"><path d="M3.5 8h9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
-  <symbol id="i-fit" viewBox="0 0 16 16"><path d="M3 6.2V3h3.2M9.8 3H13v3.2M13 9.8V13H9.8M6.2 13H3V9.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3.5v9M3.5 8h9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 16 16"><path d="M3.5 8h9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-fit" viewBox="0 0 16 16"><path d="M3 6.2V3h3.2M9.8 3H13v3.2M13 9.8V13H9.8M6.2 13H3V9.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-mark" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5" fill="currentColor"/><circle cx="8.6" cy="9.4" r="2.3" style="fill:var(--gs-bg)"/><circle cx="14.6" cy="15.2" r="1.4" style="fill:var(--gs-bg)"/></symbol>
 </svg>
 
@@ -150,7 +150,7 @@
   </div></nav>
 
   <header class="hero"><div class="wrap">
-    <h1 class="h1">Replay a build, robot by robot.</h1>
+    <h1 class="h1">Replay a build, robot by robot</h1>
     <p class="hero-sub">Open an ArcadiaBench event log and watch the crew at work: the landing pad taking shape, site power through dust storms, and the Earth link through blackouts. Nothing is uploaded.</p>
     <div class="btnrow">
       <button type="button" class="btn primary" id="welcome-open">Choose a log file</button>
@@ -162,7 +162,7 @@
     </div>
     <div class="error" id="load-error" hidden></div>
     <div class="drop" id="drop-zone">
-      <div class="drop-title">Drop an event log here.</div>
+      <div class="drop-title">Drop an event log here</div>
       <div class="drop-meta">.jsonl or .jsonl.gz, as written by <code>arcadiabench run --log FILE</code></div>
     </div>
   </div>
@@ -170,7 +170,7 @@
   </header>
 
   <section class="sec" id="samples"><div class="wrap">
-    <div class="headrow"><h2 class="h2">Samples.</h2><span class="tag">4 replays · one click each</span></div>
+    <div class="headrow"><div><h2 class="h2">Samples</h2><p class="h2 sub2">Four replays, one click each</p></div><a class="btn" href="../#replays">View replays</a></div>
     <div class="grid2">
       <a class="sample" href="?log=samples/arcadiaos-conjunction-seed13.jsonl.gz&amp;t=68300">
         <div class="sample-meta">ArcadiaOS · conjunction · seed 13</div>
