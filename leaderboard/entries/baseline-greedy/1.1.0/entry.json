@@ -26,5 +26,6 @@
     },
     "mass_kg": 9900,
     "designed_by": "arcadiaos"
-  }
+  },
+  "image_digest": "sha256:cb7f375a7b002275d0bde8b1a742004e9c90e3272be7faaca2c48695ac44a76e"
 }
