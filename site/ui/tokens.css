@@ -1,0 +1,238 @@
+/* ==========================================================================
+   The ArcadiaBench site's design tokens: a monochrome, media-led system
+   with two themes from one tonal ladder. Every value is a --g-* custom
+   property.
+
+   Themes
+   - Every colour token is written once with light-dark(light, dark).
+   - The theme is whichever `color-scheme` applies to the element that USES
+     the token, so themes can be nested: put data-g-theme="dark" on a card
+     that sits on dark media and only that card flips.
+       <html data-g-theme="light">   default
+       <html data-g-theme="dark">
+       <html data-g-theme="auto">    follows the OS
+   ========================================================================== */
+
+:root,
+[data-g-theme="light"] { color-scheme: light; }
+[data-g-theme="dark"]  { color-scheme: dark; }
+[data-g-theme="auto"]  { color-scheme: light dark; }
+
+:root {
+  /* ---- Surfaces: one tonal ladder per theme -------------------------- */
+  --g-surface:            light-dark(#ffffff, #121317);  /* page */
+  --g-container:          light-dark(#f8f9fc, #18191d);  /* cards, inputs, tonal buttons */
+  --g-container-high:     light-dark(#eff2f7, #212226);  /* hover of a container, nested block */
+  --g-container-higher:   light-dark(#e6eaf0, #2f3034);  /* selected row, track */
+  --g-container-highest:  light-dark(#e1e6ec, #45474d);  /* strongest neutral fill */
+
+  /* ---- Text ---------------------------------------------------------- */
+  --g-on-surface:         light-dark(#121317, #f8f9fc);  /* headings, labels, primary text */
+  --g-on-surface-variant: light-dark(#45474d, #b2bbc5);  /* body copy, meta, subtitles */
+  --g-on-surface-faint:   #80868b;                       /* disabled label, same in both themes */
+
+  /* ---- Lines --------------------------------------------------------- */
+  --g-outline:            light-dark(rgb(33 34 38 / .12), rgb(230 234 240 / .12)); /* button rings, tab rules */
+  --g-outline-variant:    light-dark(rgb(33 34 38 / .06), rgb(230 234 240 / .06)); /* section + row hairlines */
+
+  /* ---- Translucent surfaces ------------------------------------------ */
+  --g-surface-glass:      light-dark(rgb(255 255 255 / .18), rgb(18 19 23 / .18)); /* glass button on media */
+  --g-surface-veil:       light-dark(rgb(255 255 255 / .8),  rgb(18 19 23 / .8));  /* sticky header, menus */
+  --g-surface-veil-strong:light-dark(rgb(255 255 255 / .95), rgb(18 19 23 / .95)); /* dialogs, drawers */
+
+  /* ---- Action colours: primary is the INVERSE of the surface --------- */
+  --g-primary:            var(--g-on-surface);
+  --g-on-primary:         var(--g-surface);
+
+  /* State layers are painted over the control, never a new fill colour */
+  --g-state-primary-hover: light-dark(rgb(230 234 240 / .12), rgb(33 34 38 / .12));
+  --g-state-primary-focus: light-dark(rgb(230 234 240 / .2),  rgb(33 34 38 / .2));
+  --g-state-hover:         light-dark(rgb(33 34 38 / .04), rgb(230 234 240 / .06));
+  --g-state-focus:         light-dark(rgb(33 34 38 / .12), rgb(230 234 240 / .16));
+  --g-state-press:         light-dark(rgb(33 34 38 / .06), rgb(230 234 240 / .12));
+  --g-disabled:            var(--g-container);
+  --g-on-disabled:         light-dark(rgb(33 34 38 / .2), rgb(230 234 240 / .2));
+
+  /* Text links start in the variant colour and darken / lighten on hover */
+  --g-link:               var(--g-on-surface-variant);
+  --g-link-hover:         light-dark(#212226, #f8f9fc);
+  --g-link-press:         light-dark(#18191d, #e1e6ec);
+
+  /* ---- Text on photography / video (theme independent) --------------- */
+  --g-on-media:           #ffffff;
+  --g-on-media-variant:   rgb(255 255 255 / .72);
+  --g-on-media-inverse:   #121317;
+  --g-on-media-inverse-variant: rgb(18 19 23 / .72);
+  --g-scrim:              #2f3034;
+
+  /* ---- The one accent: blue, for glyphs and data only ---------------- */
+  --g-accent:             #3279f9;
+  --g-accent-strong:      light-dark(#2b4fda, #9dd2ff);  /* accent as text / line on the surface */
+  --g-accent-gradient:    linear-gradient(45deg, #3186ff 0%, #3279f9 49.75%, #3c90ff 100%);
+
+  /* ---- Tinted section backgrounds (use sparingly, one per page) ------ */
+  --g-tint-grey:          light-dark(#f8f9fc, #212226);
+  --g-tint-blue:          light-dark(#f4faff, #1e2867);
+  --g-tint-green:         light-dark(#f6fff0, #005143);
+  --g-tint-yellow:        light-dark(#feffe1, #9e3d02);
+
+  /* ---- Status pairs (fill / text). Chips, notices, table cells ------- */
+  --g-info:               light-dark(#dcf1ff, #1e2867);
+  --g-on-info:            light-dark(#1e2867, #dcf1ff);
+  --g-success:            light-dark(#daf9d4, #005143);
+  --g-on-success:         light-dark(#005143, #daf9d4);
+  --g-warning:            light-dark(#fcffad, #d05600);
+  --g-on-warning:         light-dark(#9e3d02, #fcffad);
+  --g-error:              light-dark(#ffeef7, #990d0e);
+  --g-on-error:           light-dark(#7d0304, #ffeef7);
+  /* Status as a line or text directly on the surface */
+  --g-success-strong:     light-dark(#008052, #9be69a);
+  --g-warning-strong:     light-dark(#d05600, #fff350);
+  --g-error-strong:       light-dark(#be1c1b, #ffacc2);
+
+  /* ---- Data series (mid emphasis; same hue in both themes) ----------- */
+  --g-data-1:             #3c90ff;                        /* blue   */
+  --g-data-2:             #0ebc5f;                        /* green  */
+  --g-data-3:             #ffcf03;                        /* yellow */
+  --g-data-4:             #ff4c45;                        /* red    */
+  --g-data-5:             light-dark(#7372fe, #6a64fd);   /* purple */
+  --g-data-6:             light-dark(#ff88d3, #ff69c3);   /* pink   */
+  --g-data-neutral:       light-dark(#b2bbc5, #45474d);   /* grey: baselines, "other" */
+  --g-data-grid:          var(--g-outline-variant);
+
+  /* ---- Typography ---------------------------------------------------- */
+  --g-font: "Google Sans Flex", "Google Sans", "DM Sans", system-ui, Arial, Helvetica, sans-serif;
+  --g-font-mono: "Google Sans Code", "Roboto Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --g-font-icon: "Material Symbols Rounded";
+
+  /* Fluid factor: 0 at 768px, 1px at 1280px. The source snaps from the small
+     scale to the large one at 1280px; these tokens interpolate between 768
+     and 1280 so tablets don't get a phone-sized headline. */
+  --g-fl: calc((100vw - 768px) / 512);
+
+  /*            phone / tablet floor      growth              desktop cap    source step */
+  --g-fs-display-2: clamp(2.375rem,  calc(2.375rem + 110 * var(--g-fl)), 9.25rem);   /* heading-00  38 → 148 */
+  --g-fs-display-1: clamp(2.25rem,   calc(2.25rem  +  88 * var(--g-fl)), 7.75rem);   /* heading-0   36 → 124 */
+  --g-fs-hero:      clamp(2.125rem,  calc(2.125rem +  64 * var(--g-fl)), 6.125rem);  /* heading-1   34 → 98  */
+  --g-fs-h1:        clamp(2rem,      calc(2rem     +  40 * var(--g-fl)), 4.5rem);    /* heading-2   32 → 72  */
+  --g-fs-h2:        clamp(1.875rem,  calc(1.875rem +  24 * var(--g-fl)), 3.375rem);  /* heading-3   30 → 54  */
+  --g-fs-h3:        clamp(1.75rem,   calc(1.75rem  +  14 * var(--g-fl)), 2.625rem);  /* heading-4   28 → 42  */
+  --g-fs-h4:        clamp(1.625rem,  calc(1.625rem +   6 * var(--g-fl)), 2rem);      /* heading-5   26 → 32  */
+  --g-fs-h5:        clamp(1.5rem,    calc(1.5rem   +   4 * var(--g-fl)), 1.75rem);   /* heading-6   24 → 28  */
+  --g-fs-h6:        clamp(1.375rem,  calc(1.375rem +   2 * var(--g-fl)), 1.5rem);    /* heading-7   22 → 24  */
+  --g-fs-title-l:   clamp(1.25rem,   calc(1.25rem  +   2 * var(--g-fl)), 1.375rem);  /* heading-8   20 → 22  */
+  --g-fs-title:     clamp(1.125rem,  calc(1.125rem +   2 * var(--g-fl)), 1.25rem);   /* heading-9   18 → 20  */
+  --g-fs-body:      1.09375rem;  /* 17.5px */
+  --g-fs-small:     0.90625rem;  /* 14.5px */
+  --g-fs-micro:     0.625rem;    /* 10px, uppercase labels and legal only */
+
+  /* Line-height and tracking: the small-screen set. The ≥1024px set is below. */
+  --g-lh-display: 1.06;  --g-ls-display: -.006em;
+  --g-lh-hero:    1.06;  --g-ls-hero:    -.0094em;
+  --g-lh-h1:      1.06;  --g-ls-h1:      -.0107em;
+  --g-lh-h2:      1.06;  --g-ls-h2:      -.0063em;
+  --g-lh-h3:      1.06;  --g-ls-h3:      -.0078em;
+  --g-lh-h4:      1.08;  --g-ls-h4:      -.0087em;
+  --g-lh-h5:      1.08;  --g-ls-h5:      -.0058em;
+  --g-lh-h6:      1.12;  --g-ls-h6:      -.0065em;
+  --g-lh-title-l: 1.14;  --g-ls-title-l: -.0044em;
+  --g-lh-title:   1.45;  --g-ls-title:   -.0039em;
+  --g-lh-body:    1.45;  --g-ls-body:    .0119em;
+  --g-lh-small:   1.45;  --g-ls-small:   .0114em;
+  --g-lh-micro:   1.45;  --g-ls-micro:   .0092em;
+  --g-ls-label:   .0145em;   /* button and link labels at 14.5px */
+
+  /* Weights: only these three. Never 600+ for headings. */
+  --g-w-regular: 400;
+  --g-w-medium:  450;   /* buttons, links, some headings */
+  --g-w-strong:  500;   /* most headings, nav, card titles */
+
+  /* ---- Space (px: 4 8 16 24 28 36 40 48 60 64 72 80 88 120 180) ------ */
+  --g-space-1: .25rem;  --g-space-2: .5rem;   --g-space-3: 1rem;    --g-space-4: 1.5rem;
+  --g-space-5: 1.75rem; --g-space-6: 2.25rem; --g-space-7: 2.5rem;  --g-space-8: 3rem;
+  --g-space-9: 3.75rem; --g-space-10: 4rem;   --g-space-11: 4.5rem; --g-space-12: 5rem;
+  --g-space-13: 5.5rem; --g-space-14: 7.5rem; --g-space-15: 11.25rem;
+
+  /* ---- Grid: 12 columns ---------------------------------------------- */
+  --g-margin: 1.75rem;        /* 28 → 40 (≥1024) → 72 (≥1280) */
+  --g-gutter: 1.75rem;        /* 28 → 40 (≥1024) → 48 (≥1280) → 64 (≥1728) */
+  --g-max:    1296px;         /* content width; 1584px at ≥1728 */
+
+  /* Vertical rhythm between page sections */
+  --g-section-lg: 5.5rem;     /* 88 → 120 (≥768) → 180 (≥1280): before the footer, between chapters */
+  --g-section-md: 1.75rem;    /* 28 → 40 (≥1024) → 72 (≥1280): default section padding */
+  --g-section-sm: 1rem;       /* 16 → 28 (≥1024) → 60 (≥1280) */
+  --g-head-gap:   2.25rem;    /* 36 → 60 (≥1280): section header to its content */
+
+  /* ---- Shape --------------------------------------------------------- */
+  --g-r-xs: 4px;     /* text-link focus box */
+  --g-r-sm: 8px;     /* badges, small tiles, inset tables */
+  --g-r-md: 16px;    /* images, video, quotes, notices, textareas */
+  --g-r-lg: 24px;    /* cards, icon tiles, panels, menus, dialogs */
+  --g-r-xl: 36px;
+  --g-r-2xl: 48px;
+  --g-r-full: 9999px;/* every button, input, chip, tab pill */
+
+  /* ---- Sizes --------------------------------------------------------- */
+  --g-header-h:  64px;
+  --g-ctl-h:     48px;   /* default button / input */
+  --g-ctl-h-sm:  34px;   /* compact button / chip */
+  --g-icon-xs: 12px; --g-icon-sm: 18px; --g-icon-md: 24px; --g-icon-lg: 36px; --g-icon-xl: 48px; --g-icon-2xl: 56px;
+  --g-tile:      100px;  /* outlined icon tile */
+
+  /* ---- Elevation: there is none -------------------------------------- */
+  --g-ring:       0 0 0 1px var(--g-outline);                                  /* outlined button, focused input */
+  --g-focus-ring: 0 0 0 2px var(--g-on-primary), 0 0 0 4px var(--g-primary);   /* keyboard focus */
+  --g-blur-glass: blur(6px);
+  --g-blur-bar:   blur(12px);
+  --g-blur-menu:  blur(20px);
+
+  /* ---- Motion -------------------------------------------------------- */
+  --g-ease:     cubic-bezier(.4, 0, .2, 1);    /* standard */
+  --g-ease-out: cubic-bezier(.16, 1, .3, 1);   /* menus, drawers, reveals */
+  --g-dur-1: .15s;   /* expand / collapse */
+  --g-dur-2: .2s;    /* colour */
+  --g-dur-3: .3s;    /* state layers, opacity, image zoom */
+}
+
+@media (min-width: 768px) {
+  :root { --g-section-lg: 7.5rem; }
+}
+@media (min-width: 1024px) {
+  :root {
+    --g-margin: 2.5rem; --g-gutter: 2.5rem;
+    --g-section-md: 2.5rem; --g-section-sm: 1.75rem;
+    /* large-screen line-height and tracking */
+    --g-lh-display: .98;   --g-ls-display: -.0231em;
+    --g-lh-hero:    .98;   --g-ls-hero:    -.0272em;
+    --g-lh-h1:      1;     --g-ls-h1:      -.024em;
+    --g-lh-h2:      1.04;  --g-ls-h2:      -.0225em;
+    --g-lh-h3:      1.04;  --g-ls-h3:      -.0233em;
+    --g-lh-h4:      1.06;  --g-ls-h4:      -.017em;
+    --g-lh-h5:      1.08;  --g-ls-h5:      -.0071em;
+    --g-lh-h6:      1.08;  --g-ls-h6:      -.007em;
+    --g-lh-title-l: 1.12;  --g-ls-title-l: -.0072em;
+    --g-ls-title:   -.0044em;
+  }
+}
+@media (min-width: 1280px) {
+  :root {
+    --g-margin: 4.5rem; --g-gutter: 3rem;
+    --g-section-lg: 11.25rem; --g-section-md: 4.5rem; --g-section-sm: 3.75rem;
+    --g-head-gap: 3.75rem;
+  }
+}
+@media (min-width: 1728px) {
+  :root { --g-gutter: 4rem; --g-max: 1584px; }
+}
+
+/* ---- Compact density (extension): dashboards, tools, data-heavy screens.
+   The source uses its 14.5px / 34px "compact" controls inside cards and the
+   header; this makes them the default for a whole region. ---------------- */
+[data-g-density="compact"] {
+  --g-fs-body: 0.90625rem;       /* 14.5px */
+  --g-ls-body: .0114em;
+  --g-ctl-h: 34px;
+  --g-head-gap: 1.5rem;
+  --g-tile: 48px;
+}

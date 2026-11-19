@@ -1,8 +1,10 @@
 /*
- * The ArcadiaBench site's design tokens, in the GSDesign language: every
- * colour, the type families and the shapes. The replay viewer (style.css)
- * and the front page (../site/site.css) both link this file, so the two
- * pages cannot drift apart.
+ * The replay viewer's design tokens: every colour, the type family and the
+ * shapes. Their values are those of the site's design system
+ * (../site/ui/tokens.css): one tonal ladder for both themes, cool greys,
+ * hairlines at 6% and 12%, and a ring where a shadow would be. They are
+ * written out per scheme here, as plain colours, because the canvases read
+ * them (a test keeps the two files in step).
  *
  * Light and dark follow the system setting (prefers-color-scheme). The
  * viewer's canvases read the --gs-*, data and --cv-* properties through
@@ -13,42 +15,39 @@
   color-scheme: light dark;
 
   /* ink and text */
-  --gs-ink: #12110d;
-  --gs-text: #4a4a4a;
-  --gs-muted: #434343;
-  --gs-grey: #6b6b6b;
-  --gs-placeholder: #a3a3a3;
+  --gs-ink: #121317;
+  --gs-text: #45474d;
+  --gs-muted: #45474d;
+  --gs-grey: #45474d;
+  --gs-placeholder: rgb(69 71 77 / .6);
 
   /* lines */
-  --gs-line: #e5e5e5;
-  --gs-line-soft: #ececec;
-  --gs-line-hover: #c4c4c4;
+  --gs-line: rgb(33 34 38 / .12);
+  --gs-line-soft: rgb(33 34 38 / .06);
+  --gs-line-hover: rgb(33 34 38 / .28);
 
   /* surfaces */
   --gs-bg: #fff;
-  --gs-card: #f7f7f7;
-  --gs-raised: #fff;        /* pills, tooltips and panels set on a card or the map */
-  --gs-track: #ececec;      /* segmented tracks and bars inside a card */
-  --gs-segment: #f2f2f2;    /* segmented track on the page */
+  --gs-card: #f8f9fc;
+  --gs-raised: #eff2f7;        /* pills, tooltips and panels set on a card or the map */
+  --gs-track: #e6eaf0;      /* segmented tracks and bars inside a card */
+  --gs-segment: #f8f9fc;    /* segmented track on the page */
   --gs-plot: #fff;          /* chart and timeline backgrounds */
   --gs-dialog: #fff;
-  --gs-cream: #faf6ef;
-  --gs-cream-end: #fdfaf5;
-  --gs-scrim: rgba(18, 17, 13, .45);
-  --gs-shadow: 0 24px 60px rgba(0, 0, 0, .18);
-  --gs-shadow-sm: 0 8px 24px rgba(0, 0, 0, .12);
-  --gs-dot-ring: rgba(18, 17, 13, .22);
+  --gs-scrim: rgb(255 255 255 / .8);
+  --gs-hover: rgb(33 34 38 / .04);    /* the state layer under a pointer */
+  --gs-veil: rgb(255 255 255 / .95);  /* what floats over the map */
+  --gs-error-fill: #ffeef7;
+  --gs-on-error: #7d0304;
+  --gs-ring: 0 0 0 1px rgb(33 34 38 / .12);
+  --gs-dot-ring: rgba(33, 34, 38, .22);
 
-  /* accent: primary actions and focus only */
-  --gs-accent: #0098f6;
-  --gs-accent-hover: #0086dc;
-  --gs-accent-ring: rgba(0, 152, 246, .16);
 
   /* type, shape */
-  --gs-font-display: Manrope, system-ui, sans-serif;
-  --gs-font-body: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --gs-font-display: "Google Sans Flex", "Google Sans", "DM Sans", system-ui, Arial, Helvetica, sans-serif;
+  --gs-font-body: "Google Sans Flex", "Google Sans", "DM Sans", system-ui, Arial, Helvetica, sans-serif;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
-  --gs-pill: 100px;
+  --gs-pill: 9999px;
   --gs-radius-card: 24px;
   --gs-gutter: 20px;
   --gs-gap: 16px;
@@ -69,50 +68,49 @@
   --msg-down: #d49b00;
 
   /* canvases */
-  --cv-map-frame: rgba(18, 17, 13, .14);
-  --cv-unknown: #dcdcd8;
+  --cv-map-frame: rgba(33, 34, 38, .14);
+  --cv-unknown: #e1e6ec;
   --cv-night: #e3e6ec;
   --cv-day: #f3d99a;
-  --cv-tick: #d6d6d2;
-  --cv-elapsed: rgba(18, 17, 13, .05);
-  --cv-hover: rgba(18, 17, 13, .28);
+  --cv-tick: #d3d9e0;
+  --cv-elapsed: rgba(33, 34, 38, .05);
+  --cv-hover: rgba(33, 34, 38, .28);
   --cv-band-storm: rgba(217, 130, 43, .85);
   --cv-band-link: rgba(200, 52, 74, .88);
   --cv-band-pass: rgba(200, 52, 74, .16);
   --cv-failure: #e0661a;
   --cv-chart-night: rgba(70, 90, 130, .08);
   --cv-chart-storm: rgba(217, 130, 43, .14);
-  --cv-chart-grid: rgba(18, 17, 13, .07);
+  --cv-chart-grid: rgba(33, 34, 38, .07);
   --cv-storage-fill: rgba(15, 157, 138, .1);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --gs-ink: #f4f2ed;
-    --gs-text: #c8c6c0;
-    --gs-muted: #b4b2ac;
-    --gs-grey: #9a9a96;
-    --gs-placeholder: #6b6b68;
+    --gs-ink: #f8f9fc;
+    --gs-text: #b2bbc5;
+    --gs-muted: #b2bbc5;
+    --gs-grey: #b2bbc5;
+    --gs-placeholder: rgb(178 187 197 / .6);
 
-    --gs-line: #2a2a28;
-    --gs-line-soft: #232321;
-    --gs-line-hover: #3d3d3a;
+    --gs-line: rgb(230 234 240 / .12);
+    --gs-line-soft: rgb(230 234 240 / .06);
+    --gs-line-hover: rgb(230 234 240 / .28);
 
-    --gs-bg: #0e0e0c;
-    --gs-card: #1a1a18;
-    --gs-raised: #2a2a27;
-    --gs-track: #121211;
-    --gs-segment: #1a1a18;
-    --gs-plot: #121211;
-    --gs-dialog: #1a1a18;
-    --gs-cream: #17150f;
-    --gs-cream-end: #11100d;
-    --gs-scrim: rgba(0, 0, 0, .6);
-    --gs-shadow: 0 24px 60px rgba(0, 0, 0, .5);
-    --gs-shadow-sm: 0 8px 24px rgba(0, 0, 0, .45);
+    --gs-bg: #121317;
+    --gs-card: #18191d;
+    --gs-raised: #212226;
+    --gs-track: #2f3034;
+    --gs-segment: #18191d;
+    --gs-plot: #121317;
+    --gs-dialog: #121317;
+    --gs-scrim: rgb(18 19 23 / .8);
+    --gs-hover: rgb(230 234 240 / .06);
+    --gs-veil: rgb(18 19 23 / .95);
+    --gs-error-fill: #990d0e;
+    --gs-on-error: #ffeef7;
+    --gs-ring: 0 0 0 1px rgb(230 234 240 / .12);
     --gs-dot-ring: rgba(0, 0, 0, .45);
-
-    --gs-accent-ring: rgba(0, 152, 246, .32);
 
     --ok: #4ade80;
     --warn: #f5b942;
@@ -127,20 +125,20 @@
     --msg-up: #9fd0ff;
     --msg-down: #ffd27d;
 
-    --cv-map-frame: rgba(244, 242, 237, .16);
+    --cv-map-frame: rgba(230, 234, 240, .16);
     --cv-unknown: #232321;
     --cv-night: #23262c;
     --cv-day: #5f5229;
     --cv-tick: #3a3a37;
-    --cv-elapsed: rgba(244, 242, 237, .06);
-    --cv-hover: rgba(244, 242, 237, .32);
+    --cv-elapsed: rgba(230, 234, 240, .06);
+    --cv-hover: rgba(230, 234, 240, .32);
     --cv-band-storm: rgba(224, 149, 74, .8);
     --cv-band-link: rgba(224, 87, 109, .82);
     --cv-band-pass: rgba(224, 87, 109, .2);
     --cv-failure: #fb923c;
     --cv-chart-night: rgba(130, 150, 200, .1);
     --cv-chart-storm: rgba(224, 149, 74, .16);
-    --cv-chart-grid: rgba(244, 242, 237, .08);
+    --cv-chart-grid: rgba(230, 234, 240, .08);
     --cv-storage-fill: rgba(56, 198, 181, .18);
   }
 }
