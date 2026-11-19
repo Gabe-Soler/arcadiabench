@@ -10,7 +10,7 @@
   "summary": "A capacity plan by linear program, an auction for dispatch, cells measured before they are sintered, and wear read from what each robot shows.",
   "source": {
     "repository": "https://github.com/Gabe-Soler/arcadiaos",
-    "commit": "c511ce6355b3a81e93c0e07399cae8e233b49e40"
+    "commit": "e69fe4cffc6e8b1c733cbd4156195d3147561908"
   },
   "tracks": [
     "standard",

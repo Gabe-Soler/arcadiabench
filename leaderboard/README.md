@@ -29,7 +29,7 @@ leaderboard/
 ArcadiaOS 1.1.0 and the three baselines, on seeds 1–50 of catalog 1.1.
 
 - Their reports are their scorecards from [`results/v1.1/results.json`](../results/v1.1/results.json), unchanged.
-- The baselines' entries name the commit that added their Dockerfiles ([`tools/dockerfiles/`](tools/dockerfiles/)); their code is that of release 1.1.0, which is what the published results ran.
+- The entries name the commits that added their Dockerfiles: the baselines' in this repository ([`tools/dockerfiles/`](tools/dockerfiles/)), ArcadiaOS's in its own. Their code is that of release 1.1.0, which is what the published results ran.
 - Their per-seed scores come from running the nominal scenarios again, which gives the published scorecards byte for byte:
 
   ```sh

@@ -11,7 +11,7 @@ All notable changes to ArcadiaBench. Versions follow semver.
   - **Entries** are files in `leaderboard/entries/<id>/<version>/`, checked against `schemas/leaderboard-entry.schema.json`. The board the page reads is built from them when the site is deployed (`site/tools/build-board.mjs`, `schemas/leaderboard.schema.json`). `docs/leaderboard.md` has the rules.
   - **The runner** (`.github/workflows/leaderboard.yml`), started by hand by a maintainer. It builds an entry's image from its pinned commit, keeps it in the registry under its digest, runs it on the public seeds twice in a sandbox (`leaderboard/tools/sandbox.sh`: no network, a read-only file system, an unprivileged user, limits on memory, CPU, processes and time) and pushes a branch with the results. An entry that crashes, times out or differs between the two runs gets none. `leaderboard-check.yml` tests the sandbox and the entry runner on every push that touches them.
   - **A round's seeds** come from the commit its tag points at (`site/tools/round-seeds.mjs`), so nothing is kept secret and a round can be reproduced by anyone.
-  - **A photograph in the hero:** NASA's Perseverance rover with the Ingenuity helicopter (NASA/JPL-Caltech/MSSS), credited in the footer and in `site/img/CREDITS.md`.
+  - **A photograph in the hero:** three generations of NASA's Mars rovers side by side in JPL's Mars Yard (NASA/JPL-Caltech), credited in the footer and in `site/img/CREDITS.md`.
 
 ### Changed
 

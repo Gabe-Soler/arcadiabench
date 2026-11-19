@@ -571,20 +571,20 @@ kbd {
   background: var(--gs-cream);
 }
 /* The front page's photograph, smaller: it sits at the foot of the band,
- * tucked under the drop zone, and its sky fades up into the cream. */
+ * under the drop zone, and its top edge fades up into the cream. */
 .hero-media {
   position: relative;
   z-index: -1;
   width: min(100%, 1200px);
   aspect-ratio: 1920 / 1000;
-  margin: calc(-1 * clamp(40px, 9vw, 120px)) auto 0;
+  margin: clamp(8px, 1.6vw, 22px) auto 0;
   background: var(--gs-cream) url(../site/img/hero-1600.jpg) center / cover no-repeat;
 }
 .hero-media::before {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, var(--gs-cream) 0%, var(--gs-cream) 6%, color-mix(in srgb, var(--gs-cream) 0%, transparent) 28%);
+  background: linear-gradient(180deg, var(--gs-cream) 0%, color-mix(in srgb, var(--gs-cream) 0%, transparent) 13%);
 }
 @media (min-width: 1201px) {
   .hero-media {
@@ -601,7 +601,7 @@ kbd {
     margin: 28px var(--gs-gutter) 0;
     border-radius: 16px;
     background-image: url(../site/img/hero-960.jpg);
-    background-position: 70% 50%;
+    background-position: 62% 50%;
   }
   .hero-media::before { display: none; }
 }

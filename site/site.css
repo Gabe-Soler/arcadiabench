@@ -144,23 +144,22 @@ code { font-family: var(--mono); font-size: .92em; }
 .hero-sub { max-width: 640px; margin: 0 auto; color: var(--gs-grey); font-size: clamp(16px, 2.2vw, 18px); line-height: 1.5; text-wrap: pretty; }
 .btnrow { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; margin-top: clamp(24px, 3.4vw, 34px); }
 
-/* The photograph sits at the foot of the band, tucked under the buttons, and
- * its sky fades up into the cream, so the headline stays ink on cream: an
- * edge fade over media. Its height follows its width, so nothing jumps while
- * it loads. */
+/* The photograph sits at the foot of the band, and its top edge fades up
+ * into the cream, so the headline stays ink on cream: an edge fade over
+ * media. Its height follows its width, so nothing jumps while it loads. */
 .hero-media {
   position: relative;
   z-index: -1;
   width: min(100%, 1600px);
   aspect-ratio: 1920 / 1000;
-  margin: calc(-1 * clamp(36px, 8vw, 116px)) auto 0;
+  margin: clamp(8px, 1.6vw, 22px) auto 0;
   background: var(--gs-card) url(img/hero-1600.jpg) center / cover no-repeat;
 }
 .hero-media::before {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, var(--gs-cream) 0%, var(--gs-cream) 4%, color-mix(in srgb, var(--gs-cream) 0%, transparent) 24%);
+  background: linear-gradient(180deg, var(--gs-cream) 0%, color-mix(in srgb, var(--gs-cream) 0%, transparent) 13%);
 }
 /* On a screen wider than the photograph its sides fade out too. */
 @media (min-width: 1601px) {
@@ -284,7 +283,7 @@ code { font-family: var(--mono); font-size: .92em; }
     margin: 28px var(--gs-gutter) 0;
     border-radius: 16px;
     background-image: url(img/hero-960.jpg);
-    background-position: 70% 50%;
+    background-position: 62% 50%;
   }
   .hero-media::before { display: none; }
   .cols { display: none; }
