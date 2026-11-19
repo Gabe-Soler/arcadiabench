@@ -53,9 +53,10 @@ export function entryFields(entry, where) {
     throw new Error("the entry's tracks are not acceptable");
   }
   fields.tracks = entry.tracks.join(',');
-  // The image's name in the project's registry: lower case throughout.
-  fields.image_name = `arcadiabench-entry-${fields.id}`;
-  fields.image_tag = fields.version.toLowerCase().replaceAll('+', '-');
+  // The image's place in the project's registry: one package for every
+  // entry, tagged with the entry's id and version, lower case throughout.
+  fields.image_name = 'arcadiabench-entries';
+  fields.image_tag = `${fields.id}-${fields.version.toLowerCase().replaceAll('+', '-')}`;
   fields.image_digest = entry.image_digest === undefined ? '' : checked('image_digest', entry.image_digest);
   fields.dir = `leaderboard/entries/${fields.id}/${fields.version}`;
   return fields;

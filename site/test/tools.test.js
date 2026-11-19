@@ -91,8 +91,8 @@ test('what the workflow reads of an entry is checked first', () => {
   assert.match(f.commit, /^[0-9a-f]{40}$/);
   assert.equal(f.dockerfile, 'leaderboard/tools/dockerfiles/baseline-greedy.Dockerfile');
   assert.equal(f.tracks, 'standard,fleet');
-  assert.equal(f.image_name, 'arcadiabench-entry-baseline-greedy');
-  assert.equal(f.image_tag, '1.1.0');
+  assert.equal(f.image_name, 'arcadiabench-entries');
+  assert.equal(f.image_tag, 'baseline-greedy-1.1.0');
   assert.equal(f.dir, 'leaderboard/entries/baseline-greedy/1.1.0');
   assert.equal(f.image_digest, '');
   // The Dockerfile is the root one unless the entry names another.

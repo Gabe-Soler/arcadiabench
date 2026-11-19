@@ -17,8 +17,9 @@ name: Leaderboard
 # entry file says reaches git and docker as environment variables, never as
 # text pasted into a command (site/tools/entry-fields.mjs).
 #
-# The results are committed under the name and address in the repository
-# variables LEADERBOARD_GIT_NAME and LEADERBOARD_GIT_EMAIL.
+# The results are committed as the maintainer who started the run, under
+# their GitHub account's own no-reply address. The repository variables
+# LEADERBOARD_GIT_NAME and LEADERBOARD_GIT_EMAIL replace that when set.
 on:
   workflow_dispatch:
     inputs:
@@ -134,15 +135,9 @@ jobs:
       DIR: ${{ needs.build.outputs.dir }}
       IMAGE_NAME: ${{ needs.build.outputs.image_name }}
       IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
-      GIT_NAME: ${{ vars.LEADERBOARD_GIT_NAME }}
-      GIT_EMAIL: ${{ vars.LEADERBOARD_GIT_EMAIL }}
+      GIT_NAME: ${{ vars.LEADERBOARD_GIT_NAME || github.actor }}
+      GIT_EMAIL: ${{ vars.LEADERBOARD_GIT_EMAIL || format('{0}+{1}@users.noreply.github.com', github.actor_id, github.actor) }}
     steps:
-      - name: The results need an author
-        run: |
-          if [ -z "$GIT_NAME" ] || [ -z "$GIT_EMAIL" ]; then
-            echo "Set the repository variables LEADERBOARD_GIT_NAME and LEADERBOARD_GIT_EMAIL: the results are committed under them." >&2
-            exit 1
-          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:

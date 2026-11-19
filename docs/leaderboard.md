@@ -70,8 +70,9 @@ Building is the only step with network access. The numbers are in [`leaderboard/
 
 ### For maintainers
 
-- **Once:** in the repository's settings, under *Secrets and variables → Actions → Variables*, set `LEADERBOARD_GIT_NAME` and `LEADERBOARD_GIT_EMAIL`: the results are committed under them. After the first image is pushed, make its package public under the owner's *Packages*, so anyone can pull an entry's image to reproduce it.
-- **To run an entry:** *Actions → Leaderboard → Run workflow*, and give the entry as `ID/VERSION`. When it finishes, its summary has the link that opens the results as a pull request.
+- **To run an entry:** open the repository's *Actions* tab, choose *Leaderboard* in the list on the left, press *Run workflow*, type the entry as `ID/VERSION` (for example `baseline-greedy/1.1.0`) and press the green *Run workflow* button. It takes about an hour. When it finishes, the run's summary has the link that opens the results as a pull request.
+- **Whose name is on the results:** the maintainer who started the run, under their GitHub account's no-reply address. Set the repository variables `LEADERBOARD_GIT_NAME` and `LEADERBOARD_GIT_EMAIL` to use another.
+- **The images** all go to one package, `arcadiabench-entries`, in the owner's container registry, tagged `<id>-<version>`. It is private until the owner makes it public (the owner's *Packages* tab → the package → *Package settings* → *Change visibility*). Do that once, so anyone can pull an entry's image to reproduce it.
 - **What the workflow is made of** is tested on every push that touches it ([`leaderboard-check.yml`](../.github/workflows/leaderboard-check.yml)): the same runs come out byte for byte in the sandbox and outside it; a coordinator in the sandbox cannot write outside `/tmp` or reach the network; one that hangs is killed, container included; one that is not deterministic gets no results.
 - **Submitted code is untrusted.** No job both runs it and holds a permission worth stealing: the build and the runs have none, and the job that pushes the image and the results runs no submitted code. What an entry file says is checked against patterns ([`site/tools/entry-fields.mjs`](../site/tools/entry-fields.mjs)) and reaches git and docker as environment variables, never as text pasted into a command.
 

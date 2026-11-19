@@ -77,7 +77,7 @@ test('the board ranks the published entries', () => {
   assert.equal(os.baseline, false);
   assert.equal(os.grid.length, 3);
   assert.deepEqual(os.grid[0].cells.map((c) => c.variant), ['nominal', 'dust_storm', 'conjunction', 'cascading_faults', 'solar_only', 'nuclear_heavy']);
-  assert.equal(os.links.source, 'https://github.com/Gabe-Soler/arcadiaos/tree/c511ce6355b3a81e93c0e07399cae8e233b49e40');
+  assert.equal(os.links.source, 'https://github.com/Gabe-Soler/arcadiaos/tree/e69fe4cffc6e8b1c733cbd4156195d3147561908');
   assert.equal(os.links.scorecards, 'leaderboard/entries/arcadiaos/1.1.0/public/report.json');
   assert.equal(os.links.replay, 'viewer/?log=../results/v1.1/replays/landing-pad-1.1-medium-nominal-1.jsonl.gz');
   const [greedy, random, fcfs] = standard.slice(1);
