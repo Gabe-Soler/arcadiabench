@@ -23,11 +23,17 @@ html.g-no-scroll .g-header.is-over-media:not(.is-scrolled) .logo-crater { fill: 
 
 /* ---------- the cover's photograph ---------- */
 
-/* Three rovers fill the frame, so the veil is even and a little deeper than
- * the system's default: the headline has to read across all of them. */
-.cover .g-cover__media { object-position: 50% 62%; }
+/* A short cover: the board is the page, so the cover leaves room to see it
+ * coming. The headline is a step down from the system's hero size. */
+.cover { min-height: min(68svh, 620px); gap: var(--g-space-5); }
+.cover .g-cover__title { font-size: var(--g-fs-h1); line-height: var(--g-lh-h1); letter-spacing: var(--g-ls-h1); max-width: 848px; }
+@media (max-width: 767px) { .cover { min-height: 0; padding-bottom: var(--g-space-7); } }
+
+/* A bright, even sky over quiet hills: the veil is light at the top and
+ * deepens toward the actions, so the headline and the buttons both read. */
+.cover .g-cover__media { object-position: 60% 40%; }
 .cover .g-cover__scrim {
-  background: linear-gradient(180deg, rgb(18 19 23 / .62) 0%, rgb(18 19 23 / .52) 35%, rgb(18 19 23 / .52) 65%, rgb(18 19 23 / .68) 100%);
+  background: linear-gradient(180deg, rgb(18 19 23 / .5) 0%, rgb(18 19 23 / .42) 40%, rgb(18 19 23 / .5) 70%, rgb(18 19 23 / .66) 100%);
 }
 
 /* ---------- the statement ---------- */
