@@ -628,13 +628,13 @@ kbd {
 /* The front page's photograph, in a rounded frame under the drop zone. */
 .hero-media {
   width: min(100% - 2 * var(--page-margin), 1296px);
-  aspect-ratio: 1920 / 1000;
+  aspect-ratio: 8800 / 3700;
   margin: clamp(36px, 5vw, 60px) auto 0;
   border-radius: var(--gs-radius-card);
   background: var(--gs-card) url(../site/img/hero-1600.jpg) center / cover no-repeat;
 }
 @media (max-width: 760px) {
-  .hero-media { aspect-ratio: 16 / 10; border-radius: 16px; background-image: url(../site/img/hero-960.jpg); background-position: 62% 50%; }
+  .hero-media { aspect-ratio: 16 / 10; border-radius: 16px; background-image: url(../site/img/hero-960.jpg); background-position: 70% 50%; }
 }
 
 .load-progress { max-width: 420px; margin: 26px auto 0; }

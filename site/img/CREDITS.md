@@ -1,10 +1,10 @@
 # Photograph
 
-`hero-1600.jpg` and `hero-960.jpg` are crops of **"Three Generations of Rovers in Mars Yard"** (PIA15278), published by NASA on 17 January 2012: a flight spare of Sojourner and test models of the Mars Exploration Rovers and of Curiosity, side by side. It was taken on Earth, in the Mars Yard testing area at NASA's Jet Propulsion Laboratory, not on Mars.
+`hero-2400.jpg`, `hero-1600.jpg` and `hero-960.jpg` are crops of **"Ingenuity at 'Valinor Hills'"** (PIA26237), published by NASA on 27 February 2024: a natural-colour mosaic of low hills and a field of sand ripples in Jezero crater, taken by the Perseverance rover's Mastcam-Z on 21 February 2024 (sol 1,068). The Ingenuity helicopter stands among the ripples, a speck at this scale.
 
-- **Credit:** NASA/JPL-Caltech.
-- **Source:** <https://photojournal.jpl.nasa.gov/catalog/PIA15278>
+- **Credit:** NASA/JPL-Caltech/ASU/MSSS.
+- **Source:** <https://photojournal.jpl.nasa.gov/catalog/PIA26237>
 - **Terms:** [JPL's image use policy](https://www.jpl.nasa.gov/jpl-image-use-policy) lets images from its public sites be used without prior permission, with a credit line, unless a caption names another owner. This one's caption names none.
-- **No endorsement.** ArcadiaBench is not affiliated with NASA, JPL or Caltech, and showing the photograph does not mean any of them endorses it. No NASA or JPL logo is used.
+- **No endorsement.** ArcadiaBench is not affiliated with NASA, JPL, Caltech, Arizona State University or Malin Space Science Systems, and showing the photograph does not mean any of them endorses it. No NASA or JPL logo is used.
 
-The crops keep the full width of the 1920-pixel image and 1000 of its 1005 rows, scaled to 1600 and 960 pixels wide.
+The crop takes 8800 × 3700 pixels from the 24346 × 5500 mosaic (from column 7800, from the top row), leaving out the black edges of the mosaic, and is scaled to 2400, 1600 and 960 pixels wide.
