@@ -14,7 +14,7 @@ All notable changes to ArcadiaBench. Versions follow semver.
   - **Rounds** (`.github/workflows/leaderboard-round.yml`), started by hand with no input. Starting one tags `main` as `round-N`, then runs every accepted entry from its kept image on the round's seeds, twice, with everything read at the tag. The round comes back as a pull request: `leaderboard/rounds/round-N.json` (`schemas/leaderboard-round.schema.json`) and each entry's results in its `round-N/` directory.
   - **The board ranks on the last round**, with each entry's headline on the public seeds beside its rank. Entries accepted since the round wait below the ranks with their public-seed figures.
   - **Accepting takes every waiting entry in one run.** The Leaderboard workflow's input defaults to `pending`: one job per entry, one pull request for all of them. An entry that has an image is not accepted again.
-  - **A photograph in the hero:** three generations of NASA's Mars rovers side by side in JPL's Mars Yard (NASA/JPL-Caltech), credited in the footer and in `site/img/CREDITS.md`.
+  - **A photograph in the hero:** Perseverance's view of low hills and sand ripples at "Valinor Hills" in Jezero crater (NASA/JPL-Caltech/ASU/MSSS), credited in the footer and in `site/img/CREDITS.md`. The hero is short, so the leaderboard starts within the first screen.
 
 ### Changed
 
