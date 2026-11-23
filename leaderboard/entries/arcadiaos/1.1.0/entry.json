@@ -29,5 +29,6 @@
   "replays": {
     "standard": "results/v1.1/replays/landing-pad-1.1-medium-nominal-1.jsonl.gz",
     "fleet": "results/v1.1/replays/landing-pad-1.1-crew.2.1.1.10-nominal-1.jsonl.gz"
-  }
+  },
+  "image_digest": "sha256:a1b3f8089f834395eddc90bcb9cfe2b6f8811324ac2d734ba36de904e6979045"
 }
