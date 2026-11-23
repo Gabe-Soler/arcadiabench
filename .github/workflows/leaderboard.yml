@@ -1,21 +1,27 @@
 name: Leaderboard
 
-# Runs an entry for the leaderboard. Started by hand, by a maintainer, from
-# the Actions tab; docs/leaderboard.md has the rules.
+# Accepts entries for the leaderboard: builds each one's image, runs it on
+# the public seeds and keeps the image and the results. Started by hand, by a
+# maintainer, from the Actions tab; docs/leaderboard.md has the rules.
+#
+# With "pending" (the default) it takes every entry that has not been
+# accepted yet, one job each, and their results come back on one branch.
 #
 # Submitted code is untrusted. No job both runs it and holds anything worth
 # stealing:
 #
-#   build    builds the entry's image from its pinned commit. No permissions.
+#   plan     reads the entry files and checks every value in them
+#            (site/tools/plan.mjs). Runs no submitted code.
+#   build    builds an entry's image from its pinned commit. No permissions.
 #   run      runs the image in the sandbox (leaderboard/tools/sandbox.sh): no
 #            network, nothing mounted, no permissions.
-#   publish  runs no submitted code. It pushes the image to the registry and
-#            pushes a branch with the entry's results for a maintainer to
-#            open as a pull request.
+#   publish  runs no submitted code. It checks the results it is handed
+#            (site/tools/publish-results.mjs), pushes the images to the
+#            registry and pushes a branch with the results for a maintainer
+#            to open as a pull request.
 #
-# The entry id is checked against a pattern before use, and everything the
-# entry file says reaches git and docker as environment variables, never as
-# text pasted into a command (site/tools/entry-fields.mjs).
+# Everything an entry file says reaches git and docker as environment
+# variables, never as text pasted into a command.
 #
 # The results are committed as the maintainer who started the run, under
 # their GitHub account's own no-reply address. The repository variables
@@ -24,41 +30,54 @@ on:
   workflow_dispatch:
     inputs:
       entry:
-        description: "The entry to accept, as ID/VERSION (its directory under leaderboard/entries)"
+        description: 'The entry to accept, as ID/VERSION, or "pending" for every entry not accepted yet'
         required: true
+        default: pending
         type: string
 
 permissions: {}
 
 concurrency:
-  group: leaderboard-${{ inputs.entry }}
+  group: leaderboard-accept
   cancel-in-progress: false
 
 jobs:
-  build:
+  plan:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 5
     permissions:
       contents: read
     outputs:
-      id: ${{ steps.entry.outputs.id }}
-      version: ${{ steps.entry.outputs.version }}
-      dir: ${{ steps.entry.outputs.dir }}
-      image_name: ${{ steps.entry.outputs.image_name }}
-      image_tag: ${{ steps.entry.outputs.image_tag }}
+      entries: ${{ steps.plan.outputs.entries }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - name: Read the entry
-        id: entry
+      - name: Which entries
+        id: plan
         env:
           ENTRY: ${{ inputs.entry }}
-        run: node site/tools/entry-fields.mjs "$ENTRY" | tee -a "$GITHUB_OUTPUT"
+        run: node site/tools/plan.mjs accept "$ENTRY" | tee -a "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    name: build ${{ matrix.entry.key }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        entry: ${{ fromJSON(needs.plan.outputs.entries) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - name: Fetch the source at its pinned commit
         env:
-          REPOSITORY: ${{ steps.entry.outputs.repository }}
-          COMMIT: ${{ steps.entry.outputs.commit }}
+          REPOSITORY: ${{ matrix.entry.repository }}
+          COMMIT: ${{ matrix.entry.commit }}
         run: |
           git init -q src
           git -C src remote add origin "$REPOSITORY"
@@ -67,7 +86,7 @@ jobs:
           test "$(git -C src rev-parse HEAD)" = "$COMMIT"
       - name: Build the image
         env:
-          DOCKERFILE: ${{ steps.entry.outputs.dockerfile }}
+          DOCKERFILE: ${{ matrix.entry.dockerfile }}
         run: |
           test -f "src/$DOCKERFILE"
           timeout 45m docker build -f "src/$DOCKERFILE" -t entry:built src
@@ -78,17 +97,24 @@ jobs:
           test "$size" -le "$limit"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: image
+          name: image-${{ matrix.entry.key }}
           path: image.tar.gz
           retention-days: 1
           compression-level: 0
 
   run:
-    needs: build
+    needs: [plan, build]
+    # One entry that does not build does not stop the others.
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    name: run ${{ matrix.entry.key }}
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        entry: ${{ fromJSON(needs.plan.outputs.entries) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -106,35 +132,33 @@ jobs:
         run: cargo build --release --locked --bin arcadiabench --manifest-path simulator/Cargo.toml
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
-          name: image
+          name: image-${{ matrix.entry.key }}
       - name: Load the image
         run: gunzip -c image.tar.gz | docker load
       - name: Run the entry on the public seeds, twice
         env:
-          DIR: ${{ needs.build.outputs.dir }}
+          DIR: ${{ matrix.entry.dir }}
           ARCADIABENCH: simulator/target/release/arcadiabench
         run: |
           seeds=$(node -e 'console.log(require("./leaderboard/config.json").public_seeds)')
           leaderboard/tools/run-entry.sh "$DIR/entry.json" entry:built results "$seeds" twice
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: results
+          name: results-${{ matrix.entry.key }}
           path: results/
           retention-days: 7
 
   publish:
-    needs: [build, run]
+    needs: [plan, build, run]
+    # Entries whose runs came back are accepted even if another's did not.
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: write
       packages: write
     env:
-      ID: ${{ needs.build.outputs.id }}
-      VERSION: ${{ needs.build.outputs.version }}
-      DIR: ${{ needs.build.outputs.dir }}
-      IMAGE_NAME: ${{ needs.build.outputs.image_name }}
-      IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+      ENTRIES: ${{ needs.plan.outputs.entries }}
       GIT_NAME: ${{ vars.LEADERBOARD_GIT_NAME || github.actor }}
       GIT_EMAIL: ${{ vars.LEADERBOARD_GIT_EMAIL || format('{0}+{1}@users.noreply.github.com', github.actor_id, github.actor) }}
     steps:
@@ -142,52 +166,47 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           path: artifacts
-      - name: Push the image to the registry
+      - name: Push the images to the registry
         id: push
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ACTOR: ${{ github.actor }}
           OWNER: ${{ github.repository_owner }}
         run: |
-          gunzip -c artifacts/image/image.tar.gz | docker load
-          image="ghcr.io/$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')/$IMAGE_NAME"
+          owner=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
           echo "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
-          docker tag entry:built "$image:$IMAGE_TAG"
-          docker push -q "$image:$IMAGE_TAG"
-          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$image:$IMAGE_TAG" | sed 's/.*@//')
-          echo "$digest" | grep -Eqx 'sha256:[0-9a-f]{64}'
-          echo "image=$image" >> "$GITHUB_OUTPUT"
-          echo "digest=$digest" >> "$GITHUB_OUTPUT"
-      - name: Write the entry's results
-        env:
-          DIGEST: ${{ steps.push.outputs.digest }}
-        run: |
-          mkdir -p "$DIR/public"
-          # Only the two files the leaderboard keeps, and only as JSON that
-          # parses: whatever else the run job uploaded is left behind.
-          for f in report.json runs.json; do
-            node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))) + "\n")' "artifacts/results/$f" > "$DIR/public/$f"
-          done
-          node -e '
-            const fs = require("fs"), path = process.argv[1] + "/entry.json";
-            const entry = JSON.parse(fs.readFileSync(path, "utf8"));
-            entry.image_digest = process.argv[2];
-            fs.writeFileSync(path, JSON.stringify(entry, null, 2) + "\n");' "$DIR" "$DIGEST"
-          node site/tools/build-board.mjs /tmp/board.json
-      - name: Push a branch with the results
+          mkdir -p digests
+          node -e 'for (const e of JSON.parse(process.env.ENTRIES)) console.log(e.key, e.image_name, e.image_tag)' > entries.txt
+          while read -r key name tag; do
+            # Only an entry whose runs came back has its image kept.
+            if [ ! -f "artifacts/results-$key/report.json" ] || [ ! -f "artifacts/image-$key/image.tar.gz" ]; then continue; fi
+            image="ghcr.io/$owner/$name"
+            gunzip -c "artifacts/image-$key/image.tar.gz" | docker load -q
+            docker tag entry:built "$image:$tag"
+            docker push -q "$image:$tag"
+            docker inspect --format '{{index .RepoDigests 0}}' "$image:$tag" | sed 's/.*@//' > "digests/$key"
+            grep -Eqx 'sha256:[0-9a-f]{64}' "digests/$key"
+            docker image rm -f entry:built "$image:$tag" >/dev/null
+            echo "image=$image" >> "$GITHUB_OUTPUT"
+          done < entries.txt
+      - name: Check and write the results
         env:
           IMAGE: ${{ steps.push.outputs.image }}
-          DIGEST: ${{ steps.push.outputs.digest }}
         run: |
-          branch="leaderboard/$ID-$VERSION"
+          status=0
+          node site/tools/publish-results.mjs accept --plan "$ENTRIES" --artifacts artifacts --digests digests --image "${IMAGE:-none}" --out out || status=$?
+          if [ -f out/summary.md ]; then cat out/summary.md >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ "$status" != 0 ]; then exit "$status"; fi
+          node site/tools/build-board.mjs /tmp/board.json
+      - name: Push a branch with the results
+        run: |
+          branch="leaderboard/accepted-$GITHUB_RUN_NUMBER"
           git switch -q -c "$branch"
-          git add "$DIR"
-          git -c user.name="$GIT_NAME" -c user.email="$GIT_EMAIL" commit -q -m "Leaderboard: results of $ID $VERSION on the public seeds" \
-            -m "Image $IMAGE@$DIGEST, built from the entry's pinned commit and run in the sandbox on seeds 1-50, twice, with the same result both times."
+          git add leaderboard/entries
+          git -c user.name="$GIT_NAME" -c user.email="$GIT_EMAIL" commit -q -F out/message.txt
           git push -q --force origin "$branch"
           {
-            echo "### $ID $VERSION"
-            echo "- Image: \`$IMAGE@$DIGEST\`"
-            echo "- Results are on the branch \`$branch\`. Open the pull request:"
-            echo "  $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/main...$branch"
+            echo
+            echo "The results are on the branch \`$branch\`. Open the pull request:"
+            echo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/main...$branch"
           } >> "$GITHUB_STEP_SUMMARY"

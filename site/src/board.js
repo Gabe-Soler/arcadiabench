@@ -3,6 +3,9 @@
 
 import { barWidth, crewCounts, finished, fmt3, metaLine, presetName, rankLabel, safeHref, tonnes, variantName } from './format.js';
 
+/** What the public seeds are called in a column head and a link. */
+const PUBLIC = 'Seeds 1–50';
+
 function el(tag, cls, text) {
   const node = document.createElement(tag);
   if (cls) node.className = cls;
@@ -23,17 +26,18 @@ function labelled(label, value, cls = 'num') {
   return span;
 }
 
-function columns(track) {
+function columns(track, round) {
   const cols = el('div', 'cols');
   cols.setAttribute('aria-hidden', 'true');
-  cols.append(el('span'), el('span', null, 'Coordinator'), el('span', null, 'Headline'));
+  cols.append(el('span'), el('span', null, 'Coordinator'), el('span', null, round ? `Round ${round}` : 'Headline'));
+  if (round) cols.append(el('span', 'num pub', PUBLIC));
   if (track === 'fleet') cols.append(el('span', 'crew-col', 'Crew'));
   else cols.append(el('span', 'num p', 'Small'), el('span', 'num p', 'Medium'), el('span', 'num p', 'Large'));
   cols.append(el('span', 'num', 'Resilience'), el('span', 'num', 'Finished'), el('span'));
   return cols;
 }
 
-function summary(row, track, best) {
+function summary(row, track, best, round) {
   const s = el('summary');
   s.append(el('span', 'rank', rankLabel(row)));
 
@@ -52,6 +56,11 @@ function summary(row, track, best) {
   s.append(score);
 
   const mob = el('div', 'mob');
+  // On a round's board, the same entry's headline on the public seeds.
+  if (round) {
+    s.append(el('span', 'num pub', fmt3(row.public?.headline)));
+    mob.append(labelled(PUBLIC, fmt3(row.public?.headline)));
+  }
   if (track === 'fleet') {
     const crew = el('span', 'crew crew-col', `${crewCounts(row.crew)} · `);
     crew.append(el('small', null, tonnes(row.mass_kg)));
@@ -115,27 +124,38 @@ function detail(row) {
   }
   d.append(scenarios(row));
   const links = el('div', 'links');
-  for (const a of [link('Scorecards', row.links.scorecards), link('Watch a run', row.links.replay), link('Source', row.links.source)]) {
+  for (const a of [link('Scorecards', row.links.scorecards), link(PUBLIC, row.public?.scorecards), link('Watch a run', row.links.replay), link('Source', row.links.source)]) {
     if (a) links.append(a);
   }
   d.append(links);
   return d;
 }
 
-/** Draw one track of `board` into `container`. */
+/** Draw one track of `board` into `container`. On a round's board the
+ * entries accepted since the round wait under the ranks, with their figures
+ * on the public seeds. */
 export function renderBoard(container, board, track) {
   const rows = board.tracks[track]?.rows ?? [];
+  const pending = board.tracks[track]?.pending ?? [];
+  const round = board.basis?.round ?? null;
   container.dataset.track = track;
-  if (rows.length === 0) {
+  container.dataset.basis = round ? 'round' : 'public';
+  if (rows.length + pending.length === 0) {
     container.replaceChildren(el('p', 'board-note', 'No entries on this track yet.'));
     return;
   }
-  const best = rows[0].headline;
-  const nodes = [columns(track)];
-  for (const row of rows) {
-    const item = el('details', 'row');
-    item.append(summary(row, track, best), detail(row));
+  const best = (rows[0] ?? pending[0]).headline;
+  const nodes = [columns(track, round)];
+  const add = (row, cls, onRound) => {
+    const item = el('details', cls);
+    item.append(summary(row, track, best, onRound), detail(row));
     nodes.push(item);
+  };
+  for (const row of rows) add(row, 'row', round);
+  if (pending.length > 0) {
+    nodes.push(el('p', 'board-group', `Accepted since round ${round}: on seeds 1–50, and ranked in the next round`));
+    // Their headline is on the public seeds, so it goes in that column.
+    for (const row of pending) add({ ...row, public: { headline: row.headline, scorecards: null }, headline: NaN }, 'row row--pending', round);
   }
   container.replaceChildren(...nodes);
 }

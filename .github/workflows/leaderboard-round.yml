@@ -1,0 +1,209 @@
+name: Leaderboard round
+
+# Closes a round of the leaderboard and runs it. Started by hand, by a
+# maintainer, from the Actions tab, on main; it takes no input.
+# docs/leaderboard.md has the rules.
+#
+# A round is a tag on main, round-N. Starting this workflow tags main as it
+# stands with the next round's number, unless that tag exists already (a run
+# that failed is repeated on the same tag). The round's seeds are computed
+# from the tag's commit (site/tools/round-seeds.mjs), so nobody could know
+# them while the entries were being written. Every entry accepted by then is
+# run from the image kept for it, on those seeds, twice.
+#
+# Everything a round runs on is read at its tag: the entries, the settings
+# and the tools. So anyone who checks the tag out repeats the round.
+#
+# Submitted code is untrusted. No job both runs it and holds anything worth
+# stealing:
+#
+#   plan     works out the round (site/tools/plan.mjs) and pushes its tag.
+#            Runs no submitted code.
+#   fetch    pulls an entry's image from the registry by its digest. It can
+#            read packages, and runs nothing.
+#   run      runs the image in the sandbox (leaderboard/tools/sandbox.sh): no
+#            network, nothing mounted, no permissions.
+#   publish  runs no submitted code. It checks the results it is handed
+#            (site/tools/publish-results.mjs) and pushes a branch with the
+#            round for a maintainer to open as a pull request.
+on:
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: leaderboard-round
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      commit: ${{ steps.plan.outputs.commit }}
+      seeds: ${{ steps.plan.outputs.seeds }}
+      entries: ${{ steps.plan.outputs.entries }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: A round closes main
+        run: test "$GITHUB_REF" = refs/heads/main
+      - name: Which round
+        id: next
+        run: node site/tools/plan.mjs next-round | tee -a "$GITHUB_OUTPUT"
+      - name: Plan it, and tag it if it is new
+        id: plan
+        env:
+          TAG: ${{ steps.next.outputs.tag }}
+        run: |
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            commit=$(git rev-parse "refs/tags/$TAG^{commit}")
+            echo "$TAG exists, at $commit: this run repeats the round"
+            # A round's tag is on main.
+            git merge-base --is-ancestor "$commit" HEAD
+            new=no
+          else
+            commit=$GITHUB_SHA
+            new=yes
+          fi
+          # The round as the repository was at its tag. Nothing is tagged
+          # unless the plan holds: every entry there has been accepted.
+          git worktree add -q --detach at-tag "$commit"
+          node site/tools/plan.mjs round "$TAG" "$commit" at-tag | tee -a "$GITHUB_OUTPUT"
+          if [ "$new" = yes ]; then
+            git tag "$TAG" "$commit"
+            git push -q origin "refs/tags/$TAG"
+          fi
+          {
+            echo "### Round ${TAG#round-}"
+            echo "- Tag \`$TAG\` at \`$commit\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  fetch:
+    needs: plan
+    name: fetch ${{ matrix.entry.key }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        entry: ${{ fromJSON(needs.plan.outputs.entries) }}
+    steps:
+      - name: Pull the image kept for the entry, by its digest
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
+          NAME: ${{ matrix.entry.image_name }}
+          DIGEST: ${{ matrix.entry.image_digest }}
+        run: |
+          image="ghcr.io/$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')/$NAME@$DIGEST"
+          echo "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          docker pull -q "$image"
+          docker tag "$image" entry:accepted
+          docker save entry:accepted | gzip > image.tar.gz
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: image-${{ matrix.entry.key }}
+          path: image.tar.gz
+          retention-days: 1
+          compression-level: 0
+
+  run:
+    needs: [plan, fetch]
+    # One entry whose image cannot be pulled does not stop the others.
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    name: run ${{ matrix.entry.key }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        entry: ${{ fromJSON(needs.plan.outputs.entries) }}
+    steps:
+      # The repository as it was at the round's tag: its entries, its
+      # settings and its tools.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          persist-credentials: false
+      - name: Which simulator
+        id: cfg
+        run: echo "simulator=$(node -e 'console.log(require("./leaderboard/config.json").simulator)')" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ steps.cfg.outputs.simulator }}
+          path: simulator
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - name: Build the simulator from its release tag
+        run: cargo build --release --locked --bin arcadiabench --manifest-path simulator/Cargo.toml
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: image-${{ matrix.entry.key }}
+      - name: Load the image
+        run: gunzip -c image.tar.gz | docker load
+      - name: Run the entry on the round's seeds, twice
+        env:
+          DIR: ${{ matrix.entry.dir }}
+          SEEDS: ${{ needs.plan.outputs.seeds }}
+          ARCADIABENCH: simulator/target/release/arcadiabench
+        run: leaderboard/tools/run-entry.sh "$DIR/entry.json" entry:accepted results "$SEEDS" twice
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: results-${{ matrix.entry.key }}
+          path: results/
+          retention-days: 7
+
+  publish:
+    needs: [plan, fetch, run]
+    # An entry whose runs did not come back is named in the round, not ranked.
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
+      COMMIT: ${{ needs.plan.outputs.commit }}
+      ENTRIES: ${{ needs.plan.outputs.entries }}
+      GIT_NAME: ${{ vars.LEADERBOARD_GIT_NAME || github.actor }}
+      GIT_EMAIL: ${{ vars.LEADERBOARD_GIT_EMAIL || format('{0}+{1}@users.noreply.github.com', github.actor_id, github.actor) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          path: at-tag
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: results-*
+          path: artifacts
+      - name: Check and write the round
+        run: |
+          status=0
+          node site/tools/publish-results.mjs round --plan "$ENTRIES" --artifacts artifacts --tag "$TAG" --commit "$COMMIT" --at-tag at-tag --out out || status=$?
+          if [ -f out/summary.md ]; then cat out/summary.md >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ "$status" != 0 ]; then exit "$status"; fi
+          node site/tools/build-board.mjs /tmp/board.json
+      - name: Push a branch with the round
+        run: |
+          branch="leaderboard/$TAG"
+          git switch -q -c "$branch"
+          git add leaderboard/entries leaderboard/rounds
+          git -c user.name="$GIT_NAME" -c user.email="$GIT_EMAIL" commit -q -F out/message.txt
+          git push -q --force origin "$branch"
+          {
+            echo
+            echo "The round is on the branch \`$branch\`. Open the pull request:"
+            echo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/main...$branch"
+          } >> "$GITHUB_STEP_SUMMARY"

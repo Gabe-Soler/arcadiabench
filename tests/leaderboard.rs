@@ -1,7 +1,11 @@
-//! The leaderboard's entries (`leaderboard/entries/<id>/<version>/`): every
-//! entry file matches its schema, its report is a valid report that agrees
-//! with its per-seed scores, and the board built from the entries matches
-//! the board's schema.
+//! The leaderboard's entries (`leaderboard/entries/<id>/<version>/`) and
+//! rounds (`leaderboard/rounds/`): every entry file matches its schema, its
+//! results are a valid report that agrees with its per-seed scores, every
+//! round's file matches its schema and its entries have their results on its
+//! seeds, and the board built from them matches the board's schema.
+//!
+//! Entries and rounds are added by pull requests the runner writes, so these
+//! tests check what always holds and pin no list, order or digest.
 
 mod support;
 
@@ -47,21 +51,100 @@ fn entries() -> Vec<(String, String, PathBuf)> {
     found
 }
 
+/// The four entries the board opened with. They are always there; others
+/// come and go, so nothing below counts on the list being these alone.
+const FOUNDING: [&str; 4] = [
+    "arcadiaos",
+    "baseline-fcfs",
+    "baseline-greedy",
+    "baseline-random",
+];
+
+/// An entry's results in `dir` (its `public/`, or a round's directory): a
+/// valid report under the entry's own name that covers its tracks, and
+/// per-seed scores on `seeds` that are the runs behind the nominal headlines.
+fn check_results(what: &str, entry: &Value, dir: &Path, seeds: &[Value]) {
+    let tracks: Vec<&str> = entry["tracks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t.as_str().unwrap())
+        .collect();
+    let catalog = json(&root().join("leaderboard/config.json"))["catalog"].clone();
+
+    let report = json(&dir.join("report.json"));
+    if let Err(e) = support::scorecard_validator("Report").validate(&report) {
+        panic!("{what} report.json: {e} at {}", e.instance_path());
+    }
+    let cards = report["scorecards"].as_array().unwrap();
+    let fleet_cards = cards.iter().filter(|c| !c["crew"].is_null()).count();
+    assert_eq!(
+        cards.len() - fleet_cards,
+        if tracks.contains(&"standard") { 18 } else { 0 },
+        "{what}: the Standard track"
+    );
+    assert_eq!(
+        fleet_cards,
+        if tracks.contains(&"fleet") { 6 } else { 0 },
+        "{what}: the fleet design track"
+    );
+    for card in cards {
+        // Its own runs, on the catalog the board is on.
+        assert_eq!(card["coordinator"]["name"], entry["id"], "{what}");
+        assert_eq!(card["coordinator"]["version"], entry["version"], "{what}");
+        assert_eq!(card["catalog"], catalog, "{what}");
+        if !card["crew"].is_null() {
+            assert_eq!(card["crew"], entry["fleet"]["crew"], "{what}");
+        }
+    }
+
+    let runs = json(&dir.join("runs.json"));
+    let scenarios = runs["scenarios"].as_object().unwrap();
+    assert_eq!(
+        scenarios.len(),
+        3 * usize::from(tracks.contains(&"standard")) + usize::from(tracks.contains(&"fleet")),
+        "{what}"
+    );
+    for (scenario, run) in scenarios {
+        let scores: Vec<f64> = run["scores"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s.as_f64().unwrap())
+            .collect();
+        assert_eq!(run["seeds"].as_array().unwrap(), seeds, "{what} {scenario}");
+        assert_eq!(scores.len(), seeds.len(), "{what} {scenario}");
+        assert!(
+            scores.iter().all(|s| (0.0..=1.0).contains(s)),
+            "{what} {scenario}"
+        );
+        let card = cards
+            .iter()
+            .find(|c| c["scenario_id"] == scenario.as_str())
+            .unwrap_or_else(|| panic!("{what}: no scorecard for {scenario}"));
+        assert_eq!(card["variant"], "nominal", "{what} {scenario}");
+        let mean = scores.iter().sum::<f64>() / scores.len() as f64;
+        let headline = card["headline"].as_f64().unwrap();
+        assert!(
+            (mean - headline).abs() < 1e-12,
+            "{what} {scenario}: {mean} against {headline}"
+        );
+    }
+}
+
 #[test]
 fn every_entry_matches_its_schema_and_its_results_agree() {
     let entry_schema = validator("leaderboard-entry.schema.json");
-    let report_schema = support::scorecard_validator("Report");
     let found = entries();
-    let ids: Vec<&str> = found.iter().map(|e| e.0.as_str()).collect();
-    assert_eq!(
-        ids,
-        [
-            "arcadiaos",
-            "baseline-fcfs",
-            "baseline-greedy",
-            "baseline-random"
-        ]
-    );
+    for id in FOUNDING {
+        assert!(
+            found
+                .iter()
+                .any(|e| e.0 == id && e.1 == "1.1.0" && e.2.join("public/report.json").is_file()),
+            "{id} 1.1.0 and its public results"
+        );
+    }
+    let public_seeds: Vec<Value> = (1..=50).map(Value::from).collect();
     for (id, version, dir) in &found {
         let entry = json(&dir.join("entry.json"));
         if let Err(e) = entry_schema.validate(&entry) {
@@ -72,71 +155,29 @@ fn every_entry_matches_its_schema_and_its_results_agree() {
             (entry["id"].as_str(), entry["version"].as_str()),
             (Some(id.as_str()), Some(version.as_str()))
         );
-        let tracks: Vec<&str> = entry["tracks"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|t| t.as_str().unwrap())
-            .collect();
 
-        let report = json(&dir.join("public/report.json"));
-        if let Err(e) = report_schema.validate(&report) {
-            panic!("{id} {version} report.json: {e} at {}", e.instance_path());
+        // An entry waits without results until the runner accepts it. Once
+        // it has an image, it has its results on the public seeds.
+        let has_results = dir.join("public/report.json").is_file();
+        if entry.get("image_digest").is_some() {
+            assert!(has_results, "{id} {version} has an image and no results");
         }
-        let cards = report["scorecards"].as_array().unwrap();
-        let fleet_cards = cards.iter().filter(|c| !c["crew"].is_null()).count();
-        assert_eq!(cards.len() - fleet_cards, 18, "{id}: the Standard track");
-        assert_eq!(
-            fleet_cards,
-            if tracks.contains(&"fleet") { 6 } else { 0 },
-            "{id}"
-        );
-        for card in cards {
-            // Its own runs, on the catalog the board is on.
-            assert_eq!(card["coordinator"]["name"], id.as_str(), "{id}");
-            assert_eq!(card["coordinator"]["version"], version.as_str(), "{id}");
-            assert_eq!(card["catalog"], "1.1", "{id}");
-            assert_eq!(card["autonomy"]["mean_policy_violations"], 0.0, "{id}");
-        }
-
-        // The per-seed scores are the runs behind the nominal headlines.
-        let runs = json(&dir.join("public/runs.json"));
-        let scenarios = runs["scenarios"].as_object().unwrap();
-        assert_eq!(
-            scenarios.len(),
-            3 + usize::from(tracks.contains(&"fleet")),
-            "{id}"
-        );
-        for (scenario, run) in scenarios {
-            let seeds = run["seeds"].as_array().unwrap();
-            let scores: Vec<f64> = run["scores"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|s| s.as_f64().unwrap())
-                .collect();
-            let expected: Vec<Value> = (1..=50).map(Value::from).collect();
-            assert_eq!(seeds, &expected, "{id} {scenario}");
-            assert_eq!(scores.len(), 50, "{id} {scenario}");
-            assert!(
-                scores.iter().all(|s| (0.0..=1.0).contains(s)),
-                "{id} {scenario}"
-            );
-            let card = cards
-                .iter()
-                .find(|c| c["scenario_id"] == scenario.as_str())
-                .unwrap_or_else(|| panic!("{id}: no scorecard for {scenario}"));
-            assert_eq!(card["variant"], "nominal", "{id} {scenario}");
-            let mean = scores.iter().sum::<f64>() / scores.len() as f64;
-            let headline = card["headline"].as_f64().unwrap();
-            assert!(
-                (mean - headline).abs() < 1e-12,
-                "{id} {scenario}: {mean} against {headline}"
+        if has_results {
+            check_results(
+                &format!("{id} {version} public"),
+                &entry,
+                &dir.join("public"),
+                &public_seeds,
             );
         }
 
         // A crew is one the track admits, at the mass the entry states.
-        if tracks.contains(&"fleet") {
+        let on_fleet = entry["tracks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t == "fleet");
+        if on_fleet {
             let crew: CrewMix = serde_json::from_value(entry["fleet"]["crew"].clone()).unwrap();
             presets::check_crew(Catalog::V1_1, crew).unwrap();
             assert_eq!(
@@ -144,9 +185,6 @@ fn every_entry_matches_its_schema_and_its_results_agree() {
                 presets::crew_mass_kg(Catalog::V1_1, crew),
                 "{id}"
             );
-            for card in cards.iter().filter(|c| !c["crew"].is_null()) {
-                assert_eq!(card["crew"], entry["fleet"]["crew"], "{id}");
-            }
         } else {
             assert!(entry.get("fleet").is_none(), "{id}");
         }
@@ -158,6 +196,52 @@ fn every_entry_matches_its_schema_and_its_results_agree() {
                     "{id}: {path}"
                 );
             }
+        }
+    }
+}
+
+#[test]
+fn every_round_matches_its_schema_and_its_entries_have_their_results() {
+    // Nothing to check until a round has been published.
+    let base = root().join("leaderboard/rounds");
+    if !base.is_dir() {
+        return;
+    }
+    let schema = validator("leaderboard-round.schema.json");
+    let mut files: Vec<PathBuf> = fs::read_dir(&base)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|x| x == "json"))
+        .collect();
+    files.sort();
+    for file in files {
+        let round = json(&file);
+        if let Err(e) = schema.validate(&round) {
+            panic!("{}: {e} at {}", file.display(), e.instance_path());
+        }
+        let tag = round["tag"].as_str().unwrap();
+        assert_eq!(tag, format!("round-{}", round["round"]), "{tag}");
+        assert_eq!(file.file_stem().unwrap().to_str(), Some(tag));
+        let seeds = round["seeds"].as_array().unwrap();
+        let mut ranked = Vec::new();
+        for e in round["entries"].as_array().unwrap() {
+            let (id, version) = (e["id"].as_str().unwrap(), e["version"].as_str().unwrap());
+            let dir = root().join("leaderboard/entries").join(id).join(version);
+            let entry = json(&dir.join("entry.json"));
+            // The image the round ran is the one the entry was accepted with.
+            assert_eq!(entry["image_digest"], e["image_digest"], "{tag}: {id}");
+            check_results(
+                &format!("{id} {version} {tag}"),
+                &entry,
+                &dir.join(tag),
+                seeds,
+            );
+            ranked.push((id, version));
+        }
+        // No entry is both ranked and not.
+        for e in round["not_ranked"].as_array().unwrap() {
+            let key = (e["id"].as_str().unwrap(), e["version"].as_str().unwrap());
+            assert!(!ranked.contains(&key), "{tag}: {key:?}");
         }
     }
 }
@@ -261,24 +345,45 @@ fn the_board_built_from_the_entries_matches_its_schema() {
             .map(|r| r["id"].as_str().unwrap().to_string())
             .collect()
     };
-    assert_eq!(
-        ids("standard"),
-        [
-            "arcadiaos",
-            "baseline-greedy",
-            "baseline-random",
-            "baseline-fcfs"
-        ]
-    );
-    assert_eq!(ids("fleet"), ["arcadiaos", "baseline-greedy"]);
-    // Ranks start at one, never go down, and the first is not shared here.
-    let ranks: Vec<u64> = rows("standard")
-        .iter()
-        .map(|r| r["rank"].as_u64().unwrap())
-        .collect();
-    assert_eq!(ranks[0], 1);
-    assert!(ranks.windows(2).all(|w| w[0] <= w[1]), "{ranks:?}");
-    assert_eq!(rows("standard")[0]["tied"], false);
+    // Entries and rounds are added to the board, so only what always holds
+    // is checked: the founding entries are on it, every ranked row has a
+    // rank, and ranks start at one and never go down.
+    let waiting = |track: &str| -> Vec<String> {
+        board["tracks"][track]["pending"]
+            .as_array()
+            .map(|rows| {
+                rows.iter()
+                    .map(|r| r["id"].as_str().unwrap().to_string())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    for id in FOUNDING {
+        assert!(
+            ids("standard")
+                .iter()
+                .chain(&waiting("standard"))
+                .any(|x| x == id),
+            "{id} is not on the Standard track"
+        );
+    }
+    for id in ["arcadiaos", "baseline-greedy"] {
+        assert!(
+            ids("fleet")
+                .iter()
+                .chain(&waiting("fleet"))
+                .any(|x| x == id),
+            "{id} is not on the fleet design track"
+        );
+    }
+    for track in ["standard", "fleet"] {
+        let ranks: Vec<u64> = rows(track)
+            .iter()
+            .map(|r| r["rank"].as_u64().expect("a ranked row has a rank"))
+            .collect();
+        assert_eq!(ranks.first(), Some(&1), "{track}");
+        assert!(ranks.windows(2).all(|w| w[0] <= w[1]), "{track}: {ranks:?}");
+    }
     // The same entries give the same file.
     let again = dir.join("board-again.json");
     let status = Command::new("node")

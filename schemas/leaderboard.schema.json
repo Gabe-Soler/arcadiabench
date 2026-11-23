@@ -9,7 +9,7 @@
       "type": "string"
     },
     "basis": {
-      "description": "The runs the board ranks on: the public seeds, or a round.",
+      "description": "The runs the board ranks on: the public seeds, or a round. For a round, `kind` is its tag, which is also the name of each entry's directory of results on it.",
       "type": "object",
       "properties": {
         "kind": {
@@ -17,6 +17,25 @@
         },
         "label": {
           "type": "string"
+        },
+        "round": {
+          "description": "The round's number.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "tag": {
+          "type": "string",
+          "pattern": "^round-[1-9][0-9]{0,3}$"
+        },
+        "commit": {
+          "description": "The commit the round's tag points at, which its seeds are computed from.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "seeds": {
+          "description": "How many seeds the round ran each scenario on.",
+          "type": "integer",
+          "minimum": 1
         }
       },
       "required": [
@@ -43,6 +62,13 @@
               "items": {
                 "$ref": "#/$defs/StandardRow"
               }
+            },
+            "pending": {
+              "description": "On a round's board: entries accepted after the round's tag, with their figures on the public seeds. They are not ranked until the next round.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/StandardRow"
+              }
             }
           },
           "required": [
@@ -58,6 +84,13 @@
               "type": "integer"
             },
             "rows": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/FleetRow"
+              }
+            },
+            "pending": {
+              "description": "On a round's board: entries accepted after the round's tag, with their figures on the public seeds. They are not ranked until the next round.",
               "type": "array",
               "items": {
                 "$ref": "#/$defs/FleetRow"
@@ -161,7 +194,11 @@
           "type": "string"
         },
         "rank": {
-          "type": "integer",
+          "description": "Null for an entry that is not ranked yet.",
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1
         },
         "tied": {
@@ -233,6 +270,26 @@
             "large"
           ],
           "additionalProperties": false
+        },
+        "public": {
+          "description": "On a round's board: the entry's headline on the public seeds, beside its rank on the round's.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "headline": {
+              "type": "number"
+            },
+            "scorecards": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "headline",
+            "scorecards"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -283,7 +340,11 @@
           "type": "string"
         },
         "rank": {
-          "type": "integer",
+          "description": "Null for an entry that is not ranked yet.",
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 1
         },
         "tied": {
@@ -376,6 +437,26 @@
         },
         "reference_sols": {
           "type": "number"
+        },
+        "public": {
+          "description": "On a round's board: the entry's headline on the public seeds, beside its rank on the round's.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "headline": {
+              "type": "number"
+            },
+            "scorecards": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "headline",
+            "scorecards"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [

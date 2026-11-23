@@ -58,9 +58,15 @@ test('ranks are shared by entries that cannot be told apart', () => {
   ]);
 });
 
-test('the board ranks the published entries', () => {
-  const entries = readEntries();
-  assert.deepEqual(entries.map((e) => e.entry.id), ['arcadiaos', 'baseline-fcfs', 'baseline-greedy', 'baseline-random']);
+// The four entries the board opened with. Their results on the public seeds
+// never change, so they can be pinned; the board as a whole cannot, because
+// entries and rounds are added to it.
+const FOUNDING = ['arcadiaos', 'baseline-fcfs', 'baseline-greedy', 'baseline-random'];
+const founding = () => readEntries().filter((e) => FOUNDING.includes(e.entry.id) && e.entry.version === '1.1.0');
+
+test('the board ranks the founding entries on the public seeds', () => {
+  const entries = founding();
+  assert.deepEqual(entries.map((e) => e.entry.id), FOUNDING);
   const board = buildBoard(entries);
   assert.equal(board.catalog, '1.1');
   assert.deepEqual(board.basis, { kind: 'public', label: 'seeds 1–50' });
@@ -105,7 +111,7 @@ test('the board ranks the published entries', () => {
 });
 
 test('an entry that did not take a track has no row on it', () => {
-  const [random] = readEntries().filter((e) => e.entry.id === 'baseline-random');
+  const [random] = founding().filter((e) => e.entry.id === 'baseline-random');
   assert.equal(fleetRow(random.entry, random.report, random.runs), null);
   assert.ok(standardRow(random.entry, random.report, random.runs));
   // A report that misses a scenario does not cover the Standard track.

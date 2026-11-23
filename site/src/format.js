@@ -5,9 +5,17 @@ export function fmt3(x) {
   return Number.isFinite(x) ? x.toFixed(3) : '–';
 }
 
-/** A rank as shown: `2`, or `2=` when the rank is shared. */
+/** A rank as shown: `2`, `2=` when the rank is shared, and a dash for an
+ * entry that is not ranked yet. */
 export function rankLabel(row) {
+  if (row.rank == null) return '–';
   return `${row.rank}${row.tied ? '=' : ''}`;
+}
+
+/** What a board's runs are called on the page: `round 1`, `seeds 1–50`. */
+export function basisNote(basis) {
+  if (!basis?.round) return 'Round 1 has not run yet; until it has, the board ranks on the public seeds, 1–50.';
+  return `Round ${basis.round} ran every entry on ${basis.seeds} seeds computed from the commit that closed it, which nobody knew while the entries were being written. Each entry's headline on the public seeds, 1–50, is beside it.`;
 }
 
 /** Runs finished of runs made. */

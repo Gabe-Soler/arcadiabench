@@ -215,7 +215,7 @@ Priority order is rescans and surveys, then verification scans, then the pad pip
 
 ## Leaderboard
 
-The [front page](https://gabe-soler.github.io/arcadiabench/) ranks coordinators on catalog 1.1 by the nominal headline, with resilience and every scenario beside it. Every score on it was run by the project. Today it shows the published v1.1 results; [`docs/leaderboard.md`](docs/leaderboard.md) says what an entry is, how it is run, and how rounds on held-out seeds will work.
+The [front page](https://gabe-soler.github.io/arcadiabench/) ranks coordinators on catalog 1.1 by the nominal headline, with resilience and every scenario beside it. Every score on it was run by the project. It ranks on the last round, whose seeds are computed from the commit that closes it, with each entry's headline on the public seeds beside its rank; until the first round has run, it ranks on the public seeds. [`docs/leaderboard.md`](docs/leaderboard.md) says what an entry is, how it is run, and how a round works.
 
 The page is `index.html` with its assets in [`site/`](site/), and the entries it draws are in [`leaderboard/`](leaderboard/README.md). To preview it, from the repository root:
 
