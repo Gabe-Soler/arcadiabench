@@ -8,3 +8,5 @@
 - **No endorsement.** ArcadiaBench is not affiliated with NASA, JPL, Caltech, Arizona State University or Malin Space Science Systems, and showing the photograph does not mean any of them endorses it. No NASA or JPL logo is used.
 
 The crop takes 8800 × 3700 pixels from the 24346 × 5500 mosaic (from column 7800, from the top row), leaving out the black edges of the mosaic, and is scaled to 2400, 1600 and 960 pixels wide.
+
+`og.jpg`, the picture a link to the site shows on LinkedIn and elsewhere, is the front page's cover at 1200 × 627 pixels: this photograph with the site's headline over it. The tab icons (`icon.svg`, `icon-32.png`, `apple-touch-icon.png`) are the project's own mark.
