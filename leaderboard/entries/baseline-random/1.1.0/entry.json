@@ -15,5 +15,6 @@
   },
   "tracks": [
     "standard"
-  ]
+  ],
+  "image_digest": "sha256:46ec5fa9378fa9a055f94d5efee2bda481655d7ce5c3d0473e7369a4a48ae86c"
 }
